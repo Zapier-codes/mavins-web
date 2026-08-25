@@ -1,246 +1,402 @@
-"use client";
+'use client';
 
-import { useState } from 'react';
-import { useTheme } from '@/components/providers/ThemeProvider';
-import { userPromotions, Promotion } from '@/app/lib/dummy-data';
+import { useState, useCallback, useEffect } from 'react';
+import { useAuth } from '@/hooks/auth/useAuth';
+import { createCampaign, getArtistCampaigns } from '@/services/campaign/campaign.service';
+import { calculatePricing, formatCents, formatNumber, DURATION_SLOTS } from '@/lib/campaign/pricing';
+import { cn } from '@/lib/utils/cn';
+import { 
+  Rocket, Link2, TrendingUp, Clock, DollarSign, 
+  ShieldCheck, Zap, ChevronRight, Play, PauseCircle,
+  BarChart3, Globe, Music, CheckCircle2, Sparkles
+} from 'lucide-react';
+
+const GENRES = [
+  'Afrobeats', 'Amapiano', 'Hip-Hop', 'R&B', 'Pop', 
+  'Electronic', 'Reggae', 'Gospel', 'Highlife', 'Jazz',
+  'Rock', 'Afro-fusion', 'Drill', 'Dancehall'
+];
+
+const TIERS = [
+  { min: 1000, max: 10000, label: 'Starter', color: 'from-emerald-500 to-teal-500' },
+  { min: 10001, max: 50000, label: 'Growth', color: 'from-blue-500 to-cyan-500' },
+  { min: 50001, max: 100000, label: 'Scale', color: 'from-violet-500 to-purple-500' },
+  { min: 100001, max: 500000, label: 'Pro', color: 'from-amber-500 to-orange-500' },
+  { min: 500001, max: 1000000, label: 'Enterprise', color: 'from-rose-500 to-pink-500' },
+  { min: 1000001, max: 5000000, label: 'Legend', color: 'from-red-500 to-rose-600' },
+];
 
 export default function PromotePage() {
-  const { theme } = useTheme();
-  const [formData, setFormData] = useState({
-    trackUrl: '',
-    genre: '',
-    targetPlaylists: 25,
-    budget: 250,
-    description: '',
-  });
+  const { user, isAuthenticated } = useAuth();
+  const [viewCount, setViewCount] = useState(5000);
+  const [sourceUrl, setSourceUrl] = useState('');
+  const [selectedGenre, setSelectedGenre] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [showSuccess, setShowSuccess] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const pricing = calculatePricing(viewCount);
+  const currentTier = TIERS.find(t => viewCount >= t.min && viewCount <= t.max) || TIERS[0];
+
+  useEffect(() => {
+    if (!user?.id) return;
+    getArtistCampaigns(user.id).then(setCampaigns);
+  }, [user?.id]);
+
+  const handleSliderChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setViewCount(Number(e.target.value));
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isAuthenticated || !user?.id) {
+      alert('Please sign in to create a campaign');
+      return;
+    }
+    if (!sourceUrl.trim()) {
+      alert('Please enter a YouTube URL');
+      return;
+    }
+
     setIsSubmitting(true);
-    // Simulate API call
-    setTimeout(() => {
-      setIsSubmitting(false);
-      alert('Track submitted for promotion! 🎉');
-      setFormData({ trackUrl: '', genre: '', targetPlaylists: 25, budget: 250, description: '' });
-    }, 1500);
+    const result = await createCampaign({
+      sourceUrl: sourceUrl.trim(),
+      viewCount,
+      artistId: user.id,
+    });
+    setIsSubmitting(false);
+
+    if (result.success) {
+      setShowSuccess(true);
+      setSourceUrl('');
+      setSelectedGenre('');
+      const updated = await getArtistCampaigns(user.id);
+      setCampaigns(updated);
+      setTimeout(() => setShowSuccess(false), 4000);
+    } else {
+      alert(result.error || 'Failed to create campaign');
+    }
   };
 
-  const statusColors: Record<Promotion['status'], string> = {
-    pending: 'bg-amber-500/20 text-amber-400',
-    active: 'bg-emerald-500/20 text-emerald-400',
-    completed: 'bg-blue-500/20 text-blue-400',
-    rejected: 'bg-red-500/20 text-red-400',
+  const getStageColor = (stage: string) => {
+    switch (stage) {
+      case 'planting': return 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20';
+      case 'germination': return 'text-blue-400 bg-blue-400/10 border-blue-400/20';
+      case 'root_system': return 'text-violet-400 bg-violet-400/10 border-violet-400/20';
+      case 'branching': return 'text-amber-400 bg-amber-400/10 border-amber-400/20';
+      case 'full_bloom': return 'text-rose-400 bg-rose-400/10 border-rose-400/20';
+      case 'completed': return 'text-[#6b6b7b] bg-[#6b6b7b]/10 border-[#6b6b7b]/20';
+      default: return 'text-[#6b6b7b] bg-[#6b6b7b]/10 border-[#6b6b7b]/20';
+    }
+  };
+
+  const getStageLabel = (stage: string) => {
+    const labels: Record<string, string> = {
+      planting: 'Planting',
+      germination: 'Germination',
+      root_system: 'Root System',
+      branching: 'Branching',
+      full_bloom: 'Full Bloom',
+      completed: 'Completed',
+    };
+    return labels[stage] || stage;
   };
 
   return (
-    <div className={`flex-1 ${theme.bg} ${theme.text} overflow-y-auto pb-24 md:pb-20 p-4 md:p-6`}>
-      <div className="max-w-5xl mx-auto space-y-8">
+    <div className="min-h-screen bg-[#0a0a0f] text-white">
+      {/* Ambient background blobs */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-[500px] h-[500px] bg-[#1db954]/4 rounded-full blur-3xl animate-ambient" />
+        <div className="absolute -bottom-40 -left-40 w-[500px] h-[500px] bg-[#3d91f4]/4 rounded-full blur-3xl animate-ambient-slow" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-[#a855f7]/3 rounded-full blur-3xl animate-ambient-fast" />
+      </div>
+
+      <div className="relative max-w-5xl mx-auto px-4 sm:px-6 pt-20 pb-24 md:pb-8 space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold">🚀 Promote Your Track</h1>
-          <p className={`${theme.textSecondary} mt-1`}>Get your music heard by thousands of listeners</p>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Promote Your Track</h1>
+          <p className="text-[#a0a0b0] text-sm mt-1">Paste your YouTube link. We handle the rest.</p>
         </div>
 
-        {/* How Playlist Push Works */}
-        <section className={`p-5 rounded-2xl ${theme.bgTertiary} ${theme.border} border`}>
-          <h3 className="font-bold mb-4">📋 How It Works</h3>
-          <div className="grid sm:grid-cols-4 gap-4">
-            {[
-              { step: 1, title: "Submit Track", desc: "Upload your song & set preferences" },
-              { step: 2, title: "Set Budget", desc: "Choose how many playlists to target" },
-              { step: 3, title: "Get Reviewed", desc: "Curators review & add to playlists" },
-              { step: 4, title: "Earn Streams", desc: "Track performance in real-time" },
-            ].map((item: any) => (
-              <div key={item.step} className="text-center">
-                <div className={`w-10 h-10 mx-auto rounded-full ${theme.accentBg} text-white flex items-center justify-center font-bold mb-2`}>
-                  {item.step}
-                </div>
-                <p className="font-medium text-sm">{item.title}</p>
-                <p className={`text-xs ${theme.textSecondary} mt-1`}>{item.desc}</p>
-              </div>
-            ))}
+        {/* Success toast */}
+        {showSuccess && (
+          <div className="fixed top-20 right-4 z-50 glass-strong border-[#1db954]/30 px-5 py-3 rounded-xl shadow-2xl flex items-center gap-2 animate-in slide-in-from-right">
+            <CheckCircle2 className="w-5 h-5 text-[#1db954]" />
+            <span className="font-semibold text-sm">Campaign created successfully!</span>
           </div>
-        </section>
+        )}
 
-        {/* Submission Form */}
-        <section className={`p-5 md:p-6 rounded-2xl ${theme.bgCard} ${theme.border} border`}>
-          <h3 className="font-bold text-lg mb-5">📤 Submit a New Track</h3>
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Track URL */}
-            <div>
-              <label className="block text-sm font-medium mb-2">Track URL or Upload</label>
-              <input
-                type="url"
-                placeholder="https://soundcloud.com/artist/track or upload file"
-                value={formData.trackUrl}
-                onChange={(e) => setFormData({ ...formData, trackUrl: e.target.value })}
-                className={`w-full px-4 py-3 rounded-xl ${theme.bgTertiary} ${theme.border} border ${theme.text} focus:outline-none focus:ring-2 focus:ring-amber-500`}
-                required
-              />
+        {/* Main Form Card — Glass */}
+        <div className="glass-strong rounded-2xl overflow-hidden">
+          {/* Tier badge */}
+          <div className={cn(
+            'px-5 py-2.5 text-xs font-bold uppercase tracking-wider',
+            'bg-gradient-to-r', currentTier.color,
+            'text-white shadow-lg'
+          )}>
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-3.5 h-3.5" />
+              {currentTier.label} Tier
             </div>
+          </div>
 
-            {/* Genre & Budget Row */}
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">Genre</label>
-                <select
-                  value={formData.genre}
-                  onChange={(e) => setFormData({ ...formData, genre: e.target.value })}
-                  className={`w-full px-4 py-3 rounded-xl ${theme.bgTertiary} ${theme.border} border ${theme.text} focus:outline-none focus:ring-2 focus:ring-amber-500`}
-                  required
-                >
-                  <option value="">Select genre...</option>
-                  <option value="electronic">Electronic</option>
-                  <option value="hip-hop">Hip-Hop</option>
-                  <option value="pop">Pop</option>
-                  <option value="rnb">R&B/Soul</option>
-                  <option value="rock">Rock</option>
-                  <option value="jazz">Jazz</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">Budget (Points)</label>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="range"
-                    min="50"
-                    max="2000"
-                    step="50"
-                    value={formData.budget}
-                    onChange={(e) => setFormData({ ...formData, budget: Number(e.target.value) })}
-                    className="flex-1 accent-amber-500"
-                  />
-                  <span className={`font-bold ${theme.accent} w-16 text-right`}>{formData.budget}</span>
-                </div>
-                <p className={`text-xs ${theme.textSecondary} mt-1`}>~{Math.floor(formData.budget * 0.001 * 100) / 100} USD equivalent</p>
-              </div>
-            </div>
-
-            {/* Target Playlists */}
+          <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-6">
+            {/* YouTube URL */}
             <div>
-              <label className="block text-sm font-medium mb-2">Target Playlists</label>
-              <div className="flex items-center gap-3">
+              <label className="block text-sm font-medium mb-2 text-[#a0a0b0]">YouTube URL</label>
+              <div className="relative">
+                <Link2 className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6b6b7b]" />
                 <input
-                  type="range"
-                  min="5"
-                  max="100"
-                  value={formData.targetPlaylists}
-                  onChange={(e) => setFormData({ ...formData, targetPlaylists: Number(e.target.value) })}
-                  className="flex-1 accent-amber-500"
+                  type="url"
+                  placeholder="https://youtube.com/watch?v=..."
+                  value={sourceUrl}
+                  onChange={(e) => setSourceUrl(e.target.value)}
+                  className="w-full pl-11 pr-4 py-3.5 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+                  required
                 />
-                <span className={`font-bold ${theme.accent} w-12 text-right`}>{formData.targetPlaylists}</span>
               </div>
-              <p className={`text-xs ${theme.textSecondary} mt-1`}>Estimated reach: {(formData.targetPlaylists * 450).toLocaleString()} listeners</p>
             </div>
 
-            {/* Description */}
+            {/* Genre */}
             <div>
-              <label className="block text-sm font-medium mb-2">Description for Curators</label>
-              <textarea
-                placeholder="Tell curators why your track fits their playlist..."
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                rows={3}
-                className={`w-full px-4 py-3 rounded-xl ${theme.bgTertiary} ${theme.border} border ${theme.text} focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none`}
-              />
+              <label className="block text-sm font-medium mb-2 text-[#a0a0b0]">Genre</label>
+              <div className="flex flex-wrap gap-2">
+                {GENRES.map((genre) => (
+                  <button
+                    key={genre}
+                    type="button"
+                    onClick={() => setSelectedGenre(genre)}
+                    className={cn(
+                      'px-3.5 py-1.5 rounded-full text-xs font-medium transition-all',
+                      selectedGenre === genre
+                        ? 'bg-[#1db954] text-black shadow-lg shadow-[#1db954]/20'
+                        : 'glass-card text-[#a0a0b0]'
+                    )}
+                  >
+                    {genre}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Submit Button */}
+            {/* View Count Slider */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-sm font-medium text-[#a0a0b0]">Target Views</label>
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-[#1db954]" />
+                  <span className="text-xl font-bold">{formatNumber(viewCount)}</span>
+                </div>
+              </div>
+              <input
+                type="range"
+                min="1000"
+                max="500000"
+                step="1000"
+                value={viewCount}
+                onChange={handleSliderChange}
+                className="w-full"
+              />
+              <div className="flex justify-between text-xs text-[#6b6b7b] mt-1.5">
+                <span>1K</span>
+                <span>100K</span>
+                <span>250K</span>
+                <span>500K</span>
+              </div>
+            </div>
+
+            {/* Duration Slot Display (auto-calculated, not selectable) */}
+            <div className="glass-card rounded-xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-medium text-[#a0a0b0]">Campaign Duration</span>
+                <span className="text-xs text-[#6b6b7b]">Auto-calculated</span>
+              </div>
+              <div className="grid grid-cols-5 gap-2">
+                {DURATION_SLOTS.map((slot) => {
+                  const isSelected = pricing.durationSlot.id === slot.id;
+                  return (
+                    <div
+                      key={slot.id}
+                      className={cn(
+                        'text-center p-2.5 rounded-xl border transition-all',
+                        isSelected
+                          ? 'bg-[#1db954]/10 border-[#1db954]/30 text-[#1db954]'
+                          : 'glass-card border-white/5 text-[#6b6b7b]'
+                      )}
+                    >
+                      <p className="text-xs font-bold">{slot.label}</p>
+                      <p className="text-[10px] mt-0.5">{slot.days}d</p>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-[#6b6b7b] mt-2 text-center">
+                Based on {formatNumber(pricing.dailyDripRate)} views/day drip rate
+              </p>
+            </div>
+
+            {/* Pricing Breakdown — Glass */}
+            <div className="glass-card rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-[#a0a0b0]">Duration</span>
+                <div className="flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 text-[#3d91f4]" />
+                  <span className="text-sm font-semibold">{pricing.durationSlot.label}</span>
+                  <span className="text-xs text-[#6b6b7b]">({pricing.durationSlot.days} days)</span>
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-[#a0a0b0]">Daily Drip</span>
+                <span className="text-sm font-semibold">{formatNumber(pricing.dailyDripRate)} views/day</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-[#a0a0b0]">Cost per 1K views</span>
+                <span className="text-sm font-semibold">{formatCents(Math.round(pricing.subtotalCents / (viewCount / 1000)))}</span>
+              </div>
+              {pricing.savingsPercent > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-[#a0a0b0]">Volume savings</span>
+                  <span className="text-sm font-semibold text-[#1db954]">-{pricing.savingsPercent}%</span>
+                </div>
+              )}
+              <div className="h-px bg-white/5" />
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-[#a0a0b0]">Platform fee (15%)</span>
+                <span className="text-sm">{formatCents(pricing.platformFeesCents)}</span>
+              </div>
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-base font-bold">Total</span>
+                <span className="text-2xl font-bold text-[#1db954]">{formatCents(pricing.totalCostCents)}</span>
+              </div>
+            </div>
+
+            {/* Refund policy */}
+            <div className="flex items-start gap-2 text-xs text-[#6b6b7b]">
+              <ShieldCheck className="w-4 h-4 mt-0.5 flex-shrink-0 text-[#1db954]/50" />
+              <p>You only pay for delivered views. If we fall short, the difference is refunded to your wallet automatically.</p>
+            </div>
+
+            {/* Submit */}
             <button
               type="submit"
               disabled={isSubmitting}
-              className={`w-full py-3.5 rounded-xl ${theme.accentBg} text-white font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2`}
+              className="w-full py-3.5 rounded-xl bg-[#1db954] text-black font-semibold hover:bg-[#1ed760] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-[#1db954]/20"
             >
               {isSubmitting ? (
                 <>
-                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
-                  Submitting...
+                  <div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                  Creating campaign...
                 </>
               ) : (
-                <>🚀 Submit for Promotion</>
+                <>
+                  <Rocket className="w-5 h-5" />
+                  Launch Campaign — {formatCents(pricing.totalCostCents)}
+                </>
               )}
             </button>
           </form>
-        </section>
+        </div>
 
-        {/* Active Promotions */}
-        <section>
-          <h2 className="text-xl font-bold mb-4">📊 Your Promotions</h2>
-          <div className={`rounded-2xl overflow-hidden border ${theme.border}`}>
-            {userPromotions.length === 0 ? (
-              <div className={`p-8 text-center ${theme.textSecondary}`}>
-                <p>No active promotions yet</p>
-                <p className="text-sm mt-1">Submit your first track to get started!</p>
-              </div>
-            ) : (
-              userPromotions.map((promo, index) => (
-                <div key={promo.id} className={`p-4 md:p-5 ${index !== userPromotions.length - 1 ? `border-b ${theme.border}` : ''}`}>
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="flex items-center gap-4">
-                      <div className={`w-12 h-12 rounded-xl ${theme.bgTertiary} flex items-center justify-center text-xl`}>🎵</div>
-                      <div>
-                        <p className="font-medium">{promo.trackTitle}</p>
-                        <p className={`text-sm ${theme.textSecondary}`}>{promo.artist} • {promo.genre}</p>
+        {/* Active Campaigns */}
+        {campaigns.length > 0 && (
+          <div className="space-y-4">
+            <h2 className="text-lg font-bold">Your Campaigns</h2>
+            <div className="space-y-3">
+              {campaigns.map((campaign) => (
+                <div 
+                  key={campaign.id} 
+                  className="glass-card rounded-xl p-4"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-xl glass-card flex items-center justify-center flex-shrink-0">
+                        <Music className="w-5 h-5 text-[#6b6b7b]" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm truncate">{campaign.source_url}</p>
+                        <p className="text-xs text-[#6b6b7b]">
+                          {formatNumber(campaign.total_streams)} streams · {formatCents(campaign.spent_cents)} spent
+                        </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <p className="font-medium">{promo.budget} pts</p>
-                        <p className={`text-sm ${theme.textSecondary}`}>{promo.targetPlaylists} playlists</p>
-                      </div>
-                      <span className={`px-3 py-1 text-xs font-medium rounded-full ${statusColors[promo.status]}`}>
-                        {promo.status.charAt(0).toUpperCase() + promo.status.slice(1)}
+                    <span className={cn(
+                      'px-2.5 py-1 rounded-full text-xs font-medium flex-shrink-0 border',
+                      getStageColor(campaign.current_stage)
+                    )}>
+                      {getStageLabel(campaign.current_stage)}
+                    </span>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="mt-3">
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-[#6b6b7b]">Budget used</span>
+                      <span className="text-[#a0a0b0]">
+                        {formatCents(campaign.spent_cents)} / {formatCents(campaign.total_budget_cents)}
                       </span>
                     </div>
-                  </div>
-                  
-                  {/* Progress for active promotions */}
-                  {promo.status === 'active' && (
-                    <div className="mt-4">
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className={theme.textSecondary}>Playlist placements</span>
-                        <span className={theme.accent}>12/{promo.targetPlaylists}</span>
-                      </div>
-                      <div className={`h-2 ${theme.bgSecondary} rounded-full overflow-hidden`}>
-                        <div className={`h-full ${theme.accentBg} rounded-full`} style={{ width: `${(12 / promo.targetPlaylists) * 100}%` }} />
-                      </div>
-                      <div className="flex justify-between text-xs mt-2">
-                        <span className={theme.textSecondary}>Spins generated: 2.4K</span>
-                        <span className={theme.textSecondary}>+180 followers</span>
-                      </div>
+                    <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-[#1db954] to-[#3d91f4] rounded-full transition-all"
+                        style={{ width: `${Math.min((campaign.spent_cents / campaign.total_budget_cents) * 100, 100)}%` }}
+                      />
                     </div>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        </section>
+                  </div>
 
-        {/* Pricing Info */}
-        <section className={`p-5 rounded-2xl ${theme.bgTertiary} ${theme.border} border`}>
-          <h3 className="font-bold mb-3">💰 Pricing Guide</h3>
-          <div className="grid sm:grid-cols-3 gap-4 text-sm">
-            <div>
-              <p className="font-medium">Starter</p>
-              <p className={theme.textSecondary}>50 pts • 5 playlists</p>
-              <p className={theme.textSecondary}>~500 estimated spins</p>
-            </div>
-            <div>
-              <p className="font-medium">Growth</p>
-              <p className={theme.textSecondary}>250 pts • 25 playlists</p>
-              <p className={theme.textSecondary}>~2,500 estimated spins</p>
-            </div>
-            <div>
-              <p className="font-medium">Pro</p>
-              <p className={theme.textSecondary}>1000 pts • 100 playlists</p>
-              <p className={theme.textSecondary}>~10,000 estimated spins</p>
+                  {/* Stats row */}
+                  <div className="flex items-center gap-4 mt-3 text-xs text-[#6b6b7b]">
+                    <div className="flex items-center gap-1">
+                      <BarChart3 className="w-3.5 h-3.5" />
+                      <span>{formatNumber(campaign.total_streams)} streams</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Globe className="w-3.5 h-3.5" />
+                      <span className="capitalize">{campaign.geographic_tier}</span>
+                    </div>
+                    {campaign.is_paused ? (
+                      <div className="flex items-center gap-1 text-amber-400">
+                        <PauseCircle className="w-3.5 h-3.5" />
+                        <span>Paused</span>
+                      </div>
+                    ) : campaign.is_active ? (
+                      <div className="flex items-center gap-1 text-[#1db954]">
+                        <Zap className="w-3.5 h-3.5" />
+                        <span>Active</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 text-[#6b6b7b]">
+                        <Play className="w-3.5 h-3.5" />
+                        <span>Completed</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-          <p className={`text-xs ${theme.textSecondary} mt-4`}>* Actual results may vary based on track quality and curator selection</p>
-        </section>
+        )}
+
+        {/* How it works — Glass */}
+        <div className="glass-strong rounded-2xl p-5 sm:p-6">
+          <h3 className="font-bold mb-4">How It Works</h3>
+          <div className="grid sm:grid-cols-4 gap-4">
+            {[
+              { step: 1, title: 'Paste URL', desc: 'Drop your YouTube link', icon: Link2 },
+              { step: 2, title: 'Set Target', desc: 'Slide to choose views', icon: TrendingUp },
+              { step: 3, title: 'We Drip', desc: 'Organic delivery over time', icon: Clock },
+              { step: 4, title: 'Track Growth', desc: 'Real-time analytics', icon: BarChart3 },
+            ].map((item) => (
+              <div key={item.step} className="text-center">
+                <div className="w-10 h-10 mx-auto rounded-xl bg-[#1db954]/10 border border-[#1db954]/20 text-[#1db954] flex items-center justify-center mb-2">
+                  <item.icon className="w-5 h-5" />
+                </div>
+                <p className="font-medium text-sm">{item.title}</p>
+                <p className="text-xs text-[#6b6b7b] mt-0.5">{item.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
-

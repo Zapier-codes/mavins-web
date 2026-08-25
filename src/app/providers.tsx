@@ -1,17 +1,14 @@
 'use client';
 
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
-import { ToastProvider } from '@/components/ui/Toast';
-import { QueryProvider } from '@/components/providers/QueryProvider';
+import { AuthProvider } from '@/components/providers/AuthProvider';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <ThemeProvider>
-      <ToastProvider>
-        <QueryProvider>
-          {children}
-        </QueryProvider>
-      </ToastProvider>
-    </ThemeProvider>
+    <AuthProvider>
+      <ThemeProvider>
+        {children}
+      </ThemeProvider>
+    </AuthProvider>
   );
 }

@@ -1,111 +1,203 @@
-// src/app/earnings/page.tsx
 'use client';
 
-import React, { useState } from 'react';
-import { Container } from '@/components/ui/Container';
-import { Header } from '@/components/layout/Header';
-import { Sidebar } from '@/components/layout/Sidebar';
-import { MobileNav } from '@/components/layout/MobileNav';
-import { EarnCard } from '@/components/earnings/EarningsSummary';
-import { useTheme } from '@/components/providers/ThemeProvider';
-import { useAppStore } from '@/store/useAppStore';
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '@/hooks/auth/useAuth';
+import { supabase } from '@/lib/supabase/client';
+import { formatCents } from '@/lib/campaign/pricing';
 import { cn } from '@/lib/utils/cn';
+import { 
+  Wallet, TrendingUp, ArrowDownToLine, Clock,
+  CheckCircle2
+} from 'lucide-react';
+
+interface LedgerEntry {
+  id: string;
+  amount_cents: number;
+  type: 'earning' | 'withdrawal' | 'bonus' | 'fee';
+  description: string;
+  created_at: string;
+}
 
 export default function EarningsPage() {
-  const { theme } = useTheme();
-  const { setIsSidebarOpen, setIsTaskPanelOpen, setIsNotificationPanelOpen } = useAppStore();
-  const [isSidebarOpen, setIsSidebarOpenState] = useState(false);
+  const { user, isAuthenticated } = useAuth();
+  const [balance, setBalance] = useState(0);
+  const [entries, setEntries] = useState<LedgerEntry[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [showWithdraw, setShowWithdraw] = useState(false);
 
-  // Get task and notification counts
-  const taskCount = 0;
-  const notificationCount = 0;
-  const points = 0;
+  useEffect(() => {
+    if (!user?.id) { setIsLoading(false); return; }
+    loadData();
+  }, [user?.id]);
+
+  async function loadData() {
+    if (!user?.id) return;
+    const { data } = await supabase
+      .from('wallet_ledger')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    const ledger = data || [];
+    setEntries(ledger);
+    const total = ledger.reduce((sum: number, e: LedgerEntry) => sum + e.amount_cents, 0);
+    setBalance(total);
+    setIsLoading(false);
+  }
+
+  const handleWithdraw = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = Math.round(parseFloat(withdrawAmount) * 100);
+    if (!amount || amount <= 0 || amount > balance) {
+      alert('Invalid amount or insufficient balance');
+      return;
+    }
+
+    const { error } = await supabase.from('wallet_ledger').insert({
+      user_id: user!.id,
+      amount_cents: -amount,
+      type: 'withdrawal',
+      description: 'Withdrawal request',
+    });
+
+    if (error) {
+      alert('Withdrawal failed: ' + error.message);
+      return;
+    }
+
+    setWithdrawAmount('');
+    setShowWithdraw(false);
+    loadData();
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-[#1db954]/30 border-t-[#1db954] rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
-    <div className={cn('min-h-screen pb-16 md:pb-0', theme.bg)}>
-      <Header 
-        onMenuClick={() => setIsSidebarOpenState(true)} 
-        onTaskClick={() => setIsTaskPanelOpen(true)} 
-        onNotificationClick={() => setIsNotificationPanelOpen(true)}
-        taskCount={taskCount}
-        notificationCount={notificationCount}
-        points={points}
-      />
-      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpenState(false)} />
-      <MobileNav 
-        activeTab="earnings"
-        taskCount={taskCount}
-        notificationCount={notificationCount}
-        points={points}
-        onTabChange={() => {}}
-      />
+    <div className="min-h-screen bg-[#0a0a0f] text-white">
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-[500px] h-[500px] bg-[#1db954]/4 rounded-full blur-3xl animate-ambient" />
+        <div className="absolute -bottom-40 -left-40 w-[400px] h-[400px] bg-[#f59e0b]/4 rounded-full blur-3xl animate-ambient-slow" />
+      </div>
 
-      <main className="pt-24 pb-8">
-        <Container>
-          <div className="space-y-6">
-            <div>
-              <h1 className="text-2xl font-bold">💰 Earnings</h1>
-              <p className={cn('text-sm mt-1', theme.textSecondary)}>Track your earnings and points</p>
-            </div>
+      <div className="relative max-w-3xl mx-auto px-4 sm:px-6 pt-20 pb-24 md:pb-8 space-y-5">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Earnings</h1>
+          <p className="text-[#a0a0b0] text-sm mt-1">Manage your wallet and withdrawals</p>
+        </div>
 
-            {/* Earnings Summary Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <EarnCard
-                title="Total Points"
-                value="2,450"
-                icon="⭐"
-                subtitle="+150 this week"
-              />
-              <EarnCard
-                title="Total Earned"
-                value="$24.50"
-                icon="💰"
-                subtitle="+$1.50 this week"
-              />
-              <EarnCard
-                title="Available"
-                value="$18.75"
-                icon="💳"
-                subtitle="Ready for withdrawal"
-              />
-              <EarnCard
-                title="Tasks Completed"
-                value="12"
-                icon="✅"
-                subtitle="3 today"
-              />
-            </div>
-
-            {/* Recent Earnings */}
-            <div className={`p-4 rounded-xl ${theme.bgCard} ${theme.border} border`}>
-              <h3 className="font-semibold mb-4">📊 Recent Earnings</h3>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between text-sm">
-                  <span className={theme.textSecondary}>Completed "Daily Check-in"</span>
-                  <span className="text-emerald-400">+10 pts</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className={theme.textSecondary}>Listened to "Midnight Dreams"</span>
-                  <span className="text-emerald-400">+5 pts</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className={theme.textSecondary}>Shared a track</span>
-                  <span className="text-emerald-400">+25 pts</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className={theme.textSecondary}>7-day streak bonus</span>
-                  <span className="text-emerald-400">+100 pts</span>
-                </div>
+        {/* Balance Card — Glass gradient */}
+        <div className="glass-strong rounded-2xl p-6 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-40 h-40 bg-[#1db954]/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+          <div className="relative">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-[#a0a0b0] mb-1">Available Balance</p>
+                <p className="text-4xl font-bold">{formatCents(balance)}</p>
+              </div>
+              <div className="w-12 h-12 rounded-xl glass-card flex items-center justify-center">
+                <Wallet className="w-6 h-6 text-[#1db954]" />
               </div>
             </div>
-
-            {/* Withdraw Button */}
-            <button className={`w-full py-3 rounded-xl ${theme.accentBg} text-white font-semibold hover:opacity-90 transition-opacity`}>
-              💸 Withdraw Earnings
+            <button
+              onClick={() => setShowWithdraw(!showWithdraw)}
+              className="mt-5 w-full py-3 rounded-xl bg-[#1db954] text-black font-semibold text-sm hover:bg-[#1ed760] transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#1db954]/20"
+            >
+              <ArrowDownToLine className="w-4 h-4" />
+              Withdraw
             </button>
           </div>
-        </Container>
-      </main>
+        </div>
+
+        {/* Withdraw Form — Glass */}
+        {showWithdraw && (
+          <div className="glass-strong rounded-2xl p-5">
+            <h3 className="font-bold text-sm mb-4">Withdraw Funds</h3>
+            <form onSubmit={handleWithdraw} className="space-y-4">
+              <div>
+                <label className="block text-xs text-[#a0a0b0] mb-1">Amount (USD)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="1"
+                  max={balance / 100}
+                  value={withdrawAmount}
+                  onChange={(e) => setWithdrawAmount(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+                  required
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-[#1db954] text-black font-semibold text-sm hover:bg-[#1ed760] transition-all"
+                >
+                  Confirm
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowWithdraw(false)}
+                  className="flex-1 py-2.5 rounded-xl glass-card text-white font-semibold text-sm"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* Transaction History — Glass */}
+        <div className="glass-strong rounded-2xl overflow-hidden">
+          <div className="p-4 border-b border-white/5">
+            <h3 className="font-bold text-sm">Transaction History</h3>
+          </div>
+          <div className="divide-y divide-white/5">
+            {entries.length === 0 ? (
+              <div className="p-8 text-center text-[#6b6b7b] text-sm">
+                <Clock className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                <p>No transactions yet</p>
+              </div>
+            ) : (
+              entries.map((entry) => (
+                <div key={entry.id} className="flex items-center justify-between p-4">
+                  <div className="flex items-center gap-3">
+                    <div className={cn(
+                      'w-8 h-8 rounded-lg flex items-center justify-center',
+                      entry.amount_cents > 0 ? 'bg-[#1db954]/10' : 'bg-[#ef4444]/10'
+                    )}>
+                      {entry.amount_cents > 0 ? (
+                        <TrendingUp className="w-4 h-4 text-[#1db954]" />
+                      ) : (
+                        <ArrowDownToLine className="w-4 h-4 text-[#ef4444]" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">{entry.description || entry.type}</p>
+                      <p className="text-xs text-[#6b6b7b]">
+                        {new Date(entry.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                  <span className={cn(
+                    'text-sm font-semibold',
+                    entry.amount_cents > 0 ? 'text-[#1db954]' : 'text-white'
+                  )}>
+                    {entry.amount_cents > 0 ? '+' : ''}{formatCents(Math.abs(entry.amount_cents))}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

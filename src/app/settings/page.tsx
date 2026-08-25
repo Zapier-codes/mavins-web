@@ -1,136 +1,178 @@
-// src/app/settings/page.tsx
 'use client';
 
 import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { Container } from '@/components/ui/Container';
-import { Header } from '@/components/layout/Header';
-import { Sidebar } from '@/components/layout/Sidebar';
-import { MobileNav } from '@/components/layout/MobileNav';
-import { SettingsTabs, TabType } from '@/components/settings/SettingsTabs';
-import { AppearanceSettings } from '@/components/settings/AppearanceSettings';
+import { useAuth } from '@/hooks/auth/useAuth';
 import { useTheme } from '@/components/providers/ThemeProvider';
-import { useAppStore } from '@/store/useAppStore';
+import { supabase } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils/cn';
-import { Card } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
+import { 
+  User, Bell, Shield, Palette, Globe, 
+  ChevronRight, Save, CheckCircle2
+} from 'lucide-react';
 
 export default function SettingsPage() {
-  const { theme } = useTheme();
-  const router = useRouter();
-  const {
-    user,
-    tasks,
-    notifications,
-    points,
-    setIsSidebarOpen,
-    setIsTaskPanelOpen,
-    setIsNotificationPanelOpen,
-  } = useAppStore();
-  const [isSidebarOpen, setIsSidebarOpenState] = useState(false);
-  const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'privacy' | 'appearance'>('appearance');
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [pushNotifications, setPushNotifications] = useState(true);
+  const { user, isAuthenticated } = useAuth();
+  const { mode, toggleTheme } = useTheme();
+  const [artistName, setArtistName] = useState(user?.artistName || '');
+  const [email, setEmail] = useState(user?.email || '');
+  const [location, setLocation] = useState(user?.location || '');
+  const [genre, setGenre] = useState(user?.primaryGenre || '');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
-  const incompleteTasksCount = tasks.filter((t: any) => !t.isCompleted).length;
-  const unreadNotificationsCount = notifications.filter((n: any) => !n.isRead).length;
+  const handleSave = async () => {
+    if (!user?.id) return;
+    setSaving(true);
+    const { error } = await supabase
+      .from('users')
+      .update({
+        artist_name: artistName,
+        email,
+        location,
+        primary_genre: genre,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', user.id);
+
+    setSaving(false);
+    if (!error) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    }
+  };
+
+  const sections = [
+    { id: 'profile', icon: User, label: 'Profile', active: true },
+    { id: 'notifications', icon: Bell, label: 'Notifications', active: false },
+    { id: 'security', icon: Shield, label: 'Security', active: false },
+    { id: 'appearance', icon: Palette, label: 'Appearance', active: false },
+  ];
 
   return (
-    <div className={cn('min-h-screen pb-16 md:pb-0', theme.bg)}>
-      <Header
-        onMenuClick={() => setIsSidebarOpenState(true)}
-        onTaskClick={() => setIsTaskPanelOpen(true)}
-        onNotificationClick={() => setIsNotificationPanelOpen(true)}
-        taskCount={incompleteTasksCount}
-        notificationCount={unreadNotificationsCount}
-        points={points}
-      />
-      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpenState(false)} />
-      <MobileNav
-        activeTab="settings"
-        taskCount={incompleteTasksCount}
-        notificationCount={unreadNotificationsCount}
-        points={points}
-        onTabChange={(tab) => router.push(tab === 'home' ? '/' : `/${tab}`)}
-      />
+    <div className="min-h-screen bg-[#0a0a0f] text-white">
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-96 h-96 bg-[#3d91f4]/5 rounded-full blur-3xl animate-ambient" />
+      </div>
 
-      <main className="pt-24 pb-8">
-        <Container>
-          <div className="space-y-6">
-            <div>
-              <h1 className="text-2xl font-bold">Settings</h1>
-              <p className={cn('text-sm mt-1', theme.textSecondary)}>Manage your preferences</p>
+      <div className="relative max-w-3xl mx-auto px-4 sm:px-6 pt-20 pb-24 md:pb-8 space-y-6">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Settings</h1>
+          <p className="text-[#a0a0b0] text-sm mt-1">Manage your account and preferences</p>
+        </div>
+
+        {/* Settings nav (mobile) */}
+        <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+          {sections.map((s) => (
+            <button
+              key={s.id}
+              className={cn(
+                'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all',
+                s.active ? 'bg-[#1db954]/15 text-[#1db954] border border-[#1db954]/20' : 'glass-card text-[#a0a0b0]'
+              )}
+            >
+              <s.icon className="w-4 h-4" />
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Profile Form */}
+        <div className="glass-strong rounded-2xl p-5 sm:p-6 space-y-5">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#1db954] to-[#3d91f4] flex items-center justify-center text-sm font-bold shadow-lg shadow-[#1db954]/20">
+              {user?.artistName?.charAt(0) || user?.email?.charAt(0) || 'U'}
             </div>
-            <SettingsTabs activeTab={activeTab} onTabChange={setActiveTab} />
-
-            {activeTab === 'appearance' && <AppearanceSettings />}
-
-            {activeTab === 'profile' && (
-              <Card className="p-4">
-                <h3 className="font-semibold mb-4">Profile Information</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-sm text-neutral-400 block mb-1">Email</label>
-                    <input type="email" value={user?.email || ''} disabled className="w-full px-4 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-neutral-400" />
-                  </div>
-                  <div>
-                    <label className="text-sm text-neutral-400 block mb-1">Display Name</label>
-                    <input type="text" placeholder="Your display name" className="w-full px-4 py-2 rounded-xl bg-neutral-900 border border-neutral-700 focus:border-amber-500 focus:outline-none" />
-                  </div>
-                  <div>
-                    <label className="text-sm text-neutral-400 block mb-1">Bio</label>
-                    <textarea rows={3} placeholder="Tell us about yourself" className="w-full px-4 py-2 rounded-xl bg-neutral-900 border border-neutral-700 focus:border-amber-500 focus:outline-none"></textarea>
-                  </div>
-                  <Button variant="primary">Save Changes</Button>
-                </div>
-              </Card>
-            )}
-
-            {activeTab === 'notifications' && (
-              <Card className="p-4">
-                <h3 className="font-semibold mb-4">Notification Preferences</h3>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">Email Notifications</p>
-                      <p className="text-sm text-neutral-400">Receive updates via email</p>
-                    </div>
-                    <button onClick={() => setEmailNotifications(!emailNotifications)} className={cn('w-12 h-6 rounded-full transition-colors relative', emailNotifications ? 'bg-amber-500' : 'bg-neutral-700')}>
-                      <span className={cn('absolute top-1 w-4 h-4 rounded-full bg-white transition-transform', emailNotifications ? 'translate-x-7' : 'translate-x-1')} />
-                    </button>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">Push Notifications</p>
-                      <p className="text-sm text-neutral-400">Get notified about tasks and activity</p>
-                    </div>
-                    <button onClick={() => setPushNotifications(!pushNotifications)} className={cn('w-12 h-6 rounded-full transition-colors relative', pushNotifications ? 'bg-amber-500' : 'bg-neutral-700')}>
-                      <span className={cn('absolute top-1 w-4 h-4 rounded-full bg-white transition-transform', pushNotifications ? 'translate-x-7' : 'translate-x-1')} />
-                    </button>
-                  </div>
-                </div>
-              </Card>
-            )}
-
-            {activeTab === 'privacy' && (
-              <Card className="p-4">
-                <h3 className="font-semibold mb-4 text-red-500">Danger Zone</h3>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">Delete Account</p>
-                      <p className="text-sm text-neutral-400">Permanently delete your account and all data</p>
-                    </div>
-                    <Button variant="destructive">Delete Account</Button>
-                  </div>
-                </div>
-              </Card>
-            )}
+            <div>
+              <h3 className="font-bold">Profile</h3>
+              <p className="text-xs text-[#6b6b7b]">Update your artist information</p>
+            </div>
           </div>
-        </Container>
-      </main>
+
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs text-[#a0a0b0] mb-1.5">Artist Name</label>
+              <input
+                value={artistName}
+                onChange={(e) => setArtistName(e.target.value)}
+                placeholder="Your artist name"
+                className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-[#a0a0b0] mb-1.5">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-[#a0a0b0] mb-1.5">Location</label>
+              <input
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="City, Country"
+                className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-[#a0a0b0] mb-1.5">Primary Genre</label>
+              <input
+                value={genre}
+                onChange={(e) => setGenre(e.target.value)}
+                placeholder="e.g. Afrobeats"
+                className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+              />
+            </div>
+          </div>
+
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-[#1db954] text-black font-semibold text-sm hover:bg-[#1ed760] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {saving ? (
+              <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+            ) : saved ? (
+              <>
+                <CheckCircle2 className="w-4 h-4" />
+                Saved!
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                Save Changes
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Appearance */}
+        <div className="glass-strong rounded-2xl p-5 sm:p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#3d91f4]/10 flex items-center justify-center">
+                <Palette className="w-5 h-5 text-[#3d91f4]" />
+              </div>
+              <div>
+                <h3 className="font-bold">Appearance</h3>
+                <p className="text-xs text-[#6b6b7b]">Theme preferences</p>
+              </div>
+            </div>
+            <button
+              onClick={toggleTheme}
+              className={cn(
+                'px-4 py-2 rounded-xl text-sm font-medium transition-all',
+                mode === 'dark' ? 'bg-[#1db954] text-black' : 'glass-card text-[#a0a0b0]'
+              )}
+            >
+              {mode === 'dark' ? 'Dark' : 'Light'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
-
-

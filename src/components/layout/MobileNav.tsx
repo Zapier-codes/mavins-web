@@ -1,79 +1,44 @@
-// src/components/layout/MobileNav.tsx
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils/cn';
-import { useTheme } from '@/components/providers/ThemeProvider';
-
-interface MobileNavProps {
-  activeTab: string;
-  taskCount: number;
-  notificationCount: number;
-  points: number;
-  onTabChange: (tab: string) => void;
-}
+import { Home, Rocket, BarChart3, Trophy, Wallet } from 'lucide-react';
 
 const tabs = [
-  { id: 'home', icon: '??', label: 'Home' },
-  { id: 'search', icon: '??', label: 'Search' },
-  { id: 'tasks', icon: '??', label: 'Tasks', hasBadge: 'task' },
-  { id: 'notifications', icon: '??', label: 'Alerts', hasBadge: 'notification' },
-  { id: 'profile', icon: '??', label: 'Profile' },
+  { id: 'home', icon: Home, label: 'Home', href: '/' },
+  { id: 'promote', icon: Rocket, label: 'Promote', href: '/promote' },
+  { id: 'analytics', icon: BarChart3, label: 'Stats', href: '/analytics' },
+  { id: 'leaderboard', icon: Trophy, label: 'Rank', href: '/leaderboard' },
+  { id: 'earnings', icon: Wallet, label: 'Earn', href: '/earnings' },
 ];
 
-export const MobileNav = ({ 
-  activeTab, 
-  taskCount, 
-  notificationCount, 
-  points,
-  onTabChange 
-}: MobileNavProps) => {
-  const { theme } = useTheme();
+export const MobileNav = () => {
+  const pathname = usePathname();
 
   return (
-    <div className={cn(
-      'fixed bottom-0 left-0 right-0 z-40 block md:hidden',
-      theme.bgSecondary, 
-      'border-t', 
-      theme.border, 
-      'backdrop-blur-xl bg-opacity-95'
-    )}>
-      <div className="flex items-center justify-around px-2 py-2">
-        {/* Points display on mobile - changed to currency icon */}
-        <div className="absolute -top-10 left-1/2 transform -translate-x-1/2 px-4 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 backdrop-blur-sm">
-          <div className="flex items-center gap-1">
-            <span className="text-amber-400 text-xs">??</span>
-            <span className={cn('font-semibold text-xs', theme.text)}>
-              {points.toLocaleString()}
-            </span>
-          </div>
-        </div>
-
-        {tabs.map((tab: any) => {
-          let badgeCount = 0;
-          if (tab.hasBadge === 'task') badgeCount = taskCount;
-          if (tab.hasBadge === 'notification') badgeCount = notificationCount;
-
+    <nav className="fixed bottom-0 left-0 right-0 z-40 md:hidden glass-nav border-t border-white/5">
+      <div className="flex items-center justify-around px-1 py-1">
+        {tabs.map((tab) => {
+          const isActive = pathname === tab.href || pathname?.startsWith(tab.href + '/');
+          const Icon = tab.icon;
           return (
-            <button
+            <Link
               key={tab.id}
-              onClick={() => onTabChange(tab.id)}
+              href={tab.href}
               className={cn(
-                'flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-all relative',
-                activeTab === tab.id ? 'text-amber-400' : theme.textSecondary
+                'flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl transition-all min-w-[64px]',
+                isActive ? 'text-[#1db954]' : 'text-[#6b6b7b]'
               )}
             >
-              <span className="text-xl">{tab.icon}</span>
-              <span className="text-xs">{tab.label}</span>
-              {badgeCount > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] text-[10px] flex items-center justify-center bg-red-500 text-white rounded-full px-1">
-                  {badgeCount > 99 ? '99+' : badgeCount}
-                </span>
-              )}
-            </button>
+              <Icon className="w-5 h-5" strokeWidth={isActive ? 2.5 : 1.5} />
+              <span className="text-[10px] font-medium">{tab.label}</span>
+            </Link>
           );
         })}
       </div>
-    </div>
+      <div className="h-[env(safe-area-inset-bottom)]" />
+    </nav>
   );
 };
