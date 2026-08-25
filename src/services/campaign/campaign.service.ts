@@ -1,6 +1,7 @@
 // src/services/campaign/campaign.service.ts
 import { createClient, supabase } from '@/lib/supabase/client';
 import { calculatePricing } from '@/lib/campaign/pricing';
+import { addOrder, getServices, findYouTubeViewService, calculateFreshConnectQuantity } from '@/services/freshconnect/freshconnect.service';
 
 export interface CampaignInput {
   sourceUrl: string;
@@ -22,6 +23,7 @@ export interface CampaignRecord {
   is_active: boolean;
   is_paused: boolean;
   total_streams: number;
+  fresh_connect_order_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -60,6 +62,26 @@ export async function createCampaign(input: CampaignInput): Promise<{ success: b
     // Extract YouTube video ID from URL
     const resolvedSongId = extractYouTubeId(input.sourceUrl);
 
+    // Place Fresh Connect order
+    let freshConnectOrderId: string | null = null;
+    try {
+      const services = await getServices();
+      const ytService = findYouTubeViewService(services);
+
+      if (ytService) {
+        const quantity = calculateFreshConnectQuantity(input.viewCount);
+        const fcResult = await addOrder(
+          parseInt(ytService.service.toString()),
+          input.sourceUrl,
+          quantity
+        );
+        freshConnectOrderId = fcResult.order.toString();
+      }
+    } catch (fcErr: any) {
+      console.warn('Fresh Connect order failed (proceeding without):', fcErr.message);
+      // Continue without Fresh Connect — the campaign still works via seed engine
+    }
+
     // Insert campaign
     const { data: campaign, error: insertError } = await supabase
       .from('track_campaigns')
@@ -76,6 +98,7 @@ export async function createCampaign(input: CampaignInput): Promise<{ success: b
         is_active: true,
         is_paused: false,
         total_streams: 0,
+        fresh_connect_order_id: freshConnectOrderId,
       })
       .select()
       .single();

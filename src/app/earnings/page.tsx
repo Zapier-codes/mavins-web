@@ -7,7 +7,7 @@ import { formatCents } from '@/lib/campaign/pricing';
 import { cn } from '@/lib/utils/cn';
 import { 
   Wallet, TrendingUp, ArrowDownToLine, Clock,
-  CheckCircle2
+  CheckCircle2, Plus, ExternalLink, Loader2
 } from 'lucide-react';
 
 interface LedgerEntry {
@@ -25,6 +25,10 @@ export default function EarningsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [showWithdraw, setShowWithdraw] = useState(false);
+  const [showAddFunds, setShowAddFunds] = useState(false);
+  const [fundAmount, setFundAmount] = useState('');
+  const [isFunding, setIsFunding] = useState(false);
+  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user?.id) { setIsLoading(false); return; }
@@ -46,6 +50,36 @@ export default function EarningsPage() {
     setBalance(total);
     setIsLoading(false);
   }
+
+  const handleAddFunds = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = parseFloat(fundAmount);
+    if (!amount || amount < 1) {
+      alert('Minimum amount is 1 NGN');
+      return;
+    }
+
+    setIsFunding(true);
+    try {
+      const res = await fetch('/api/payments/initialize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: amount * 100, currency: 'NGN' }),
+      });
+
+      const result = await res.json();
+      if (result.success && result.checkout_url) {
+        setCheckoutUrl(result.checkout_url);
+        // Open in new tab
+        window.open(result.checkout_url, '_blank');
+      } else {
+        alert(result.error || 'Failed to initialize payment');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Payment initialization failed');
+    }
+    setIsFunding(false);
+  };
 
   const handleWithdraw = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,7 +127,7 @@ export default function EarningsPage() {
           <p className="text-[#a0a0b0] text-sm mt-1">Manage your wallet and withdrawals</p>
         </div>
 
-        {/* Balance Card — Glass gradient */}
+        {/* Balance Card */}
         <div className="glass-strong rounded-2xl p-6 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-40 h-40 bg-[#1db954]/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
           <div className="relative">
@@ -106,17 +140,72 @@ export default function EarningsPage() {
                 <Wallet className="w-6 h-6 text-[#1db954]" />
               </div>
             </div>
-            <button
-              onClick={() => setShowWithdraw(!showWithdraw)}
-              className="mt-5 w-full py-3 rounded-xl bg-[#1db954] text-black font-semibold text-sm hover:bg-[#1ed760] transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#1db954]/20"
-            >
-              <ArrowDownToLine className="w-4 h-4" />
-              Withdraw
-            </button>
+            <div className="flex gap-2 mt-5">
+              <button
+                onClick={() => setShowAddFunds(!showAddFunds)}
+                className="flex-1 py-3 rounded-xl bg-[#1db954] text-black font-semibold text-sm hover:bg-[#1ed760] transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#1db954]/20"
+              >
+                <Plus className="w-4 h-4" />
+                Add Funds
+              </button>
+              <button
+                onClick={() => setShowWithdraw(!showWithdraw)}
+                className="flex-1 py-3 rounded-xl glass-card text-white font-semibold text-sm hover:bg-white/[0.04] transition-all flex items-center justify-center gap-2"
+              >
+                <ArrowDownToLine className="w-4 h-4" />
+                Withdraw
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Withdraw Form — Glass */}
+        {/* Add Funds Form */}
+        {showAddFunds && (
+          <div className="glass-strong rounded-2xl p-5">
+            <h3 className="font-bold text-sm mb-4">Add Funds via Korapay</h3>
+            <form onSubmit={handleAddFunds} className="space-y-4">
+              <div>
+                <label className="block text-xs text-[#a0a0b0] mb-1">Amount (NGN)</label>
+                <input
+                  type="number"
+                  step="1"
+                  min="100"
+                  value={fundAmount}
+                  onChange={(e) => setFundAmount(e.target.value)}
+                  placeholder="1000"
+                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+                  required
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isFunding}
+                className="w-full py-2.5 rounded-xl bg-[#1db954] text-black font-semibold text-sm hover:bg-[#1ed760] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isFunding ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <ExternalLink className="w-4 h-4" />
+                    Pay with Korapay
+                  </>
+                )}
+              </button>
+              {checkoutUrl && (
+                <a 
+                  href={checkoutUrl} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="block text-center text-xs text-[#1db954] hover:underline"
+                >
+                  Open checkout page again
+                </a>
+              )}
+            </form>
+          </div>
+        )}
+
+        {/* Withdraw Form */}
         {showWithdraw && (
           <div className="glass-strong rounded-2xl p-5">
             <h3 className="font-bold text-sm mb-4">Withdraw Funds</h3>
@@ -154,7 +243,7 @@ export default function EarningsPage() {
           </div>
         )}
 
-        {/* Transaction History — Glass */}
+        {/* Transaction History */}
         <div className="glass-strong rounded-2xl overflow-hidden">
           <div className="p-4 border-b border-white/5">
             <h3 className="font-bold text-sm">Transaction History</h3>
