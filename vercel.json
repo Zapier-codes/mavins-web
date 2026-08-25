@@ -11,5 +11,11 @@
       "src": "package.json",
       "use": "@vercel/next"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/seed-engine/run",
+      "schedule": "*/15 * * * *"
+    }
   ]
 }
