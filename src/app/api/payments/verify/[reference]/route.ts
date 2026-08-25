@@ -1,17 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getChargeStatus } from '@/services/payment/korapay.service';
+import { verifyCharge } from '@/services/payment/korapay.service';
 import { createClient } from '@/lib/supabase/server';
 import { cookies } from 'next/headers';
 
 /**
  * GET /api/payments/verify/{reference}
- * Checks charge status and credits wallet if successful
+ * Checks the status of a Korapay charge and credits wallet if successful.
+ * Called by the client after redirect from Korapay checkout.
  */
 export async function GET(
   request: NextRequest,
   { params }: { params: { reference: string } }
 ) {
   try {
+    const { reference } = params;
+    if (!reference) {
+      return NextResponse.json({ error: 'Reference required' }, { status: 400 });
+    }
+
     const cookieStore = cookies();
     const supabase = createClient(cookieStore);
     const { data: { user } } = await supabase.auth.getUser();
@@ -20,11 +26,11 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { reference } = params;
-    const result = await getChargeStatus(reference);
+    // Verify with Korapay
+    const result = await verifyCharge(reference);
 
     if (result.data.status === 'successful') {
-      // Check if already credited
+      // Check idempotency
       const { data: existing } = await supabase
         .from('wallet_ledger')
         .select('*')
@@ -34,21 +40,26 @@ export async function GET(
         .single();
 
       if (!existing) {
-        // Credit wallet
         await supabase.from('wallet_ledger').insert({
           user_id: user.id,
           amount_cents: result.data.amount,
           type: 'bonus',
-          description: `Wallet top-up: ${reference}`,
+          description: `Wallet top-up via ${result.data.payment_method || 'korapay'}: ${reference}`,
         });
       }
+
+      return NextResponse.json({
+        success: true,
+        status: result.data.status,
+        amount: result.data.amount,
+        reference: result.data.reference,
+      });
     }
 
     return NextResponse.json({
-      success: true,
+      success: false,
       status: result.data.status,
-      amount: result.data.amount,
-      currency: result.data.currency,
+      reference: result.data.reference,
     });
   } catch (err: any) {
     console.error('Payment verify error:', err);

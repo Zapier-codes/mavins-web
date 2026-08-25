@@ -1,24 +1,45 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/auth/useAuth';
 import { useTheme } from '@/components/providers/ThemeProvider';
 import { supabase } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils/cn';
 import { 
   User, Bell, Shield, Palette, Globe, 
-  ChevronRight, Save, CheckCircle2
+  ChevronRight, Save, CheckCircle2, MessageCircle,
+  Instagram, Twitter, Music2, Video
 } from 'lucide-react';
 
 export default function SettingsPage() {
   const { user, isAuthenticated } = useAuth();
   const { mode, toggleTheme } = useTheme();
-  const [artistName, setArtistName] = useState(user?.artistName || '');
+  const [artistName, setArtistName] = useState(user?.artist_name || '');
   const [email, setEmail] = useState(user?.email || '');
   const [location, setLocation] = useState(user?.location || '');
-  const [genre, setGenre] = useState(user?.primaryGenre || '');
+  const [genre, setGenre] = useState(user?.primary_genre || '');
+  const [whatsapp, setWhatsapp] = useState(user?.whatsapp_number || '');
+  const [instagram, setInstagram] = useState(user?.instagram_handle || '');
+  const [twitter, setTwitter] = useState(user?.twitter_handle || '');
+  const [tiktok, setTiktok] = useState(user?.tiktok_handle || '');
+  const [spotifyId, setSpotifyId] = useState(user?.spotify_artist_id || '');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // Sync form when user loads
+  useEffect(() => {
+    if (user) {
+      setArtistName(user.artist_name || '');
+      setEmail(user.email || '');
+      setLocation(user.location || '');
+      setGenre(user.primary_genre || '');
+      setWhatsapp(user.whatsapp_number || '');
+      setInstagram(user.instagram_handle || '');
+      setTwitter(user.twitter_handle || '');
+      setTiktok(user.tiktok_handle || '');
+      setSpotifyId(user.spotify_artist_id || '');
+    }
+  }, [user]);
 
   const handleSave = async () => {
     if (!user?.id) return;
@@ -30,6 +51,11 @@ export default function SettingsPage() {
         email,
         location,
         primary_genre: genre,
+        whatsapp_number: whatsapp,
+        instagram_handle: instagram,
+        twitter_handle: twitter,
+        tiktok_handle: tiktok,
+        spotify_artist_id: spotifyId,
         updated_at: new Date().toISOString(),
       })
       .eq('id', user.id);
@@ -60,7 +86,7 @@ export default function SettingsPage() {
           <p className="text-[#a0a0b0] text-sm mt-1">Manage your account and preferences</p>
         </div>
 
-        {/* Settings nav (mobile) */}
+        {/* Settings nav */}
         <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
           {sections.map((s) => (
             <button
@@ -80,7 +106,7 @@ export default function SettingsPage() {
         <div className="glass-strong rounded-2xl p-5 sm:p-6 space-y-5">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#1db954] to-[#3d91f4] flex items-center justify-center text-sm font-bold shadow-lg shadow-[#1db954]/20">
-              {user?.artistName?.charAt(0) || user?.email?.charAt(0) || 'U'}
+              {user?.artist_name?.charAt(0) || user?.email?.charAt(0) || 'U'}
             </div>
             <div>
               <h3 className="font-bold">Profile</h3>
@@ -101,10 +127,9 @@ export default function SettingsPage() {
             <div>
               <label className="block text-xs text-[#a0a0b0] mb-1.5">Email</label>
               <input
-                type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
+                placeholder="your@email.com"
                 className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
               />
             </div>
@@ -122,55 +147,91 @@ export default function SettingsPage() {
               <input
                 value={genre}
                 onChange={(e) => setGenre(e.target.value)}
-                placeholder="e.g. Afrobeats"
+                placeholder="Afrobeats, Hip-Hop, etc."
                 className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
               />
+            </div>
+          </div>
+
+          {/* Social Handles */}
+          <div className="pt-4 border-t border-white/5">
+            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+              <Globe className="w-4 h-4 text-[#a0a0b0]" />
+              Social & Contact
+            </h4>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-[#a0a0b0] mb-1.5 flex items-center gap-1">
+                  <MessageCircle className="w-3 h-3" /> WhatsApp Number
+                </label>
+                <input
+                  value={whatsapp}
+                  onChange={(e) => setWhatsapp(e.target.value)}
+                  placeholder="+234..."
+                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-[#a0a0b0] mb-1.5 flex items-center gap-1">
+                  <Instagram className="w-3 h-3" /> Instagram Handle
+                </label>
+                <input
+                  value={instagram}
+                  onChange={(e) => setInstagram(e.target.value)}
+                  placeholder="@yourhandle"
+                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-[#a0a0b0] mb-1.5 flex items-center gap-1">
+                  <Twitter className="w-3 h-3" /> Twitter / X Handle
+                </label>
+                <input
+                  value={twitter}
+                  onChange={(e) => setTwitter(e.target.value)}
+                  placeholder="@yourhandle"
+                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-[#a0a0b0] mb-1.5 flex items-center gap-1">
+                  <Video className="w-3 h-3" /> TikTok Handle
+                </label>
+                <input
+                  value={tiktok}
+                  onChange={(e) => setTiktok(e.target.value)}
+                  placeholder="@yourhandle"
+                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-[#a0a0b0] mb-1.5 flex items-center gap-1">
+                  <Music2 className="w-3 h-3" /> Spotify Artist ID
+                </label>
+                <input
+                  value={spotifyId}
+                  onChange={(e) => setSpotifyId(e.target.value)}
+                  placeholder="spotify:artist:..."
+                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+                />
+              </div>
             </div>
           </div>
 
           <button
             onClick={handleSave}
             disabled={saving}
-            className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-[#1db954] text-black font-semibold text-sm hover:bg-[#1ed760] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full sm:w-auto px-6 py-3 rounded-xl bg-[#1db954] text-black font-semibold hover:bg-[#1ed760] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
           >
             {saving ? (
               <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
             ) : saved ? (
-              <>
-                <CheckCircle2 className="w-4 h-4" />
-                Saved!
-              </>
+              <CheckCircle2 className="w-4 h-4" />
             ) : (
-              <>
-                <Save className="w-4 h-4" />
-                Save Changes
-              </>
+              <Save className="w-4 h-4" />
             )}
+            {saved ? 'Saved!' : saving ? 'Saving...' : 'Save Changes'}
           </button>
-        </div>
-
-        {/* Appearance */}
-        <div className="glass-strong rounded-2xl p-5 sm:p-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[#3d91f4]/10 flex items-center justify-center">
-                <Palette className="w-5 h-5 text-[#3d91f4]" />
-              </div>
-              <div>
-                <h3 className="font-bold">Appearance</h3>
-                <p className="text-xs text-[#6b6b7b]">Theme preferences</p>
-              </div>
-            </div>
-            <button
-              onClick={toggleTheme}
-              className={cn(
-                'px-4 py-2 rounded-xl text-sm font-medium transition-all',
-                mode === 'dark' ? 'bg-[#1db954] text-black' : 'glass-card text-[#a0a0b0]'
-              )}
-            >
-              {mode === 'dark' ? 'Dark' : 'Light'}
-            </button>
-          </div>
         </div>
       </div>
     </div>

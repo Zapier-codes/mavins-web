@@ -7,42 +7,50 @@ export interface CampaignInput {
   sourceUrl: string;
   viewCount: number;
   artistId: string;
+  genre?: string;
+  geographicTier?: string;
+  targetCountries?: string[];
 }
 
 export interface CampaignRecord {
   id: string;
   source_url: string;
   resolved_song_id: string | null;
+  track_id: string | null;
   artist_id: string;
   total_budget_cents: number;
   spent_cents: number;
   geographic_tier: string;
   target_countries: string[];
+  target_cities: string[];
   target_genres: string[];
   current_stage: string;
   is_active: boolean;
   is_paused: boolean;
   total_streams: number;
+  real_streams: number;
+  seeded_streams: number;
+  save_count: number;
+  playlist_add_count: number;
+  share_count: number;
+  comment_count: number;
   fresh_connect_order_id: string | null;
   created_at: string;
   updated_at: string;
+  completed_at: string | null;
 }
 
 export async function createCampaign(input: CampaignInput): Promise<{ success: boolean; campaign?: CampaignRecord; error?: string }> {
   try {
     const pricing = calculatePricing(input.viewCount);
 
-    // Check wallet balance
-    const { data: walletData, error: walletError } = await supabase
-      .from('wallet_ledger')
-      .select('amount_cents')
-      .eq('user_id', input.artistId)
-      .order('created_at', { ascending: false })
-      .limit(1);
+    // Check wallet balance via RPC
+    const { data: balanceData, error: balanceError } = await supabase
+      .rpc('get_wallet_balance', { p_user_id: input.artistId });
 
-    if (walletError) throw walletError;
+    if (balanceError) throw balanceError;
 
-    const balanceCents = walletData?.[0]?.amount_cents || 0;
+    const balanceCents = balanceData || 0;
     if (balanceCents < pricing.totalCostCents) {
       return { success: false, error: 'Insufficient wallet balance. Please add funds.' };
     }
@@ -62,7 +70,7 @@ export async function createCampaign(input: CampaignInput): Promise<{ success: b
     // Extract YouTube video ID from URL
     const resolvedSongId = extractYouTubeId(input.sourceUrl);
 
-    // Place Fresh Connect order
+    // Place Fresh Connect order (best-effort, non-blocking)
     let freshConnectOrderId: string | null = null;
     try {
       const services = await getServices();
@@ -79,10 +87,9 @@ export async function createCampaign(input: CampaignInput): Promise<{ success: b
       }
     } catch (fcErr: any) {
       console.warn('Fresh Connect order failed (proceeding without):', fcErr.message);
-      // Continue without Fresh Connect — the campaign still works via seed engine
     }
 
-    // Insert campaign
+    // Insert campaign with full metadata
     const { data: campaign, error: insertError } = await supabase
       .from('track_campaigns')
       .insert({
@@ -91,9 +98,9 @@ export async function createCampaign(input: CampaignInput): Promise<{ success: b
         artist_id: input.artistId,
         total_budget_cents: pricing.totalCostCents,
         spent_cents: 0,
-        geographic_tier: 'local',
-        target_countries: [],
-        target_genres: [],
+        geographic_tier: input.geographicTier || 'local',
+        target_countries: input.targetCountries || [],
+        target_genres: input.genre ? [input.genre] : [],
         current_stage: 'planting',
         is_active: true,
         is_paused: false,
@@ -119,44 +126,112 @@ export async function getArtistCampaigns(artistId: string): Promise<CampaignReco
     .order('created_at', { ascending: false });
 
   if (error) {
-    console.error('Error fetching campaigns:', error);
+    console.error('getArtistCampaigns error:', error);
     return [];
   }
-
   return data || [];
 }
 
-export async function getCampaignAnalytics(campaignId: string) {
-  const { data, error } = await supabase
-    .from('campaign_daily_metrics')
-    .select('*')
-    .eq('campaign_id', campaignId)
-    .order('metric_date', { ascending: true });
-
-  if (error) {
-    console.error('Error fetching analytics:', error);
-    return [];
-  }
-
-  return data || [];
-}
-
-export async function getArtistDashboard(artistId: string) {
+export async function getArtistDashboard(artistId: string): Promise<any> {
   const { data, error } = await supabase
     .rpc('get_artist_dashboard', { p_artist_id: artistId });
 
   if (error) {
-    console.error('Error fetching dashboard:', error);
+    console.error('getArtistDashboard error:', error);
     return null;
   }
-
   return data;
 }
 
+// ── Campaign Management Actions ──────────────────────────────
+
+export async function pauseCampaign(campaignId: string): Promise<{ success: boolean; error?: string }> {
+  const { error } = await supabase
+    .from('track_campaigns')
+    .update({ is_paused: true, updated_at: new Date().toISOString() })
+    .eq('id', campaignId);
+  return { success: !error, error: error?.message };
+}
+
+export async function resumeCampaign(campaignId: string): Promise<{ success: boolean; error?: string }> {
+  const { error } = await supabase
+    .from('track_campaigns')
+    .update({ is_paused: false, updated_at: new Date().toISOString() })
+    .eq('id', campaignId);
+  return { success: !error, error: error?.message };
+}
+
+export async function cancelCampaign(campaignId: string, artistId: string): Promise<{ success: boolean; refunded?: number; error?: string }> {
+  // Get campaign to calculate refund
+  const { data: campaign } = await supabase
+    .from('track_campaigns')
+    .select('*')
+    .eq('id', campaignId)
+    .eq('artist_id', artistId)
+    .single();
+
+  if (!campaign) return { success: false, error: 'Campaign not found' };
+
+  const unspent = campaign.total_budget_cents - campaign.spent_cents;
+
+  // Refund unspent budget
+  if (unspent > 0) {
+    await supabase.from('wallet_ledger').insert({
+      user_id: artistId,
+      amount_cents: unspent,
+      type: 'bonus',
+      description: `Refund for cancelled campaign: ${campaignId.slice(0, 8)}`,
+    });
+  }
+
+  const { error } = await supabase
+    .from('track_campaigns')
+    .update({
+      is_active: false,
+      is_paused: false,
+      current_stage: 'completed',
+      completed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', campaignId);
+
+  return { success: !error, refunded: unspent, error: error?.message };
+}
+
+export async function topUpCampaign(
+  campaignId: string,
+  artistId: string,
+  additionalCents: number
+): Promise<{ success: boolean; error?: string }> {
+  // Check wallet
+  const { data: balance } = await supabase.rpc('get_wallet_balance', { p_user_id: artistId });
+  if ((balance || 0) < additionalCents) {
+    return { success: false, error: 'Insufficient wallet balance' };
+  }
+
+  // Deduct
+  await supabase.from('wallet_ledger').insert({
+    user_id: artistId,
+    amount_cents: -additionalCents,
+    type: 'fee',
+    description: `Campaign top-up: ${campaignId.slice(0, 8)}`,
+  });
+
+  // Update campaign
+  const { error } = await supabase.rpc('increment_campaign_budget', {
+    p_campaign_id: campaignId,
+    p_additional_cents: additionalCents,
+  });
+
+  return { success: !error, error: error?.message };
+}
+
+// ── Helpers ──────────────────────────────────────────────────
+
 function extractYouTubeId(url: string): string | null {
   const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/,
-    /youtube\.com\/watch\?.*v=([a-zA-Z0-9_-]{11})/,
+    /(?:youtube\.com\/watch\?.*v=|youtu\.be\/|youtube\.com\/shorts\/|youtube\.com\/live\/)([A-Za-z0-9_-]{11})/,
+    /^([A-Za-z0-9_-]{11})$/,
   ];
   for (const pattern of patterns) {
     const match = url.match(pattern);

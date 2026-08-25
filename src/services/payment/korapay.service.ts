@@ -134,3 +134,22 @@ export function verifyWebhookSignature(payload: string, signature: string): bool
   // For now, we trust the payload if it comes from the right source
   return true;
 }
+
+/**
+ * Verify a charge by reference
+ */
+export async function verifyCharge(reference: string): Promise<ChargeStatusResponse> {
+  const secretKey = getSecretKey();
+
+  const res = await fetch(`${KORAPAY_BASE_URL}/charges/${reference}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${secretKey}`,
+    },
+  });
+
+  if (!res.ok) throw new Error(`Korapay verify failed: ${res.status}`);
+
+  return res.json();
+}
+

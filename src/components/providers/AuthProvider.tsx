@@ -17,12 +17,15 @@ const AuthContext = createContext<AuthContextType>({
   signOut: async () => {},
 });
 
+const SESSION_KEY = 'mavins_session';
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const getSession = async () => {
+      // 1. Try Supabase session first
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         const { data: profile } = await supabase
@@ -30,7 +33,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .select('*')
           .eq('id', session.user.id)
           .single();
-        setUser({ ...session.user, ...profile });
+        const merged = { ...session.user, ...profile };
+        setUser(merged);
+        // Persist to localStorage for cross-session recovery
+        try {
+          localStorage.setItem(SESSION_KEY, JSON.stringify({
+            access_token: session.access_token,
+            refresh_token: session.refresh_token,
+            expires_at: session.expires_at,
+            user_id: session.user.id,
+          }));
+        } catch {}
+      } else {
+        // 2. Fallback: try localStorage recovery
+        try {
+          const saved = localStorage.getItem(SESSION_KEY);
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (parsed.access_token && parsed.refresh_token) {
+              const { data, error } = await supabase.auth.setSession({
+                access_token: parsed.access_token,
+                refresh_token: parsed.refresh_token,
+              });
+              if (!error && data.session?.user) {
+                const { data: profile } = await supabase
+                  .from('users')
+                  .select('*')
+                  .eq('id', data.session.user.id)
+                  .single();
+                setUser({ ...data.session.user, ...profile });
+              } else {
+                localStorage.removeItem(SESSION_KEY);
+              }
+            }
+          }
+        } catch {}
       }
       setIsLoading(false);
     };
@@ -42,8 +79,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         supabase.from('users').select('*').eq('id', session.user.id).single().then(({ data }) => {
           setUser({ ...session.user, ...data });
         });
+        try {
+          localStorage.setItem(SESSION_KEY, JSON.stringify({
+            access_token: session.access_token,
+            refresh_token: session.refresh_token,
+            expires_at: session.expires_at,
+            user_id: session.user.id,
+          }));
+        } catch {}
       } else {
         setUser(null);
+        try { localStorage.removeItem(SESSION_KEY); } catch {}
       }
     });
 
@@ -53,6 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     await supabase.auth.signOut();
     setUser(null);
+    try { localStorage.removeItem(SESSION_KEY); } catch {}
   };
 
   return (
