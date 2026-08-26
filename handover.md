@@ -15,57 +15,29 @@ later tasks that build on earlier ones.
 
 ---
 
-## Task 0 — URGENT: main branch currently fails `npx tsc --noEmit` [ ]
+## Task 0 — URGENT: main branch currently fails `npx tsc --noEmit` [x]
 
-**Found while verifying Task 1's changes — confirmed pre-existing on
-`origin/main` at commit `b400709`, unrelated to any change in this
-session** (reproduced via `git stash` back to a clean checkout of
-that commit and re-running the type check).
+**Done in commit `3b24fe7`.** All 7 errors fixed: removed the
+duplicate `platformFeePercent` field in `pricing.ts` and added a
+`PricingResult` type alias; added the missing `getArtistDashboard`
+export to `campaign.service.ts` (backed by the `get_artist_dashboard`
+RPC, with a safe empty fallback); fixed both payment routes to import
+`createAdminClient` from `@/lib/supabase/admin` instead of the
+nonexistent `serviceClient` module; replaced the nonexistent
+`createUserFromPayment` call in the verify route with the current
+`resolveOrCreateGuestAccount` + `creditWalletTopUp` pair from
+`guestCheckout.ts`. `npx tsc --noEmit` is clean.
 
-This almost certainly means the next Vercel deploy will fail the same
-way past builds did in earlier sessions (see the "Collecting page
-data" / type-check failures earlier in this project's history) —
-this should likely be the very next thing fixed, ahead of Task 2,
-since a broken build blocks verifying any other fix in production.
-
-**Exact errors as of commit `b400709`:**
-```
-src/app/analytics/page.tsx(5,10): error TS2305: Module '"@/services/campaign/campaign.service"' has no exported member 'getArtistDashboard'.
-src/app/api/payments/verify/[reference]/route.ts(2,37): error TS2307: Cannot find module '@/lib/supabase/serviceClient' or its corresponding type declarations.
-src/app/api/payments/verify/[reference]/route.ts(3,10): error TS2305: Module '"@/lib/auth/guestCheckout"' has no exported member 'createUserFromPayment'.
-src/app/api/payments/webhook/route.ts(2,37): error TS2307: Cannot find module '@/lib/supabase/serviceClient' or its corresponding type declarations.
-src/lib/campaign/pricing.ts(54,3): error TS2300: Duplicate identifier 'platformFeePercent'.
-src/lib/campaign/pricing.ts(63,3): error TS2300: Duplicate identifier 'platformFeePercent'.
-src/services/campaign/campaign.service.ts(3,33): error TS2305: Module '"@/lib/campaign/pricing"' has no exported member 'PricingResult'.
-```
-
-**Quick diagnosis per error, for whoever picks this up:**
-- `pricing.ts` duplicate `platformFeePercent` (lines 54 and 63) —
-  looks like the same field got added twice to an interface/type,
-  probably from two different sessions both adding it independently.
-  Trivial fix: remove one of the two declarations.
-- `campaign.service.ts` imports `PricingResult` from `pricing.ts`,
-  but that type isn't exported (or was renamed) — check what
-  `calculatePricing()`'s actual return type is named now and fix the
-  import, or add/restore the export.
-- `analytics/page.tsx` imports `getArtistDashboard` from
-  `campaign.service.ts`, which doesn't export it — either the
-  function was renamed/removed, or this import is stale from a page
-  that hasn't been updated to match a service refactor.
-- `@/lib/supabase/serviceClient` doesn't exist at all — two payment
-  routes (`verify/[reference]/route.ts`, `webhook/route.ts`) import
-  from it. Likely should be `@/lib/supabase/admin` (the
-  `createAdminClient()` used correctly elsewhere, e.g.
-  `guestCheckout.ts`) — check if this is just a wrong import path
-  left over from a rename.
-- `createUserFromPayment` doesn't exist in `guestCheckout.ts` — that
-  file currently exports `resolveOrCreateGuestAccount` and
-  `creditWalletTopUp` (see Task 12 section below for the full
-  contents of that file as of this session). Likely this route needs
-  updating to call the current function names instead.
-
-**None of this was touched in this session** — flagging only, so the
-next session doesn't have to rediscover it from scratch.
+**Left for a future session, discovered while fixing this:**
+`creditWalletTopUp()` checks `wallet_ledger.amount_cents` /
+`.description` for idempotency, but the inline wallet-crediting code
+in both `verify/[reference]/route.ts` and `webhook/route.ts` writes
+to `wallet_ledger` using a single `changeset` JSONB column instead.
+Two different `wallet_ledger` row shapes are in use across the
+codebase — worth reconciling before it causes a silent double-credit
+or a runtime column-not-found error, but not fixed here since it's
+outside a type-error-only task and the wrong guess could break
+working behavior.
 
 ---
 
