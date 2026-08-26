@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils/cn';
@@ -14,46 +14,13 @@ const tabs = [
   { id: 'earnings', icon: Wallet, label: 'Earn', href: '/earnings' },
 ];
 
-// Ignore tiny scroll jitter (mobile momentum scroll, address-bar show/hide)
-// so the nav doesn't flicker on sub-pixel scroll events.
-const SCROLL_DELTA_THRESHOLD = 8;
-
 export const MobileNav = () => {
   const pathname = usePathname();
-  const [hidden, setHidden] = useState(false);
-  const lastScrollY = useRef(0);
-
-  useEffect(() => {
-    lastScrollY.current = window.scrollY;
-
-    const onScroll = () => {
-      const currentY = window.scrollY;
-      const delta = currentY - lastScrollY.current;
-
-      // Always show near the top of the page, regardless of direction.
-      if (currentY < 48) {
-        setHidden(false);
-        lastScrollY.current = currentY;
-        return;
-      }
-
-      if (Math.abs(delta) < SCROLL_DELTA_THRESHOLD) return;
-
-      setHidden(delta > 0); // scrolling down -> hide, scrolling up -> reveal
-      lastScrollY.current = currentY;
-    };
-
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-40 md:hidden glass-nav border-t border-[var(--glass-border)] pointer-events-auto transition-transform duration-300 ease-out"
-      style={{
-        touchAction: 'manipulation',
-        transform: hidden ? 'translateY(100%)' : 'translateY(0)',
-      }}
+      className="fixed bottom-0 left-0 right-0 z-40 md:hidden glass-nav border-t border-[var(--glass-border)] pointer-events-auto"
+      style={{ touchAction: 'manipulation' }}
     >
       <div className="flex items-center justify-around px-1 py-1">
         {tabs.map((tab) => {

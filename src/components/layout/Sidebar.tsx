@@ -26,7 +26,7 @@ const navItems = [
 ];
 
 export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
-  const { user, isAuthenticated, isAdmin, signOut } = useAuth();
+  const { user, isAuthenticated, signOut } = useAuth();
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
 
@@ -37,6 +37,7 @@ export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
 
   return (
     <>
+      {/* Backdrop */}
       {isOpen && (
         <div 
           className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden"
@@ -44,12 +45,14 @@ export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
         />
       )}
 
+      {/* Sidebar */}
       <aside className={cn(
         'fixed top-0 left-0 z-50 h-full w-64 transition-transform duration-300 ease-out md:translate-x-0 md:static md:h-screen md:w-56 md:z-0',
         isOpen ? 'translate-x-0' : '-translate-x-full',
         'glass-sidebar'
       )}>
         <div className="flex flex-col h-full">
+          {/* Header */}
           <div className="flex items-center justify-between p-4 border-b border-[var(--glass-border)]">
             <Link href="/" className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[var(--accent-light)] to-[var(--accent-dark)] flex items-center justify-center shadow-lg shadow-[var(--accent)]/20">
@@ -62,6 +65,7 @@ export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
             </button>
           </div>
 
+          {/* Nav */}
           <nav className="flex-1 px-3 py-4 space-y-1">
             {navItems.map((item) => {
               const isActive = pathname === item.href || pathname?.startsWith(item.href + '/');
@@ -85,6 +89,7 @@ export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
             })}
           </nav>
 
+          {/* User section */}
           <div className="p-3 border-t border-[var(--glass-border)]">
             {isAuthenticated && user ? (
               <div className="space-y-2">
@@ -94,7 +99,7 @@ export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate text-[var(--foreground)]">{user.artistName || user.email}</p>
-                    <p className="text-xs text-[var(--muted-foreground)]">{isAdmin ? 'Administrator' : 'Artist'}</p>
+                    <p className="text-xs text-[var(--muted-foreground)]">Artist</p>
                   </div>
                 </div>
                 <button 

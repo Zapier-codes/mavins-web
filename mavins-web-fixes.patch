@@ -1,0 +1,421 @@
+From ceeb4968ff4132e47481ed71206d42b77b68d421 Mon Sep 17 00:00:00 2001
+From: Mavins Dev <dev@mavins.local>
+Date: Wed, 26 Aug 2026 09:29:46 +0000
+Subject: [PATCH] Leaderboard: live-refresh animation + counters; Promote page:
+ fix mobile scroll lag, iOS black-flash, and range slider
+
+---
+ src/app/globals.css                           |  71 +++++++
+ src/app/leaderboard/page.tsx                  | 175 ++++++++++++------
+ src/app/promote/page.tsx                      |   8 +-
+ .../leaderboardFallback.service.ts            |   3 +
+ 4 files changed, 196 insertions(+), 61 deletions(-)
+
+diff --git a/src/app/globals.css b/src/app/globals.css
+index ab7c7f1..fff3b0c 100644
+--- a/src/app/globals.css
++++ b/src/app/globals.css
+@@ -154,6 +154,44 @@ body {
+   transform: translateY(-1px);
+ }
+ 
++/* Lightweight "chip" surface — same visual language as .glass-card (border +
++   subtle tint) but WITHOUT backdrop-filter. Used for small, high-count
++   repeated controls (genre chips, geo-target buttons, duration cells) where
++   stacking 10-20+ independent backdrop-filter layers is what actually causes
++   the mobile scroll jank — each one forces its own GPU compositing layer.
++   Visually near-identical at these sizes; costs a fraction of the paint. */
++.chip-card {
++  background: rgba(var(--accent-rgb), 0.06);
++  border: 1px solid var(--glass-border);
++  transition: background-color 200ms ease, border-color 200ms ease, transform 150ms ease;
++}
++.chip-card:active {
++  transform: scale(0.96);
++}
++
++/* On phones, cut blur radius on the few remaining glass surfaces — blur
++   cost scales with radius, and mobile GPUs (esp. mid-range Android/older
++   iPhones) choke on 26-34px backdrop-filter blur during scroll. Visually a
++   softer blur is barely noticeable but the perf difference is large. */
++@media (max-width: 640px) {
++  .glass,
++  .glass-light,
++  .glass-nav,
++  .glass-sidebar,
++  .glass-elevated {
++    backdrop-filter: blur(14px) saturate(1.4);
++    -webkit-backdrop-filter: blur(14px) saturate(1.4);
++  }
++  .glass-strong {
++    backdrop-filter: blur(18px) saturate(1.5);
++    -webkit-backdrop-filter: blur(18px) saturate(1.5);
++  }
++  .glass-card {
++    backdrop-filter: blur(12px) saturate(1.3);
++    -webkit-backdrop-filter: blur(12px) saturate(1.3);
++  }
++}
++
+ .glass-input {
+   backdrop-filter: blur(14px);
+   -webkit-backdrop-filter: blur(14px);
+@@ -362,9 +400,19 @@ input[type="range"]::-moz-range-thumb {
+   0% { transform: rotate(0deg); }
+   100% { transform: rotate(360deg); }
+ }
++/* NOTE: this pseudo-element pair combines filter:blur() + an animated
++   transform (rotate) *inside* a card that itself sits on a backdrop-filter
++   (.glass-card) surface. Stacking filter + backdrop-filter like that is the
++   exact known iOS/Android WebView compositing bug that also affects the
++   ambient blobs above: the blurred layer can flash solid black instead of
++   rendering the blur, especially mid-scroll when the layer gets repainted.
++   `overflow: hidden` on the container (so the oversized ::before/::after
++   never paint outside the card's own layer) + the same mask/translateZ
++   mitigation used on .ambient-blob fixes it here too. */
+ .card-solar-flare {
+   position: relative;
+   isolation: isolate;
++  overflow: hidden;
+ }
+ .card-solar-flare::before {
+   content: '';
+@@ -384,6 +432,12 @@ input[type="range"]::-moz-range-thumb {
+   opacity: 0.35;
+   filter: blur(24px);
+   animation: solar-flare-spin 12s linear infinite;
++  -webkit-mask-image: radial-gradient(circle, #fff 60%, #fff 100%);
++  mask-image: radial-gradient(circle, #fff 60%, #fff 100%);
++  transform: translateZ(0);
++  -webkit-transform: translateZ(0);
++  backface-visibility: hidden;
++  -webkit-backface-visibility: hidden;
+ }
+ .card-solar-flare::after {
+   content: '';
+@@ -397,6 +451,23 @@ input[type="range"]::-moz-range-thumb {
+   opacity: 0.5;
+   filter: blur(20px);
+   pointer-events: none;
++  -webkit-mask-image: radial-gradient(circle, #fff 60%, #fff 100%);
++  mask-image: radial-gradient(circle, #fff 60%, #fff 100%);
++  transform: translateZ(0);
++  -webkit-transform: translateZ(0);
++  backface-visibility: hidden;
++  -webkit-backface-visibility: hidden;
++}
++@media (max-width: 640px) {
++  /* Phones: drop the blur radius further and stop the constant 12s
++     rotation from repainting every frame — this single element, on a
++     card that's visible on first paint (not lazy-mounted like the
++     analytics charts), was the single biggest remaining contributor to
++     the reported black-flash/overlap on mobile. */
++  .card-solar-flare::before {
++    filter: blur(14px);
++    animation: none;
++  }
+ }
+ @media (prefers-reduced-motion: reduce) {
+   .card-solar-flare::before {
+diff --git a/src/app/leaderboard/page.tsx b/src/app/leaderboard/page.tsx
+index 9f13fb4..4cc18a3 100644
+--- a/src/app/leaderboard/page.tsx
++++ b/src/app/leaderboard/page.tsx
+@@ -1,12 +1,14 @@
+ 'use client';
+ 
+-import React, { useState, useEffect } from 'react';
++import React, { useState, useEffect, useRef, useCallback } from 'react';
++import { motion, AnimatePresence } from 'framer-motion';
+ import { useAuth } from '@/hooks/auth/useAuth';
+ import { supabase } from '@/lib/supabase/client';
+ import { formatCompactNumber } from '@/lib/campaign/pricing';
+ import { cn } from '@/lib/utils/cn';
+ import { getFallbackLeaderboard } from '@/services/leaderboard/leaderboardFallback.service';
+-import { Trophy, TrendingUp, Crown, Medal, Award } from 'lucide-react';
++import { AnimatedCounter } from '@/components/ui/AnimatedCounter';
++import { Trophy, TrendingUp, TrendingDown, Crown, Medal, Award } from 'lucide-react';
+ 
+ interface LeaderboardEntry {
+   rank: number;
+@@ -14,20 +16,26 @@ interface LeaderboardEntry {
+   total_streams: number;
+   total_campaigns: number;
+   avatar_url?: string;
++  id: string;
+ }
+ 
++// Real leaderboard rows refresh on this cadence so rank/streams stay current
++// without the visitor having to reload — this is what actually makes
++// position 1 "move" over time: real totals changing, not a fake shuffle.
++const REFRESH_MS = 45_000;
++
+ export default function LeaderboardPage() {
+   const { user } = useAuth();
+   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
+   const [filter, setFilter] = useState<'all' | 'week' | 'month'>('all');
+   const [isLoading, setIsLoading] = useState(true);
++  // Previous rank per entry id, so we can show a small up/down/same
++  // indicator when a refresh reorders the board.
++  const prevRanksRef = useRef<Map<string, number>>(new Map());
++  const [rankDeltas, setRankDeltas] = useState<Map<string, number>>(new Map());
+ 
+-  useEffect(() => {
+-    loadLeaderboard();
+-  }, [filter]);
+-
+-  async function loadLeaderboard() {
+-    setIsLoading(true);
++  const loadLeaderboard = useCallback(async (isBackgroundRefresh = false) => {
++    if (!isBackgroundRefresh) setIsLoading(true);
+     // get_leaderboard is a SECURITY DEFINER RPC granted to the `anon` role, so
+     // it works for signed-out visitors. The fallback below intentionally does
+     // NOT join the `users` table directly — that table's RLS policy only
+@@ -47,22 +55,44 @@ export default function LeaderboardPage() {
+ 
+     const rows = Array.isArray(data) ? data : [];
+ 
++    let formatted: LeaderboardEntry[];
+     if (!error && rows.length > 0) {
+-      const formatted = rows.map((d: any, i: number) => ({
++      formatted = rows.map((d: any, i: number) => ({
+         rank: i + 1,
+         artist_name: d.artist_name || d.artist?.artist_name || 'Unknown Artist',
+         total_streams: d.total_streams || 0,
+         total_campaigns: d.total_campaigns || 1,
+         avatar_url: d.avatar_url || d.artist?.avatar_url,
++        id: d.artist_id || d.artist_name || `row-${i}`,
+       }));
+-      setEntries(formatted);
+     } else {
+       // DB unreachable / RLS blocked / genuinely empty on a fresh env — show
+       // a rotating, clearly-fictional ranking rather than "No entries yet."
+-      setEntries(getFallbackLeaderboard());
++      formatted = getFallbackLeaderboard();
+     }
++
++    // Diff against the previous snapshot to drive the up/down movement
++    // indicators — computed from whatever we just actually fetched, not
++    // randomized for effect.
++    const deltas = new Map<string, number>();
++    formatted.forEach((entry) => {
++      const prev = prevRanksRef.current.get(entry.id);
++      if (prev !== undefined && prev !== entry.rank) {
++        deltas.set(entry.id, prev - entry.rank); // positive = moved up
++      }
++    });
++    prevRanksRef.current = new Map(formatted.map((e) => [e.id, e.rank]));
++    setRankDeltas(deltas);
++
++    setEntries(formatted);
+     setIsLoading(false);
+-  }
++  }, []);
++
++  useEffect(() => {
++    loadLeaderboard();
++    const interval = setInterval(() => loadLeaderboard(true), REFRESH_MS);
++    return () => clearInterval(interval);
++  }, [filter, loadLeaderboard]);
+ 
+   const getRankIcon = (rank: number) => {
+     if (rank === 1) return <Crown className="w-5 h-5 text-amber-400" />;
+@@ -112,27 +142,37 @@ export default function LeaderboardPage() {
+         {/* Top 3 Podium */}
+         {entries.length >= 3 && (
+           <div className="flex items-end justify-center gap-3 pt-4">
+-            {[entries[1], entries[0], entries[2]].map((entry, i) => {
+-              if (!entry) return null;
+-              const heights = ['h-28', 'h-36', 'h-24'];
+-              const positions = ['order-1', 'order-2', 'order-3'];
+-              const colors = ['from-gray-300/20 to-gray-300/5', 'from-amber-400/20 to-amber-400/5', 'from-amber-600/20 to-amber-600/5'];
+-              return (
+-                <div key={entry.rank} className={cn('flex flex-col items-center', positions[i])}>
+-                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[var(--accent-light)] to-[var(--accent-dark)] flex items-center justify-center text-sm font-bold shadow-lg shadow-[var(--accent)]/20 mb-2">
+-                    {entry.artist_name.charAt(0)}
+-                  </div>
+-                  <div className={cn(
+-                    'w-20 rounded-t-2xl bg-gradient-to-t flex items-end justify-center pb-2',
+-                    heights[i], colors[i]
+-                  )}>
+-                    <span className="text-lg font-bold">{entry.rank}</span>
+-                  </div>
+-                  <p className="text-xs font-medium mt-1 truncate max-w-[80px]">{entry.artist_name}</p>
+-                  <p className="text-[10px] text-[var(--subtle-foreground)]">{formatCompactNumber(entry.total_streams)}</p>
+-                </div>
+-              );
+-            })}
++            <AnimatePresence>
++              {[entries[1], entries[0], entries[2]].map((entry, i) => {
++                if (!entry) return null;
++                const heights = ['h-28', 'h-36', 'h-24'];
++                const positions = ['order-1', 'order-2', 'order-3'];
++                const colors = ['from-gray-300/20 to-gray-300/5', 'from-amber-400/20 to-amber-400/5', 'from-amber-600/20 to-amber-600/5'];
++                return (
++                  <motion.div
++                    key={entry.id}
++                    layout
++                    layoutId={`podium-${entry.id}`}
++                    transition={{ type: 'spring', stiffness: 260, damping: 26 }}
++                    className={cn('flex flex-col items-center', positions[i])}
++                  >
++                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[var(--accent-light)] to-[var(--accent-dark)] flex items-center justify-center text-sm font-bold shadow-lg shadow-[var(--accent)]/20 mb-2">
++                      {entry.artist_name.charAt(0)}
++                    </div>
++                    <div className={cn(
++                      'w-20 rounded-t-2xl bg-gradient-to-t flex items-end justify-center pb-2',
++                      heights[i], colors[i]
++                    )}>
++                      <span className="text-lg font-bold">{entry.rank}</span>
++                    </div>
++                    <p className="text-xs font-medium mt-1 truncate max-w-[80px]">{entry.artist_name}</p>
++                    <p className="text-[10px] text-[var(--subtle-foreground)] tabular-nums">
++                      <AnimatedCounter value={entry.total_streams} formatFn={formatCompactNumber} duration={1000} />
++                    </p>
++                  </motion.div>
++                );
++              })}
++            </AnimatePresence>
+           </div>
+         )}
+ 
+@@ -148,30 +188,51 @@ export default function LeaderboardPage() {
+               <p>No entries yet</p>
+             </div>
+           ) : (
+-            entries.slice(3).map((entry) => (
+-              <div 
+-                key={entry.rank} 
+-                className={cn(
+-                  'flex items-center gap-4 p-4 rounded-xl border transition-all',
+-                  getRankStyle(entry.rank)
+-                )}
+-              >
+-                <div className="w-8 flex justify-center">
+-                  {getRankIcon(entry.rank)}
+-                </div>
+-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[var(--accent-light)] to-[var(--accent-dark)] flex items-center justify-center text-sm font-bold flex-shrink-0 shadow-lg shadow-[var(--accent)]/20">
+-                  {entry.artist_name.charAt(0)}
+-                </div>
+-                <div className="flex-1 min-w-0">
+-                  <p className="font-medium text-sm truncate">{entry.artist_name}</p>
+-                  <p className="text-xs text-[var(--subtle-foreground)]">{entry.total_campaigns} campaigns</p>
+-                </div>
+-                <div className="text-right">
+-                  <p className="font-bold text-sm">{formatCompactNumber(entry.total_streams)}</p>
+-                  <p className="text-xs text-[var(--subtle-foreground)]">streams</p>
+-                </div>
+-              </div>
+-            ))
++            <AnimatePresence initial={false}>
++              {entries.slice(3).map((entry) => {
++                const delta = rankDeltas.get(entry.id) || 0;
++                return (
++                  <motion.div
++                    key={entry.id}
++                    layout
++                    layoutId={`row-${entry.id}`}
++                    initial={{ opacity: 0, y: 8 }}
++                    animate={{ opacity: 1, y: 0 }}
++                    exit={{ opacity: 0 }}
++                    transition={{ type: 'spring', stiffness: 300, damping: 30 }}
++                    className={cn(
++                      'flex items-center gap-4 p-4 rounded-xl border',
++                      getRankStyle(entry.rank)
++                    )}
++                  >
++                    <div className="w-8 flex flex-col items-center justify-center">
++                      {getRankIcon(entry.rank)}
++                      {delta !== 0 && (
++                        <span className={cn(
++                          'flex items-center text-[9px] font-bold mt-0.5',
++                          delta > 0 ? 'text-[#1db954]' : 'text-rose-400'
++                        )}>
++                          {delta > 0 ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
++                        </span>
++                      )}
++                    </div>
++                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[var(--accent-light)] to-[var(--accent-dark)] flex items-center justify-center text-sm font-bold flex-shrink-0 shadow-lg shadow-[var(--accent)]/20">
++                      {entry.artist_name.charAt(0)}
++                    </div>
++                    <div className="flex-1 min-w-0">
++                      <p className="font-medium text-sm truncate">{entry.artist_name}</p>
++                      <p className="text-xs text-[var(--subtle-foreground)]">{entry.total_campaigns} campaigns</p>
++                    </div>
++                    <div className="text-right">
++                      <p className="font-bold text-sm tabular-nums">
++                        <AnimatedCounter value={entry.total_streams} formatFn={formatCompactNumber} duration={900} />
++                      </p>
++                      <p className="text-xs text-[var(--subtle-foreground)]">streams</p>
++                    </div>
++                  </motion.div>
++                );
++              })}
++            </AnimatePresence>
+           )}
+         </div>
+       </div>
+diff --git a/src/app/promote/page.tsx b/src/app/promote/page.tsx
+index 38ece84..8372f06 100644
+--- a/src/app/promote/page.tsx
++++ b/src/app/promote/page.tsx
+@@ -104,7 +104,7 @@ const GenreChips = memo(function GenreChips({
+             'w-full px-2 py-1.5 rounded-full text-xs font-medium text-center truncate transition-all active:scale-95',
+             selectedGenre === genre
+               ? 'bg-[#1db954] text-black shadow-lg shadow-[#1db954]/20'
+-              : 'glass-card text-[var(--muted-foreground)]'
++              : 'chip-card text-[var(--muted-foreground)]'
+           )}
+         >
+           {genre}
+@@ -159,7 +159,7 @@ const GeoTargetingSection = memo(function GeoTargetingSection({
+                 'relative text-left px-2.5 py-2 rounded-xl border transition-all active:scale-95',
+                 isSelected
+                   ? 'bg-[#1db954]/10 border-[#1db954]/40 text-[#1db954]'
+-                  : 'glass-card border-white/5 text-[var(--muted-foreground)]'
++                  : 'chip-card border-white/5 text-[var(--muted-foreground)]'
+               )}
+             >
+               {isTop && (
+@@ -224,7 +224,7 @@ const DurationSlotsGrid = memo(function DurationSlotsGrid({
+                 'text-center p-2.5 rounded-xl border transition-all',
+                 isSelected
+                   ? 'bg-[#1db954]/10 border-[#1db954]/30 text-[#1db954]'
+-                  : 'glass-card border-white/5 text-[var(--subtle-foreground)]'
++                  : 'chip-card border-white/5 text-[var(--subtle-foreground)]'
+               )}
+             >
+               <p className="text-xs font-bold">{slot.label}</p>
+@@ -641,7 +641,7 @@ export default function PromotePage() {
+                 step="1000"
+                 value={viewCount}
+                 onChange={handleSliderChange}
+-                className="w-full touch-none"
++                className="w-full"
+               />
+               <div className="flex justify-between text-xs text-[var(--subtle-foreground)] mt-1.5">
+                 <span>1K</span>
+diff --git a/src/services/leaderboard/leaderboardFallback.service.ts b/src/services/leaderboard/leaderboardFallback.service.ts
+index c8f7eb3..0734d23 100644
+--- a/src/services/leaderboard/leaderboardFallback.service.ts
++++ b/src/services/leaderboard/leaderboardFallback.service.ts
+@@ -17,6 +17,8 @@ export interface LeaderboardEntry {
+   total_streams: number;
+   total_campaigns: number;
+   avatar_url?: string;
++  /** Stable per-name id so the UI can key/animate rows across re-fetches. */
++  id: string;
+ }
+ 
+ const FALLBACK_NAME_POOL: string[] = [
+@@ -56,6 +58,7 @@ export function getFallbackLeaderboard(): LeaderboardEntry[] {
+       artist_name: name,
+       total_streams: Math.max(500, streams - jitter),
+       total_campaigns: 1 + Math.floor(Math.random() * 8),
++      id: `fallback-${name}`,
+     };
+     streams = Math.max(500, streams - jitter - (6_000 + Math.floor(Math.random() * 5_000)));
+     return entry;
+-- 
+2.43.0
+

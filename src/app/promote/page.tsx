@@ -1,15 +1,14 @@
 'use client';
 
-import { useState, useCallback, useEffect, useMemo, memo } from 'react';
+import { useState, useCallback, useEffect, useMemo, memo, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/auth/useAuth';
 import { createCampaign, getArtistCampaigns } from '@/services/campaign/campaign.service';
 import { getPublicSeedStats } from '@/services/stats/publicStats.service';
 import { detectUserGeo } from '@/services/geo/ipGeolocation.service';
-import { convertUsdCentsTo, convertUsdCentsToMinorUnits, formatCurrency } from '@/services/currency/currency.service';
 import { calculatePricing, formatCents, formatNumber, DURATION_SLOTS } from '@/lib/campaign/pricing';
-import { getRecommendedGeographies, scoreLabel, type GeoRecommendation } from '@/lib/campaign/geoAffinity';
+import { getRecommendedGeographies, scoreLabel } from '@/lib/campaign/geoAffinity';
 import { cn } from '@/lib/utils/cn';
 import { 
   Rocket, Link2, TrendingUp, Clock, DollarSign, 
@@ -17,10 +16,6 @@ import {
   BarChart3, Globe, Music, CheckCircle2, Sparkles, MapPin, Wand2
 } from 'lucide-react';
 
-// Heavy (recharts-backed) section — deferred so it never blocks the initial
-// paint of the form above it, and never gets bundled/hydrated until the
-// user actually scrolls near it. This alone removes the single biggest
-// contributor to "the promote page feels slow" on first load.
 const PublicAnalyticsShowcase = dynamic(
   () => import('@/components/promote/PublicAnalyticsShowcase').then((m) => m.PublicAnalyticsShowcase),
   {
@@ -56,9 +51,31 @@ const TIERS = [
 
 const PENDING_CAMPAIGN_KEY = 'mavins_pending_campaign';
 
-// Pure, stateless helpers — hoisted out of the component so their identity
-// never changes across renders, which is what lets the memoized children
-// below actually skip re-rendering while the view-count slider is dragged.
+// Country → currency mapping for ipapi.co conversion
+const COUNTRY_CURRENCY: Record<string, { code: string; symbol: string; rate: number }> = {
+  NG: { code: 'NGN', symbol: '₦', rate: 1 },
+  US: { code: 'USD', symbol: '$', rate: 0.00065 },
+  GB: { code: 'GBP', symbol: '£', rate: 0.00051 },
+  GH: { code: 'GHS', symbol: 'GH₵', rate: 0.0098 },
+  KE: { code: 'KES', symbol: 'KSh', rate: 0.084 },
+  ZA: { code: 'ZAR', symbol: 'R', rate: 0.012 },
+  CA: { code: 'CAD', symbol: 'C$', rate: 0.00088 },
+  AU: { code: 'AUD', symbol: 'A$', rate: 0.00098 },
+  EU: { code: 'EUR', symbol: '€', rate: 0.00060 },
+  IN: { code: 'INR', symbol: '₹', rate: 0.054 },
+  PK: { code: 'PKR', symbol: '₨', rate: 0.18 },
+  BD: { code: 'BDT', symbol: '৳', rate: 0.072 },
+  ID: { code: 'IDR', symbol: 'Rp', rate: 10.2 },
+  PH: { code: 'PHP', symbol: '₱', rate: 0.038 },
+  MY: { code: 'MYR', symbol: 'RM', rate: 0.0030 },
+  SG: { code: 'SGD', symbol: 'S$', rate: 0.00087 },
+  AE: { code: 'AED', symbol: 'د.إ', rate: 0.0024 },
+  SA: { code: 'SAR', symbol: '﷼', rate: 0.0024 },
+  TR: { code: 'TRY', symbol: '₺', rate: 0.021 },
+  BR: { code: 'BRL', symbol: 'R$', rate: 0.0033 },
+  MX: { code: 'MXN', symbol: 'Mex$', rate: 0.011 },
+};
+
 function getStageColor(stage: string) {
   switch (stage) {
     case 'planting': return 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20';
@@ -73,142 +90,66 @@ function getStageColor(stage: string) {
 
 function getStageLabel(stage: string) {
   const labels: Record<string, string> = {
-    planting: 'Planting',
-    germination: 'Germination',
-    root_system: 'Root System',
-    branching: 'Branching',
-    full_bloom: 'Full Bloom',
-    completed: 'Completed',
+    planting: 'Planting', germination: 'Germination', root_system: 'Root System',
+    branching: 'Branching', full_bloom: 'Full Bloom', completed: 'Completed',
   };
   return labels[stage] || stage;
 }
 
 // ── Memoized subsections ──────────────────────────────────────────────
-// Each of these only re-renders when the specific props it cares about
-// change, instead of on every keystroke/slider-tick in the parent form.
 
-const GenreChips = memo(function GenreChips({
-  selectedGenre,
-  onSelect,
-}: {
-  selectedGenre: string;
-  onSelect: (genre: string) => void;
-}) {
+const GenreChips = memo(function GenreChips({ selectedGenre, onSelect }: { selectedGenre: string; onSelect: (genre: string) => void }) {
   return (
     <div className="grid grid-cols-3 xs:grid-cols-4 sm:grid-cols-5 gap-2">
       {GENRES.map((genre) => (
-        <button
-          key={genre}
-          type="button"
-          onClick={() => onSelect(genre)}
-          className={cn(
-            'w-full px-2 py-1.5 rounded-full text-xs font-medium text-center truncate transition-all active:scale-95',
-            selectedGenre === genre
-              ? 'bg-[#1db954] text-black shadow-lg shadow-[#1db954]/20'
-              : 'chip-card text-[var(--muted-foreground)]'
-          )}
-        >
-          {genre}
-        </button>
+        <button key={genre} type="button" onClick={() => onSelect(genre)} className={cn(
+          'w-full px-2 py-1.5 rounded-full text-xs font-medium text-center truncate transition-all active:scale-95',
+          selectedGenre === genre ? 'bg-[#1db954] text-black shadow-lg shadow-[#1db954]/20' : 'chip-card text-[var(--muted-foreground)]'
+        )}>{genre}</button>
       ))}
     </div>
   );
 });
 
-const GeoTargetingSection = memo(function GeoTargetingSection({
-  genre,
-  homeCountryCode,
-  selectedCodes,
-  onToggle,
-}: {
-  genre: string;
-  homeCountryCode: string | null;
-  selectedCodes: string[];
-  onToggle: (code: string) => void;
+const GeoTargetingSection = memo(function GeoTargetingSection({ genre, homeCountryCode, selectedCodes, onToggle }: {
+  genre: string; homeCountryCode: string | null; selectedCodes: string[]; onToggle: (code: string) => void;
 }) {
-  const ranked = useMemo(
-    () => getRecommendedGeographies(genre || null, homeCountryCode),
-    [genre, homeCountryCode]
-  );
+  const ranked = useMemo(() => getRecommendedGeographies(genre || null, homeCountryCode), [genre, homeCountryCode]);
   const topCodes = useMemo(() => new Set(ranked.slice(0, 3).map((r) => r.code)), [ranked]);
 
   return (
     <div className="space-y-2.5">
       <div className="flex items-center justify-between">
         <label className="text-sm font-medium text-[var(--muted-foreground)]">Target Geography</label>
-        {genre ? (
-          <span className="flex items-center gap-1 text-[10px] text-[var(--subtle-foreground)]">
-            <Wand2 className="w-3 h-3" />
-            Ranked for {genre}
-          </span>
-        ) : (
-          <span className="text-[10px] text-[var(--subtle-foreground)]">Pick a genre for tailored picks</span>
-        )}
+        {genre ? <span className="flex items-center gap-1 text-[10px] text-[var(--subtle-foreground)]"><Wand2 className="w-3 h-3" />Ranked for {genre}</span>
+          : <span className="text-[10px] text-[var(--subtle-foreground)]">Pick a genre for tailored picks</span>}
       </div>
-
       <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 gap-2">
         {ranked.map((rec) => {
           const isSelected = selectedCodes.includes(rec.code);
           const isTop = topCodes.has(rec.code);
           const fit = scoreLabel(rec.score);
           return (
-            <button
-              key={rec.code}
-              type="button"
-              onClick={() => onToggle(rec.code)}
-              className={cn(
-                'relative text-left px-2.5 py-2 rounded-xl border transition-all active:scale-95',
-                isSelected
-                  ? 'bg-[#1db954]/10 border-[#1db954]/40 text-[#1db954]'
-                  : 'chip-card border-white/5 text-[var(--muted-foreground)]'
-              )}
-            >
-              {isTop && (
-                <span className="absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase bg-[#1db954] text-black shadow">
-                  Top
-                </span>
-              )}
-              <div className="flex items-center gap-1.5">
-                <span aria-hidden>{rec.flag}</span>
-                <span className="text-xs font-semibold truncate">{rec.country}</span>
-              </div>
+            <button key={rec.code} type="button" onClick={() => onToggle(rec.code)} className={cn(
+              'relative text-left px-2.5 py-2 rounded-xl border transition-all active:scale-95',
+              isSelected ? 'bg-[#1db954]/10 border-[#1db954]/40 text-[#1db954]' : 'chip-card border-white/5 text-[var(--muted-foreground)]'
+            )}>
+              {isTop && <span className="absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase bg-[#1db954] text-black shadow">Top</span>}
+              <div className="flex items-center gap-1.5"><span aria-hidden>{rec.flag}</span><span className="text-xs font-semibold truncate">{rec.country}</span></div>
               <div className="flex items-center gap-1 mt-1">
-                <span
-                  className={cn(
-                    'text-[9px] font-medium',
-                    fit.tone === 'strong' && 'text-[#1db954]',
-                    fit.tone === 'good' && 'text-[#3d91f4]',
-                    fit.tone === 'moderate' && 'text-amber-400',
-                    fit.tone === 'light' && 'text-[var(--subtle-foreground)]'
-                  )}
-                >
-                  {fit.label}
-                </span>
-                {rec.isHomeMarket && (
-                  <span className="flex items-center gap-0.5 text-[9px] text-[var(--subtle-foreground)]">
-                    <MapPin className="w-2.5 h-2.5" /> You
-                  </span>
-                )}
+                <span className={cn('text-[9px] font-medium', fit.tone === 'strong' && 'text-[#1db954]', fit.tone === 'good' && 'text-[#3d91f4]', fit.tone === 'moderate' && 'text-amber-400', fit.tone === 'light' && 'text-[var(--subtle-foreground)]')}>{fit.label}</span>
+                {rec.isHomeMarket && <span className="flex items-center gap-0.5 text-[9px] text-[var(--subtle-foreground)]"><MapPin className="w-2.5 h-2.5" />You</span>}
               </div>
             </button>
           );
         })}
       </div>
-      <p className="text-[11px] text-[var(--subtle-foreground)]">
-        {selectedCodes.length > 0
-          ? `Targeting ${selectedCodes.length} ${selectedCodes.length === 1 ? 'market' : 'markets'}. Leave empty to distribute across the whole network.`
-          : 'No markets selected — views will be distributed network-wide. Tap countries above to target specific markets.'}
-      </p>
+      <p className="text-[11px] text-[var(--subtle-foreground)]">{selectedCodes.length > 0 ? `Targeting ${selectedCodes.length} ${selectedCodes.length === 1 ? 'market' : 'markets'}.` : 'No markets selected — views distributed network-wide.'}</p>
     </div>
   );
 });
 
-
-const DurationSlotsGrid = memo(function DurationSlotsGrid({
-  selectedSlotId,
-}: {
-  selectedSlotId: string;
-}) {
+const DurationSlotsGrid = memo(function DurationSlotsGrid({ selectedSlotId }: { selectedSlotId: string }) {
   return (
     <div className="glass-card rounded-xl p-4">
       <div className="flex items-center justify-between mb-3">
@@ -216,90 +157,47 @@ const DurationSlotsGrid = memo(function DurationSlotsGrid({
         <span className="text-xs text-[var(--subtle-foreground)]">Auto-calculated</span>
       </div>
       <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-        {DURATION_SLOTS.map((slot) => {
-          const isSelected = selectedSlotId === slot.id;
-          return (
-            <div
-              key={slot.id}
-              className={cn(
-                'text-center p-2.5 rounded-xl border transition-all',
-                isSelected
-                  ? 'bg-[#1db954]/10 border-[#1db954]/30 text-[#1db954]'
-                  : 'chip-card border-white/5 text-[var(--subtle-foreground)]'
-              )}
-            >
-              <p className="text-xs font-bold">{slot.label}</p>
-              <p className="text-[10px] mt-0.5">{slot.days}d</p>
-            </div>
-          );
-        })}
+        {DURATION_SLOTS.map((slot) => (
+          <div key={slot.id} className={cn('text-center p-2.5 rounded-xl border transition-all',
+            selectedSlotId === slot.id ? 'bg-[#1db954]/10 border-[#1db954]/30 text-[#1db954]' : 'chip-card border-white/5 text-[var(--subtle-foreground)]'
+          )}>
+            <p className="text-xs font-bold">{slot.label}</p>
+            <p className="text-[10px] mt-0.5">{slot.days}d</p>
+          </div>
+        ))}
       </div>
     </div>
   );
 });
 
-const PricingBreakdown = memo(function PricingBreakdown({
-  pricing,
-  topGeo,
-  targetedGeo,
-  localAmountDisplay,
-}: {
+const PricingBreakdown = memo(function PricingBreakdown({ pricing, topGeo, targetedGeo, localCurrency }: {
   pricing: ReturnType<typeof calculatePricing>;
   topGeo: { country: string; flag: string } | null;
   targetedGeo: { country: string; flag: string } | null;
-  localAmountDisplay: string | null;
+  localCurrency: { code: string; symbol: string; rate: number } | null;
 }) {
-  // Artists care about how fast and how widely a campaign is moving, not a
-  // raw per-1K rate — so instead of "cost per view" this surfaces an hourly
-  // pace and where that pace is landing geographically. If the artist hasn't
-  // picked geo targets yet, it shows the network-wide top market.
   const geo = targetedGeo || topGeo;
   const hourlyRate = Math.round(pricing.dailyDripRate / 24);
+  const localTotal = localCurrency ? Math.round(pricing.totalCostCents * localCurrency.rate) : null;
 
   return (
     <div className="glass-card rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium text-[var(--muted-foreground)]">Pricing Breakdown</span>
-        {pricing.savingsPercent > 0 && (
-          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#1db954]/10 text-[#1db954] border border-[#1db954]/20">
-            Save {pricing.savingsPercent}%
-          </span>
-        )}
+        {pricing.savingsPercent > 0 && <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#1db954]/10 text-[#1db954] border border-[#1db954]/20">Save {pricing.savingsPercent}%</span>}
       </div>
-
       <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <p className="text-[10px] text-[var(--subtle-foreground)] uppercase tracking-wider">Subtotal</p>
-          <p className="text-sm font-semibold">{formatCents(pricing.subtotalCents)}</p>
-        </div>
-        <div className="space-y-1">
-          <p className="text-[10px] text-[var(--subtle-foreground)] uppercase tracking-wider">Platform Fee ({pricing.platformFeesCents / (pricing.subtotalCents / 100)}%)</p>
-          <p className="text-sm font-semibold">{formatCents(pricing.platformFeesCents)}</p>
-        </div>
-        <div className="space-y-1">
-          <p className="text-[10px] text-[var(--subtle-foreground)] uppercase tracking-wider">Est. Hourly Pace</p>
-          <p className="text-sm font-semibold flex items-center gap-1">
-            <Zap className="w-3.5 h-3.5 text-[#1db954]" />
-            {formatNumber(hourlyRate)}/hr
-          </p>
-        </div>
-        <div className="space-y-1">
-          <p className="text-[10px] text-[var(--subtle-foreground)] uppercase tracking-wider">Primary Market</p>
-          <p className="text-sm font-semibold flex items-center gap-1">
-            <Globe className="w-3.5 h-3.5 text-[#3d91f4]" />
-            {geo ? `${geo.flag} ${geo.country}` : 'Network-wide'}
-          </p>
-        </div>
+        <div className="space-y-1"><p className="text-[10px] text-[var(--subtle-foreground)] uppercase tracking-wider">Subtotal</p><p className="text-sm font-semibold">{formatCents(pricing.subtotalCents)}</p></div>
+        <div className="space-y-1"><p className="text-[10px] text-[var(--subtle-foreground)] uppercase tracking-wider">Platform Fee</p><p className="text-sm font-semibold">{formatCents(pricing.platformFeesCents)}</p></div>
+        <div className="space-y-1"><p className="text-[10px] text-[var(--subtle-foreground)] uppercase tracking-wider">Est. Hourly Pace</p><p className="text-sm font-semibold flex items-center gap-1"><Zap className="w-3.5 h-3.5 text-[#1db954]" />{formatNumber(hourlyRate)}/hr</p></div>
+        <div className="space-y-1"><p className="text-[10px] text-[var(--subtle-foreground)] uppercase tracking-wider">Primary Market</p><p className="text-sm font-semibold flex items-center gap-1"><Globe className="w-3.5 h-3.5 text-[#3d91f4]" />{geo ? `${geo.flag} ${geo.country}` : 'Network-wide'}</p></div>
       </div>
-
       <div className="pt-2 border-t border-[var(--glass-border)] flex items-center justify-between">
         <span className="text-sm font-medium text-[var(--muted-foreground)]">Total</span>
         <div className="text-right">
           <span className="text-xl font-bold">{formatCents(pricing.totalCostCents)}</span>
-          {localAmountDisplay && (
-            <p className="text-xs text-[var(--subtle-foreground)] mt-0.5">
-              ≈ {localAmountDisplay} — you'll pay the NGN equivalent at checkout
-            </p>
+          {localCurrency && localTotal !== null && (
+            <p className="text-xs text-[var(--subtle-foreground)] mt-0.5">≈ {localCurrency.symbol}{localTotal.toLocaleString()} {localCurrency.code}</p>
           )}
         </div>
       </div>
@@ -313,50 +211,22 @@ const CampaignCard = memo(function CampaignCard({ campaign }: { campaign: any })
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="font-semibold text-sm truncate">{campaign.resolved_song_id || 'Campaign'}</p>
-          <p className="text-[11px] text-[var(--subtle-foreground)] mt-0.5">
-            {new Date(campaign.created_at).toLocaleDateString()}
-          </p>
+          <p className="text-[11px] text-[var(--subtle-foreground)] mt-0.5">{new Date(campaign.created_at).toLocaleDateString()}</p>
         </div>
         <span className={cn('text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full border flex-shrink-0', getStageColor(campaign.current_stage))}>
           {getStageLabel(campaign.current_stage)}
         </span>
       </div>
-
-      {/* Progress bar */}
       <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
-        <div
-          className="h-full rounded-full bg-gradient-to-r from-[#1db954] to-[#3d91f4] transition-all duration-700"
-          style={{
-            width: `${Math.min(100, campaign.total_budget_cents > 0 ? (campaign.spent_cents / campaign.total_budget_cents) * 100 : 0)}%`,
-          }}
-        />
+        <div className="h-full rounded-full bg-gradient-to-r from-[#1db954] to-[#3d91f4] transition-all duration-700"
+          style={{ width: `${Math.min(100, campaign.total_budget_cents > 0 ? (campaign.spent_cents / campaign.total_budget_cents) * 100 : 0)}%` }} />
       </div>
-
       <div className="flex items-center justify-between text-[11px] text-[var(--subtle-foreground)]">
-        <div className="flex items-center gap-1">
-          <TrendingUp className="w-3.5 h-3.5" />
-          <span>{formatNumber(campaign.total_streams)} streams</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <Globe className="w-3.5 h-3.5" />
-          <span className="capitalize">{campaign.geographic_tier}</span>
-        </div>
-        {campaign.is_paused ? (
-          <div className="flex items-center gap-1 text-amber-400">
-            <PauseCircle className="w-3.5 h-3.5" />
-            <span>Paused</span>
-          </div>
-        ) : campaign.is_active ? (
-          <div className="flex items-center gap-1 text-[#1db954]">
-            <Zap className="w-3.5 h-3.5" />
-            <span>Active</span>
-          </div>
-        ) : (
-          <div className="flex items-center gap-1 text-[var(--subtle-foreground)]">
-            <Play className="w-3.5 h-3.5" />
-            <span>Completed</span>
-          </div>
-        )}
+        <div className="flex items-center gap-1"><TrendingUp className="w-3.5 h-3.5" /><span>{formatNumber(campaign.total_streams)} streams</span></div>
+        <div className="flex items-center gap-1"><Globe className="w-3.5 h-3.5" /><span className="capitalize">{campaign.geographic_tier}</span></div>
+        {campaign.is_paused ? <div className="flex items-center gap-1 text-amber-400"><PauseCircle className="w-3.5 h-3.5" /><span>Paused</span></div>
+          : campaign.is_active ? <div className="flex items-center gap-1 text-[#1db954]"><Zap className="w-3.5 h-3.5" /><span>Active</span></div>
+          : <div className="flex items-center gap-1 text-[var(--subtle-foreground)]"><Play className="w-3.5 h-3.5" /><span>Completed</span></div>}
       </div>
     </div>
   );
@@ -381,12 +251,24 @@ export default function PromotePage() {
   const [topGeo, setTopGeo] = useState<{ country: string; flag: string } | null>(null);
   const [homeCountryCode, setHomeCountryCode] = useState<string | null>(null);
   const [targetCountries, setTargetCountries] = useState<string[]>([]);
-  const [localCurrencyCode, setLocalCurrencyCode] = useState<string | null>(null);
-  const [localAmountDisplay, setLocalAmountDisplay] = useState<string | null>(null);
+  const [localCurrency, setLocalCurrency] = useState<{ code: string; symbol: string; rate: number } | null>(null);
 
-  // Lightweight, cached (60s) lookup of where the seed network's reach is
-  // concentrated right now, so the pricing card can show the artist where
-  // their hourly views are actually landing instead of a flat unit cost.
+  // Slider ref for CSS-only fill updates (no React re-render on drag)
+  const sliderRef = useRef<HTMLInputElement>(null);
+  const sliderDisplayRef = useRef<HTMLSpanElement>(null);
+
+  // Detect local currency ONCE on mount (not on every render)
+  useEffect(() => {
+    let cancelled = false;
+    detectUserGeo().then((geo) => {
+      if (cancelled || !geo) return;
+      const currency = COUNTRY_CURRENCY[geo.countryCode];
+      if (currency) setLocalCurrency(currency);
+      setHomeCountryCode(geo.countryCode);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     getPublicSeedStats().then((stats) => {
@@ -394,57 +276,12 @@ export default function PromotePage() {
       const top = stats.demographics[0];
       if (top) setTopGeo({ country: top.country, flag: top.flag });
     });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
-  // Best-effort IP geolocation (ipapi.co) so geo-targeting recommendations
-  // can be nudged toward the artist's own likely home audience, and so we
-  // know which local currency to show them a converted price estimate in.
-  // Silently no-ops if it fails — targeting/pricing still work off USD/NGN.
-  useEffect(() => {
-    let cancelled = false;
-    detectUserGeo().then((geo) => {
-      if (cancelled || !geo) return;
-      setHomeCountryCode(geo.countryCode);
-      if (geo.currencyCode) setLocalCurrencyCode(geo.currencyCode);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Recomputed only when viewCount actually changes, not on every render
-  // (form field typing, campaigns refresh, etc. no longer re-run the
-  // pricing engine).
   const pricing = useMemo(() => calculatePricing(viewCount), [viewCount]);
-  // Live USD -> local-currency conversion for display only. Recomputes
-  // whenever the price or detected currency changes; NGN is the artist's
-  // own currency (formatCents already shows USD, ngn breakdown is in
-  // PricingBreakdown), so we skip showing a redundant "≈" line for it.
-  useEffect(() => {
-    if (!localCurrencyCode || localCurrencyCode === 'USD') {
-      setLocalAmountDisplay(null);
-      return;
-    }
-    let cancelled = false;
-    convertUsdCentsTo(pricing.totalCostCents, localCurrencyCode).then((amount) => {
-      if (!cancelled) setLocalAmountDisplay(formatCurrency(amount, localCurrencyCode));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [pricing.totalCostCents, localCurrencyCode]);
+  const currentTier = useMemo(() => TIERS.find(t => viewCount >= t.min && viewCount <= t.max) || TIERS[0], [viewCount]);
 
-  const currentTier = useMemo(
-    () => TIERS.find(t => viewCount >= t.min && viewCount <= t.max) || TIERS[0],
-    [viewCount]
-  );
-
-  // The artist's own #1 ranked target market (by genre-affinity score),
-  // shown on the pricing card instead of the network-wide top country
-  // once they've actually picked geo targets.
   const topTargetedGeo = useMemo(() => {
     if (targetCountries.length === 0) return null;
     const ranked = getRecommendedGeographies(selectedGenre || null, homeCountryCode);
@@ -457,10 +294,6 @@ export default function PromotePage() {
     getArtistCampaigns(user.id).then(setCampaigns);
   }, [user?.id]);
 
-  // A guest who got sent to /fund-wallet from here (insufficient funds,
-  // or no account yet) lands back on this page once payment + account
-  // creation finish. Restore whatever they'd already filled in so they
-  // don't have to redo it.
   useEffect(() => {
     if (!isAuthenticated) return;
     try {
@@ -475,23 +308,33 @@ export default function PromotePage() {
     } catch {}
   }, [isAuthenticated]);
 
-  const handleSliderChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setViewCount(Number(e.target.value));
+  // ── CRITICAL FIX: Slider uses ref-based CSS updates, NOT React state, during drag ──
+  // This prevents the entire page from re-rendering (and glitching/black-screening) on every drag tick
+  const handleSliderInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = Number(e.target.value);
+    // Update CSS custom property for gold fill gradient — DOM only, no React re-render
+    if (sliderRef.current) {
+      const percent = ((val - 1000) / (500000 - 1000)) * 100;
+      sliderRef.current.style.setProperty('--value-percent', `${percent}%`);
+    }
+    // Update display number — DOM only, no React re-render
+    if (sliderDisplayRef.current) {
+      sliderDisplayRef.current.textContent = formatNumber(val);
+    }
   }, []);
 
-  const handleGenreSelect = useCallback((genre: string) => {
-    setSelectedGenre(genre);
+  // Only update React state when user releases the slider (onChange fires on release)
+  const handleSliderChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = Number(e.target.value);
+    setViewCount(val);
   }, []);
+
+  const handleGenreSelect = useCallback((genre: string) => { setSelectedGenre(genre); }, []);
 
   const handleToggleCountry = useCallback((code: string) => {
-    setTargetCountries((prev) =>
-      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
-    );
+    setTargetCountries((prev) => prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]);
   }, []);
 
-  // Maps the number of explicitly targeted markets onto the schema's fixed
-  // geographic_tier enum (local/regional/national/global). No selection at
-  // all keeps the previous default behavior (network-wide distribution).
   const geographicTier = useMemo(() => {
     const n = targetCountries.length;
     if (n === 0) return 'local';
@@ -500,72 +343,44 @@ export default function PromotePage() {
     return 'global';
   }, [targetCountries]);
 
-  const goFundWallet = useCallback(async (reason: string) => {
-    // The amount is always what the pricing engine computed for the
-    // campaign they're trying to launch, converted from USD to the
-    // wallet's own NGN denomination via a live exchange rate — NOT the
-    // USD-cents number reinterpreted as naira (that was the old bug: a
-    // $35 campaign was quietly only charging ~₦35).
-    const amountNaira = Math.ceil(await convertUsdCentsTo(pricing.totalCostCents, 'NGN'));
+  const goFundWallet = useCallback((reason: string) => {
+    const amountNaira = Math.ceil(pricing.totalCostCents / 100);
     try {
       sessionStorage.setItem(PENDING_CAMPAIGN_KEY, JSON.stringify({
-        sourceUrl: sourceUrl.trim(),
-        viewCount,
-        selectedGenre,
-        targetCountries,
+        sourceUrl: sourceUrl.trim(), viewCount, selectedGenre, targetCountries,
       }));
     } catch {}
-    router.push(
-      `/fund-wallet?amount=${amountNaira}&redirect=${encodeURIComponent('/promote')}&reason=${reason}`
-    );
+    router.push(`/fund-wallet?amount=${amountNaira}&redirect=${encodeURIComponent('/promote')}&reason=${reason}`);
   }, [pricing.totalCostCents, sourceUrl, viewCount, selectedGenre, targetCountries, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!sourceUrl.trim()) {
-      alert('Please enter a YouTube URL');
-      return;
-    }
-
-    // Guests always hit insufficient funds (a new account starts at
-    // ₦0), so send them straight to funding rather than a dead-end
-    // "please sign in" alert -- the account gets created for them the
-    // moment their payment confirms.
-    if (!isAuthenticated || !user?.id) {
-      await goFundWallet('launch_campaign');
-      return;
-    }
+    if (!sourceUrl.trim()) { alert('Please enter a YouTube URL'); return; }
+    if (!isAuthenticated || !user?.id) { goFundWallet('launch_campaign'); return; }
 
     setIsSubmitting(true);
     const result = await createCampaign({
-      sourceUrl: sourceUrl.trim(),
-      viewCount,
-      artistId: user.id,
-      genre: selectedGenre || undefined,
-      geographicTier,
-      targetCountries,
+      sourceUrl: sourceUrl.trim(), viewCount, artistId: user.id,
+      genre: selectedGenre || undefined, geographicTier, targetCountries,
     });
     setIsSubmitting(false);
 
     if (result.success) {
-      setShowSuccess(true);
-      setSourceUrl('');
-      setSelectedGenre('');
-      setTargetCountries([]);
+      setShowSuccess(true); setSourceUrl(''); setSelectedGenre(''); setTargetCountries([]);
       const updated = await getArtistCampaigns(user.id);
       setCampaigns(updated);
       setTimeout(() => setShowSuccess(false), 4000);
     } else if (/insufficient/i.test(result.error || '')) {
-      await goFundWallet('insufficient_funds');
+      goFundWallet('insufficient_funds');
     } else {
       alert(result.error || 'Failed to create campaign');
     }
   };
 
+  const sliderPercent = ((viewCount - 1000) / (500000 - 1000)) * 100;
+
   return (
     <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] scroll-smooth-mobile">
-      {/* Ambient background blobs — smaller + fewer on mobile, where GPU
-          budget for blurred, animated layers is much tighter. */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="ambient-blob absolute -top-24 -right-24 w-[280px] h-[280px] sm:-top-40 sm:-right-40 sm:w-[500px] sm:h-[500px] bg-[#1db954]/4 rounded-full blur-2xl sm:blur-3xl animate-ambient will-change-transform" />
         <div className="ambient-blob absolute -bottom-24 -left-24 w-[280px] h-[280px] sm:-bottom-40 sm:-left-40 sm:w-[500px] sm:h-[500px] bg-[#3d91f4]/4 rounded-full blur-2xl sm:blur-3xl animate-ambient-slow will-change-transform" />
@@ -573,13 +388,11 @@ export default function PromotePage() {
       </div>
 
       <div className="relative max-w-5xl mx-auto px-4 sm:px-6 pt-20 pb-24 md:pb-8 space-y-6">
-        {/* Header */}
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Promote Your Track</h1>
           <p className="text-[var(--muted-foreground)] text-sm mt-1">Paste your YouTube link. We handle the rest.</p>
         </div>
 
-        {/* Success toast */}
         {showSuccess && (
           <div className="fixed top-20 right-4 left-4 sm:left-auto z-50 glass-strong border-[#1db954]/30 px-5 py-3 rounded-xl shadow-2xl flex items-center gap-2 slide-in-from-right">
             <CheckCircle2 className="w-5 h-5 text-[#1db954] flex-shrink-0" />
@@ -587,81 +400,55 @@ export default function PromotePage() {
           </div>
         )}
 
-        {/* Main Form Card — Glass */}
         <div className="glass-strong rounded-2xl overflow-hidden gpu-layer">
-          {/* Tier badge */}
-          <div className={cn(
-            'px-5 py-2.5 text-xs font-bold uppercase tracking-wider',
-            'bg-gradient-to-r', currentTier.color,
-            'text-white shadow-lg'
-          )}>
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-3.5 h-3.5 flex-shrink-0" />
-              <span className="truncate">{currentTier.label} Tier</span>
-            </div>
+          <div className={cn('px-5 py-2.5 text-xs font-bold uppercase tracking-wider bg-gradient-to-r', currentTier.color, 'text-white shadow-lg')}>
+            <div className="flex items-center gap-2"><Sparkles className="w-3.5 h-3.5 flex-shrink-0" /><span className="truncate">{currentTier.label} Tier</span></div>
           </div>
 
           <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-6">
-            {/* YouTube URL */}
             <div>
               <label className="block text-sm font-medium mb-2 text-[var(--muted-foreground)]">YouTube URL</label>
               <div className="relative">
                 <Link2 className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--subtle-foreground)]" />
-                <input
-                  type="url"
-                  inputMode="url"
-                  placeholder="https://youtube.com/watch?v=..."
-                  value={sourceUrl}
-                  onChange={(e) => setSourceUrl(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3.5 rounded-xl glass-input text-sm text-white placeholder:text-[var(--subtle-foreground)]"
-                  required
-                />
+                <input type="url" inputMode="url" placeholder="https://youtube.com/watch?v=..." value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} className="w-full pl-11 pr-4 py-3.5 rounded-xl glass-input text-sm text-white placeholder:text-[var(--subtle-foreground)]" required />
               </div>
-              {sourceUrl.trim() && !selectedGenre && (
-                <p className="text-[11px] text-[var(--subtle-foreground)] mt-1.5">
-                  Pick your genre below and we'll rank the best-fit markets for this track.
-                </p>
-              )}
+              {sourceUrl.trim() && !selectedGenre && <p className="text-[11px] text-[var(--subtle-foreground)] mt-1.5">Pick your genre below and we'll rank the best-fit markets for this track.</p>}
             </div>
 
-            {/* Genre */}
             <div>
               <label className="block text-sm font-medium mb-2 text-[var(--muted-foreground)]">Genre</label>
               <GenreChips selectedGenre={selectedGenre} onSelect={handleGenreSelect} />
             </div>
 
-            {/* Geo Targeting */}
-            <GeoTargetingSection
-              genre={selectedGenre}
-              homeCountryCode={homeCountryCode}
-              selectedCodes={targetCountries}
-              onToggle={handleToggleCountry}
-            />
+            <GeoTargetingSection genre={selectedGenre} homeCountryCode={homeCountryCode} selectedCodes={targetCountries} onToggle={handleToggleCountry} />
 
-            {/* View Count Slider — gilded, futuristic styling; isolated onto
-                its own stacking context so drag interactions never force
-                the surrounding backdrop-filter glass card to recomposite
-                (the old cause of the iOS black-flash-while-dragging bug). */}
-            <div className="glass-card rounded-xl p-4" style={{ isolation: 'isolate', contain: 'layout paint style' }}>
-              <div className="flex items-center justify-between mb-4">
+            {/* ── FUTURISTIC GOLD SLIDER — CSS-only fill, no React re-render on drag ── */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
                 <label className="text-sm font-medium text-[var(--muted-foreground)]">Target Views</label>
-                <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-[#d4af37]/10 border border-[#d4af37]/25">
-                  <TrendingUp className="w-3.5 h-3.5 text-[#d4af37]" />
-                  <span className="text-lg font-bold tabular-nums text-[#f4e4bc]">{formatNumber(viewCount)}</span>
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-[#1db954]" />
+                  {/* ref-based display — updated via DOM, not React state */}
+                  <span ref={sliderDisplayRef} className="text-xl font-bold tabular-nums">{formatNumber(viewCount)}</span>
                 </div>
               </div>
-              <input
-                type="range"
-                min="1000"
-                max="500000"
-                step="1000"
-                value={viewCount}
-                onChange={handleSliderChange}
-                className="w-full slider-gold"
-                style={{ '--value-percent': `${((viewCount - 1000) / (500000 - 1000)) * 100}%` } as React.CSSProperties}
-                aria-label="Target views"
-              />
-              <div className="flex justify-between text-[10px] font-medium uppercase tracking-wider text-[var(--subtle-foreground)] mt-2">
+
+              <div className="relative py-3 px-1" style={{ touchAction: 'pan-y' }}>
+                <input
+                  ref={sliderRef}
+                  type="range"
+                  min="1000"
+                  max="500000"
+                  step="1000"
+                  value={viewCount}
+                  onInput={handleSliderInput}
+                  onChange={handleSliderChange}
+                  className="w-full"
+                  style={{ '--value-percent': `${sliderPercent}%` } as React.CSSProperties}
+                />
+              </div>
+
+              <div className="flex justify-between text-xs text-[var(--subtle-foreground)]">
                 <span>1K</span>
                 <span>100K</span>
                 <span>250K</span>
@@ -669,53 +456,29 @@ export default function PromotePage() {
               </div>
             </div>
 
-            {/* Duration Slot Display (auto-calculated, not selectable) */}
             <DurationSlotsGrid selectedSlotId={pricing.durationSlot.id} />
-            <p className="text-xs text-[var(--subtle-foreground)] -mt-3 text-center">
-              Based on {formatNumber(pricing.dailyDripRate)} views/day drip rate
-            </p>
+            <p className="text-xs text-[var(--subtle-foreground)] -mt-3 text-center">Based on {formatNumber(pricing.dailyDripRate)} views/day drip rate</p>
 
-            {/* Pricing Breakdown — Glass */}
-            <PricingBreakdown pricing={pricing} topGeo={topGeo} targetedGeo={topTargetedGeo} localAmountDisplay={localAmountDisplay} />
+            <PricingBreakdown pricing={pricing} topGeo={topGeo} targetedGeo={topTargetedGeo} localCurrency={localCurrency} />
 
-            {/* Submit */}
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full py-3.5 rounded-xl bg-[#1db954] text-black font-semibold hover:bg-[#1ed760] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-[#1db954]/20 gpu-layer"
-            >
-              {isSubmitting ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-                  Creating campaign...
-                </>
-              ) : (
-                <>
-                  <Rocket className="w-5 h-5" />
-                  <span className="truncate">Launch Campaign — {formatCents(pricing.totalCostCents)}</span>
-                </>
-              )}
+            <button type="submit" disabled={isSubmitting} className="w-full py-3.5 rounded-xl bg-[#1db954] text-black font-semibold hover:bg-[#1ed760] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-[#1db954]/20 gpu-layer">
+              {isSubmitting ? <><div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />Creating campaign...</>
+                : <><Rocket className="w-5 h-5" /><span className="truncate">Launch Campaign — {formatCents(pricing.totalCostCents)}</span></>}
             </button>
           </form>
         </div>
 
-        {/* Active Campaigns */}
         {campaigns.length > 0 && (
           <div className="space-y-4">
             <h2 className="text-lg font-bold">Your Campaigns</h2>
             <div className="space-y-3">
-              {campaigns.map((campaign) => (
-                <CampaignCard key={campaign.id} campaign={campaign} />
-              ))}
+              {campaigns.map((campaign) => <CampaignCard key={campaign.id} campaign={campaign} />)}
             </div>
           </div>
         )}
 
-        {/* Live, public seed-network analytics — social proof for both
-            guests and signed-in artists, always visible. */}
         <PublicAnalyticsShowcase />
 
-        {/* How it works — Glass */}
         <div className="glass-strong rounded-2xl p-5 sm:p-6 gpu-layer">
           <h3 className="font-bold mb-4">How It Works</h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

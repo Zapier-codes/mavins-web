@@ -28,22 +28,11 @@ const PLATFORM_ICONS: Record<string, { Icon: BrandIcon; color: string }> = {
 function ChartSkeleton({ height = 220 }: { height?: number }) {
   return (
     <div
-      className="w-full rounded-xl shimmer"
+      className="w-full rounded-xl shimmer glass-card"
       style={{ height }}
       aria-hidden
     />
   );
-}
-
-/** Detect if user is on a low-power mobile device */
-function isLowPowerDevice(): boolean {
-  if (typeof window === 'undefined') return false;
-  // Check for touch + small screen = likely mobile
-  const isMobile = window.matchMedia('(max-width: 640px)').matches;
-  const isTouch = 'ontouchstart' in window;
-  // Check for reduced motion preference
-  const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  return isMobile && isTouch || prefersReduced;
 }
 
 /**
@@ -51,21 +40,12 @@ function isLowPowerDevice(): boolean {
  * actually scrolled near-view. Keeps the initial promote-page paint light,
  * which is most of the mobile "lag" — recharts + two chart instances is not
  * cheap to hydrate on first paint if nobody has scrolled to it yet.
- * 
- * CRITICAL FIX: Added error boundary behavior and mobile performance guards
- * to prevent black screens and scroll jank.
  */
 export function PublicAnalyticsShowcase() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
   const [stats, setStats] = useState<PublicSeedStats | null>(null);
   const [barsIn, setBarsIn] = useState(false);
-  const [chartError, setChartError] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => {
-    setIsMobile(isLowPowerDevice());
-  }, []);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -92,9 +72,6 @@ export function PublicAnalyticsShowcase() {
       // Defer the demographic bar-width transition one frame so the CSS
       // transition actually animates from 0 instead of snapping in.
       requestAnimationFrame(() => setBarsIn(true));
-    }).catch(() => {
-      // Silently fail — the fallback data will still render from the service
-      if (!cancelled) setChartError(true);
     });
     return () => {
       cancelled = true;
@@ -102,38 +79,6 @@ export function PublicAnalyticsShowcase() {
   }, [isVisible]);
 
   const maxPlatformValue = stats ? Math.max(...stats.platforms.map((p) => p.value)) : 1;
-
-  // If charts fail to render, show a simplified fallback
-  if (chartError && stats) {
-    return (
-      <div ref={containerRef} className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-bold flex items-center gap-2">
-              Live Network Signals
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#1db954] opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-[#1db954]" />
-              </span>
-            </h2>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {[
-            { label: 'Seeded Users', value: stats.totalSeededUsers },
-            { label: 'Streams', value: stats.totalStreamsDelivered },
-            { label: 'Campaigns', value: stats.activeCampaigns },
-            { label: 'Countries', value: stats.countriesReached },
-          ].map((s) => (
-            <div key={s.label} className="glass-card rounded-xl p-3">
-              <p className="text-lg font-bold">{formatCompactNumber(s.value)}</p>
-              <p className="text-[11px] text-[var(--subtle-foreground)]">{s.label}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div ref={containerRef} className="space-y-4">
@@ -183,7 +128,7 @@ export function PublicAnalyticsShowcase() {
         ].map((stat) => (
           <div
             key={stat.label}
-            className="glass-card rounded-xl p-3.5 sm:p-4 flex flex-col gap-2 min-w-0 gpu-layer"
+            className="glass-card rounded-xl p-3.5 sm:p-4 flex flex-col gap-2 min-w-0"
           >
             <div
               className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
@@ -200,7 +145,7 @@ export function PublicAnalyticsShowcase() {
                     decimals={0}
                   />
                 ) : (
-                  <span className="inline-block w-12 h-5 rounded shimmer align-middle" />
+                  <span className="inline-block w-12 h-5 rounded shimmer glass-card align-middle" />
                 )}
               </p>
               <p className="text-[11px] text-[var(--subtle-foreground)] leading-tight mt-0.5">
@@ -211,8 +156,8 @@ export function PublicAnalyticsShowcase() {
         ))}
       </div>
 
-      {/* Live trend chart — CRITICAL FIX: reduced complexity on mobile */}
-      <div className="glass-strong rounded-2xl p-4 sm:p-5 gpu-layer">
+      {/* Live trend chart */}
+      <div className="glass-strong rounded-2xl p-4 sm:p-5">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-bold">7-Day Streaming Signal</h3>
           <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-full bg-[#1db954]/10 text-[#1db954] border border-[#1db954]/20">
@@ -231,9 +176,7 @@ export function PublicAnalyticsShowcase() {
                     <stop offset="100%" stopColor="#1db954" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                {!isMobile && (
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
-                )}
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
                 <XAxis
                   dataKey="label"
                   tick={{ fontSize: 11, fill: 'var(--subtle-foreground)' }}
@@ -261,10 +204,10 @@ export function PublicAnalyticsShowcase() {
                   type="monotone"
                   dataKey="streams"
                   stroke="#1db954"
-                  strokeWidth={isMobile ? 1.5 : 2}
+                  strokeWidth={2}
                   fill="url(#signalFill)"
-                  isAnimationActive={!isMobile}
-                  animationDuration={isMobile ? 0 : 1400}
+                  isAnimationActive
+                  animationDuration={1400}
                   animationEasing="ease-out"
                 />
               </AreaChart>
@@ -274,7 +217,7 @@ export function PublicAnalyticsShowcase() {
       </div>
 
       {/* Platform distribution — bar chart with brand icons */}
-      <div className="glass-strong rounded-2xl p-4 sm:p-5 gpu-layer">
+      <div className="glass-strong rounded-2xl p-4 sm:p-5">
         <h3 className="text-sm font-bold mb-1">Where Growth Is Happening</h3>
         <p className="text-xs text-[var(--subtle-foreground)] mb-4">
           Seeded engagement distributed across platforms this week
@@ -287,9 +230,7 @@ export function PublicAnalyticsShowcase() {
             <div className="h-[180px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={stats.platforms} margin={{ top: 8, right: 8, left: -28, bottom: 0 }}>
-                  {!isMobile && (
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
-                  )}
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
                   <XAxis dataKey="label" hide />
                   <YAxis
                     tick={{ fontSize: 11, fill: 'var(--subtle-foreground)' }}
@@ -311,8 +252,8 @@ export function PublicAnalyticsShowcase() {
                   <Bar
                     dataKey="value"
                     radius={[8, 8, 0, 0]}
-                    isAnimationActive={!isMobile}
-                    animationDuration={isMobile ? 0 : 1200}
+                    isAnimationActive
+                    animationDuration={1200}
                     animationEasing="ease-out"
                   >
                     {stats.platforms.map((p) => (
@@ -331,7 +272,7 @@ export function PublicAnalyticsShowcase() {
                 return (
                   <div
                     key={p.key}
-                    className="glass-card rounded-lg p-2.5 flex flex-col items-center gap-1.5 text-center gpu-layer"
+                    className="glass-card rounded-lg p-2.5 flex flex-col items-center gap-1.5 text-center"
                   >
                     <meta.Icon className="w-4 h-4" style={{ color: meta.color }} />
                     <span className="text-[11px] font-medium truncate w-full">{p.label}</span>
@@ -348,7 +289,7 @@ export function PublicAnalyticsShowcase() {
       </div>
 
       {/* Demographics — animated horizontal bars */}
-      <div className="glass-strong rounded-2xl p-4 sm:p-5 gpu-layer">
+      <div className="glass-strong rounded-2xl p-4 sm:p-5">
         <h3 className="text-sm font-bold mb-1">Listener Demographics</h3>
         <p className="text-xs text-[var(--subtle-foreground)] mb-4">
           Top countries by seeded listener share
@@ -357,7 +298,7 @@ export function PublicAnalyticsShowcase() {
         {!stats ? (
           <div className="space-y-2.5">
             {[...Array(5)].map((_, i) => (
-              <div key={i} className="h-8 rounded-lg shimmer" />
+              <div key={i} className="h-8 rounded-lg shimmer glass-card" />
             ))}
           </div>
         ) : (

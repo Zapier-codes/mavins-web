@@ -3,16 +3,19 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 
-/** Hardcoded admin credentials — the single source of truth.
- *  In production this would be a role column in the DB, but for
- *  this build the config lives here so it ships with the patch. */
+/** Hardcoded admin credentials — the single source of truth. */
 export const ADMIN_CONFIG = {
   email: 'bossblingzs@gmail.com',
   password: '$Password7492',
 } as const;
 
-export function isAdminEmail(email: string | null | undefined): boolean {
-  return email?.toLowerCase().trim() === ADMIN_CONFIG.email.toLowerCase().trim();
+/** Check if a user is admin by DB role OR hardcoded email fallback. */
+export function isAdmin(user: any): boolean {
+  if (!user) return false;
+  // DB role takes priority
+  if (user.role === 'admin') return true;
+  // Fallback to hardcoded email for the config admin
+  return user.email?.toLowerCase().trim() === ADMIN_CONFIG.email.toLowerCase().trim();
 }
 
 interface AuthContextType {
@@ -39,7 +42,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const getSession = async () => {
-      // 1. Try Supabase session first
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         const { data: profile } = await supabase
@@ -58,7 +60,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }));
         } catch {}
       } else {
-        // 2. Fallback: try localStorage recovery
         try {
           const saved = localStorage.getItem(SESSION_KEY);
           if (saved) {
@@ -115,13 +116,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try { localStorage.removeItem(SESSION_KEY); } catch {}
   };
 
-  const isAdmin = isAdminEmail(user?.email);
-
   return (
     <AuthContext.Provider value={{ 
       user, 
       isAuthenticated: !!user, 
-      isAdmin,
+      isAdmin: isAdmin(user),
       isLoading, 
       signOut 
     }}>
