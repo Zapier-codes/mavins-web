@@ -36,6 +36,7 @@ const nextConfig = {
   experimental: {
     optimizeCss: true,
     scrollRestoration: true,
+    optimizePackageImports: ['recharts', 'lucide-react'],
   },
 };
 
