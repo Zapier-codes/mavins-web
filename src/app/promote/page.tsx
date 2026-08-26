@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/auth/useAuth';
 import { createCampaign, getArtistCampaigns } from '@/services/campaign/campaign.service';
+import { getPublicSeedStats } from '@/services/stats/publicStats.service';
 import { calculatePricing, formatCents, formatNumber, DURATION_SLOTS } from '@/lib/campaign/pricing';
 import { cn } from '@/lib/utils/cn';
 import { 
@@ -91,14 +92,14 @@ const GenreChips = memo(function GenreChips({
   onSelect: (genre: string) => void;
 }) {
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="grid grid-cols-3 xs:grid-cols-4 sm:grid-cols-5 gap-2">
       {GENRES.map((genre) => (
         <button
           key={genre}
           type="button"
           onClick={() => onSelect(genre)}
           className={cn(
-            'px-3.5 py-1.5 rounded-full text-xs font-medium transition-all active:scale-95',
+            'w-full px-2 py-1.5 rounded-full text-xs font-medium text-center truncate transition-all active:scale-95',
             selectedGenre === genre
               ? 'bg-[#1db954] text-black shadow-lg shadow-[#1db954]/20'
               : 'glass-card text-[var(--muted-foreground)]'
@@ -147,12 +148,19 @@ const DurationSlotsGrid = memo(function DurationSlotsGrid({
 
 const PricingBreakdown = memo(function PricingBreakdown({
   pricing,
+  topGeo,
 }: {
   pricing: ReturnType<typeof calculatePricing>;
+  topGeo: { country: string; flag: string } | null;
 }) {
+  // Artists care about how fast and how widely a campaign is moving, not a
+  // raw per-1K rate — so instead of "cost per view" this surfaces an hourly
+  // pace and where that pace is landing geographically.
+  const hourlyViews = Math.max(1, Math.round(pricing.dailyDripRate / 24));
+
   return (
     <>
-      <div className="glass-card rounded-xl p-4 space-y-3">
+      <div className="card-solar-flare glass-card rounded-xl p-4 space-y-3 border border-[var(--glass-border)]">
         <div className="flex items-center justify-between">
           <span className="text-sm text-[var(--muted-foreground)]">Duration</span>
           <div className="flex items-center gap-1.5">
@@ -165,9 +173,17 @@ const PricingBreakdown = memo(function PricingBreakdown({
           <span className="text-sm text-[var(--muted-foreground)]">Daily Drip</span>
           <span className="text-sm font-semibold">{formatNumber(pricing.dailyDripRate)} views/day</span>
         </div>
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-[var(--muted-foreground)]">Cost per 1K views</span>
-          <span className="text-sm font-semibold">{formatCents(Math.round(pricing.subtotalCents / (pricing.viewCount / 1000)))}</span>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-sm text-[var(--muted-foreground)]">Hourly Reach</span>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-sm font-semibold whitespace-nowrap">~{formatNumber(hourlyViews)} views/hr</span>
+            {topGeo && (
+              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white/5 text-[10px] text-[var(--subtle-foreground)] flex-shrink-0">
+                <span aria-hidden>{topGeo.flag}</span>
+                <span className="truncate max-w-[70px]">{topGeo.country}</span>
+              </span>
+            )}
+          </div>
         </div>
         {pricing.savingsPercent > 0 && (
           <div className="flex items-center justify-between">
@@ -278,6 +294,22 @@ export default function PromotePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [topGeo, setTopGeo] = useState<{ country: string; flag: string } | null>(null);
+
+  // Lightweight, cached (60s) lookup of where the seed network's reach is
+  // concentrated right now, so the pricing card can show the artist where
+  // their hourly views are actually landing instead of a flat unit cost.
+  useEffect(() => {
+    let cancelled = false;
+    getPublicSeedStats().then((stats) => {
+      if (cancelled) return;
+      const top = stats.demographics[0];
+      if (top) setTopGeo({ country: top.country, flag: top.flag });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Recomputed only when viewCount actually changes, not on every render
   // (form field typing, campaigns refresh, etc. no longer re-run the
@@ -378,9 +410,9 @@ export default function PromotePage() {
       {/* Ambient background blobs — smaller + fewer on mobile, where GPU
           budget for blurred, animated layers is much tighter. */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-24 -right-24 w-[280px] h-[280px] sm:-top-40 sm:-right-40 sm:w-[500px] sm:h-[500px] bg-[#1db954]/4 rounded-full blur-2xl sm:blur-3xl animate-ambient will-change-transform" />
-        <div className="absolute -bottom-24 -left-24 w-[280px] h-[280px] sm:-bottom-40 sm:-left-40 sm:w-[500px] sm:h-[500px] bg-[#3d91f4]/4 rounded-full blur-2xl sm:blur-3xl animate-ambient-slow will-change-transform" />
-        <div className="hidden sm:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-[#a855f7]/3 rounded-full blur-3xl animate-ambient-fast will-change-transform" />
+        <div className="ambient-blob absolute -top-24 -right-24 w-[280px] h-[280px] sm:-top-40 sm:-right-40 sm:w-[500px] sm:h-[500px] bg-[#1db954]/4 rounded-full blur-2xl sm:blur-3xl animate-ambient will-change-transform" />
+        <div className="ambient-blob absolute -bottom-24 -left-24 w-[280px] h-[280px] sm:-bottom-40 sm:-left-40 sm:w-[500px] sm:h-[500px] bg-[#3d91f4]/4 rounded-full blur-2xl sm:blur-3xl animate-ambient-slow will-change-transform" />
+        <div className="ambient-blob hidden sm:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-[#a855f7]/3 rounded-full blur-3xl animate-ambient-fast will-change-transform" />
       </div>
 
       <div className="relative max-w-5xl mx-auto px-4 sm:px-6 pt-20 pb-24 md:pb-8 space-y-6">
@@ -469,7 +501,7 @@ export default function PromotePage() {
             </p>
 
             {/* Pricing Breakdown — Glass */}
-            <PricingBreakdown pricing={pricing} />
+            <PricingBreakdown pricing={pricing} topGeo={topGeo} />
 
             {/* Submit */}
             <button

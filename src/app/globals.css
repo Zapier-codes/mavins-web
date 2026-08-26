@@ -286,21 +286,83 @@ input[type="range"]::-moz-range-thumb {
   animation: shine 3.5s ease-in-out infinite;
 }
 
-/* Marquee — continuous horizontal scroll for the earnings ticker.
+/* Marquee — continuous vertical scroll (upward) for the earnings ticker.
    Track is duplicated in markup so it loops seamlessly; translating by
-   exactly -50% moves through one full copy before snapping back. */
-@keyframes marquee-scroll {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+   exactly -50% moves through one full copy before snapping back. Slowed
+   down from the old horizontal timing so individual pills stay readable. */
+@keyframes marquee-scroll-vertical {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-50%); }
 }
-.marquee-track {
-  animation: marquee-scroll 32s linear infinite;
+.marquee-track-vertical {
+  animation: marquee-scroll-vertical 48s linear infinite;
 }
-.marquee-track:hover {
+.marquee-track-vertical:hover {
   animation-play-state: paused;
 }
 @media (prefers-reduced-motion: reduce) {
-  .marquee-track {
+  .marquee-track-vertical {
+    animation: none;
+  }
+}
+
+/* Ambient background blobs — filter:blur() + animated transform inside a
+   fixed, overflow-hidden wrapper is a known iOS/mobile Safari compositing
+   bug: the blurred layer can flash/paint solid black instead of the blur.
+   Masking the element forces Safari onto a stable compositing path and
+   promoting it onto its own layer avoids the black-box flash. */
+.ambient-blob {
+  -webkit-mask-image: radial-gradient(circle, #fff 60%, #fff 100%);
+  mask-image: radial-gradient(circle, #fff 60%, #fff 100%);
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Solar flare — luxury accent glow used behind featured pricing cards. */
+@keyframes solar-flare-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.card-solar-flare {
+  position: relative;
+  isolation: isolate;
+}
+.card-solar-flare::before {
+  content: '';
+  position: absolute;
+  inset: -40%;
+  z-index: -1;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0%,
+    var(--accent-light) 8%,
+    transparent 18%,
+    transparent 50%,
+    var(--accent) 58%,
+    transparent 68%,
+    transparent 100%
+  );
+  opacity: 0.35;
+  filter: blur(24px);
+  animation: solar-flare-spin 12s linear infinite;
+}
+.card-solar-flare::after {
+  content: '';
+  position: absolute;
+  top: -18%;
+  right: -12%;
+  width: 55%;
+  height: 55%;
+  z-index: -1;
+  background: radial-gradient(circle, var(--accent-light) 0%, transparent 70%);
+  opacity: 0.5;
+  filter: blur(20px);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-solar-flare::before {
     animation: none;
   }
 }
