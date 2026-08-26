@@ -52,12 +52,12 @@ export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
       )}>
         <div className="flex flex-col h-full">
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-white/5">
+          <div className="flex items-center justify-between p-4 border-b border-[#d4af37]/10">
             <Link href="/" className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#1db954] to-[#169c45] flex items-center justify-center shadow-lg shadow-[#1db954]/20">
-                <Zap className="w-4 h-4 text-white" />
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#f4e4bc] to-[#a8862c] flex items-center justify-center shadow-lg shadow-[#d4af37]/20">
+                <Zap className="w-4 h-4 text-[#08070a]" />
               </div>
-              <span className="font-bold text-lg tracking-tight">Mavins</span>
+              <span className="font-display font-semibold text-lg tracking-tight text-[#f5f1e8]">Mavins</span>
             </Link>
             <button onClick={onClose} className="p-1.5 rounded-lg glass-card md:hidden">
               <X className="w-5 h-5" />
@@ -76,34 +76,34 @@ export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
                   className={cn(
                     'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
                     isActive 
-                      ? 'bg-[#1db954]/15 text-[#1db954] border border-[#1db954]/20' 
-                      : 'text-[#a0a0b0] hover:bg-white/5 hover:text-white'
+                      ? 'bg-[#d4af37]/12 text-[#f4e4bc] border border-[#d4af37]/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]' 
+                      : 'text-[#a39a8b] hover:bg-white/5 hover:text-[#f5f1e8]'
                   )}
                 >
                   <Icon className="w-4.5 h-4.5" />
                   <span>{item.label}</span>
-                  {isActive && <ChevronRight className="w-4 h-4 ml-auto opacity-50" />}
+                  {isActive && <ChevronRight className="w-4 h-4 ml-auto opacity-60 text-[#d4af37]" />}
                 </Link>
               );
             })}
           </nav>
 
           {/* User section */}
-          <div className="p-3 border-t border-white/5">
+          <div className="p-3 border-t border-[#d4af37]/10">
             {isAuthenticated && user ? (
               <div className="space-y-2">
                 <div className="flex items-center gap-3 px-3 py-2">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#1db954] to-[#3d91f4] flex items-center justify-center text-xs font-bold shadow-lg shadow-[#1db954]/20">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#f4e4bc] to-[#a8862c] flex items-center justify-center text-xs font-bold text-[#08070a] shadow-lg shadow-[#d4af37]/20">
                     {user.artistName?.charAt(0) || user.email?.charAt(0) || 'U'}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{user.artistName || user.email}</p>
-                    <p className="text-xs text-[#6b6b7b]">Artist</p>
+                    <p className="text-sm font-medium truncate text-[#f5f1e8]">{user.artistName || user.email}</p>
+                    <p className="text-xs text-[#a39a8b]">Artist</p>
                   </div>
                 </div>
                 <button 
                   onClick={signOut}
-                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-[#6b6b7b] hover:text-white hover:bg-white/5 rounded-xl transition-colors"
+                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-[#a39a8b] hover:text-[#f5f1e8] hover:bg-white/5 rounded-xl transition-colors"
                 >
                   <LogOut className="w-4 h-4" />
                   Sign Out
@@ -112,7 +112,7 @@ export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
             ) : (
               <Link 
                 href="/login"
-                className="flex items-center justify-center w-full py-2.5 rounded-xl bg-[#1db954] text-black text-sm font-semibold hover:bg-[#1ed760] transition-all shadow-lg shadow-[#1db954]/20"
+                className="flex items-center justify-center w-full py-2.5 rounded-xl bg-gradient-to-r from-[#f4e4bc] to-[#d4af37] text-[#08070a] text-sm font-semibold hover:brightness-110 transition-all shadow-lg shadow-[#d4af37]/25"
               >
                 Sign In
               </Link>

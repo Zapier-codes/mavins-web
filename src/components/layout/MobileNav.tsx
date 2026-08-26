@@ -18,7 +18,7 @@ export const MobileNav = () => {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 md:hidden glass-nav border-t border-white/5">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 md:hidden glass-nav border-t border-[#d4af37]/10">
       <div className="flex items-center justify-around px-1 py-1">
         {tabs.map((tab) => {
           const isActive = pathname === tab.href || pathname?.startsWith(tab.href + '/');
@@ -29,7 +29,7 @@ export const MobileNav = () => {
               href={tab.href}
               className={cn(
                 'flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl transition-all min-w-[64px]',
-                isActive ? 'text-[#1db954]' : 'text-[#6b6b7b]'
+                isActive ? 'text-[#d4af37]' : 'text-[#a39a8b]'
               )}
             >
               <Icon className="w-5 h-5" strokeWidth={isActive ? 2.5 : 1.5} />

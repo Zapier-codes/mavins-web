@@ -51,10 +51,10 @@ export const Header = ({
               </button>
             )}
             <Link href="/" className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#1db954] to-[#169c45] flex items-center justify-center shadow-lg shadow-[#1db954]/20">
-                <Zap className="w-4 h-4 text-white" />
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#f4e4bc] to-[#a8862c] flex items-center justify-center shadow-lg shadow-[#d4af37]/20">
+                <Zap className="w-4 h-4 text-[#08070a]" />
               </div>
-              <span className="font-bold text-lg tracking-tight hidden sm:block">
+              <span className="font-display font-semibold text-lg tracking-tight hidden sm:block text-[#f5f1e8]">
                 Mavins
               </span>
             </Link>
@@ -63,11 +63,11 @@ export const Header = ({
           {/* Center: Search (desktop only) */}
           <div className="hidden md:flex flex-1 max-w-md mx-6">
             <div className="relative w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6b6b7b]" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#a39a8b]" />
               <input 
                 type="text" 
                 placeholder="Search campaigns, tracks..." 
-                className="w-full pl-10 pr-4 py-2 rounded-xl text-sm glass-input text-white placeholder:text-[#6b6b7b]"
+                className="w-full pl-10 pr-4 py-2 rounded-xl text-sm glass-input text-[#f5f1e8] placeholder:text-[#a39a8b]"
               />
             </div>
           </div>
@@ -76,9 +76,9 @@ export const Header = ({
           <div className="flex items-center gap-1.5 sm:gap-2">
             {/* Wallet */}
             {isAuthenticated && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass-card border-[#1db954]/20">
-                <Wallet className="w-3.5 h-3.5 text-[#1db954]" />
-                <span className="text-sm font-semibold text-[#1db954]">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass-card border-[#d4af37]/25">
+                <Wallet className="w-3.5 h-3.5 text-[#d4af37]" />
+                <span className="text-sm font-semibold text-[#f4e4bc]">
                   ${(points / 100).toFixed(2)}
                 </span>
               </div>
@@ -89,9 +89,9 @@ export const Header = ({
               onClick={onNotificationClick} 
               className="p-2 rounded-xl glass-card relative"
             >
-              <Bell className="w-5 h-5 text-[#a0a0b0]" />
+              <Bell className="w-5 h-5 text-[#a39a8b]" />
               {notificationCount > 0 && (
-                <span className="absolute top-1 right-1 w-2 h-2 bg-[#ef4444] rounded-full pulse-ring" />
+                <span className="absolute top-1 right-1 w-2 h-2 bg-[#c0392b] rounded-full pulse-ring" />
               )}
             </button>
 
@@ -101,15 +101,15 @@ export const Header = ({
               className="p-2 rounded-xl glass-card"
             >
               {mode === 'dark' ? (
-                <Sun className="w-5 h-5 text-[#a0a0b0]" />
+                <Sun className="w-5 h-5 text-[#a39a8b]" />
               ) : (
-                <Moon className="w-5 h-5 text-[#a0a0b0]" />
+                <Moon className="w-5 h-5 text-[#a39a8b]" />
               )}
             </button>
 
             {/* Avatar */}
             {isAuthenticated && user && (
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#1db954] to-[#3d91f4] flex items-center justify-center text-xs font-bold shadow-lg shadow-[#1db954]/20">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#f4e4bc] to-[#a8862c] flex items-center justify-center text-xs font-bold text-[#08070a] shadow-lg shadow-[#d4af37]/20">
                 {user.artistName?.charAt(0) || user.email?.charAt(0) || 'U'}
               </div>
             )}
