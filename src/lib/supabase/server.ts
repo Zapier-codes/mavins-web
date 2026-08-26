@@ -34,19 +34,3 @@ export const createServerSupabaseClient = async () => {
     }
   );
 };
-
-// Export a direct supabase instance for server components (if needed)
-export const supabase = createServerClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  {
-    cookies: {
-      get(name: string) {
-        // This is a workaround - for server components, use createServerSupabaseClient() instead
-        return undefined;
-      },
-      set(name: string, value: string, options: any) {},
-      remove(name: string, options: any) {},
-    },
-  }
-);
