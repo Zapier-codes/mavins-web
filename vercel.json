@@ -15,7 +15,7 @@
   "crons": [
     {
       "path": "/api/seed-engine/run",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 3 * * *"
     }
   ]
 }
