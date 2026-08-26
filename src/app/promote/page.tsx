@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/auth/useAuth';
 import { createCampaign, getArtistCampaigns } from '@/services/campaign/campaign.service';
 import { calculatePricing, formatCents, formatNumber, DURATION_SLOTS } from '@/lib/campaign/pricing';
@@ -26,8 +27,11 @@ const TIERS = [
   { min: 1000001, max: 5000000, label: 'Legend', color: 'from-red-500 to-rose-600' },
 ];
 
+const PENDING_CAMPAIGN_KEY = 'mavins_pending_campaign';
+
 export default function PromotePage() {
   const { user, isAuthenticated } = useAuth();
+  const router = useRouter();
   const [viewCount, setViewCount] = useState(5000);
   const [sourceUrl, setSourceUrl] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('');
@@ -43,18 +47,57 @@ export default function PromotePage() {
     getArtistCampaigns(user.id).then(setCampaigns);
   }, [user?.id]);
 
+  // A guest who got sent to /fund-wallet from here (insufficient funds,
+  // or no account yet) lands back on this page once payment + account
+  // creation finish. Restore whatever they'd already filled in so they
+  // don't have to redo it.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    try {
+      const saved = sessionStorage.getItem(PENDING_CAMPAIGN_KEY);
+      if (!saved) return;
+      const draft = JSON.parse(saved);
+      if (draft.sourceUrl) setSourceUrl(draft.sourceUrl);
+      if (draft.viewCount) setViewCount(draft.viewCount);
+      if (draft.selectedGenre) setSelectedGenre(draft.selectedGenre);
+      sessionStorage.removeItem(PENDING_CAMPAIGN_KEY);
+    } catch {}
+  }, [isAuthenticated]);
+
   const handleSliderChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setViewCount(Number(e.target.value));
   }, []);
 
+  const goFundWallet = (reason: string) => {
+    // The amount is always what the pricing engine computed for the
+    // campaign they're trying to launch, not a number either of us
+    // typed in by hand.
+    const amountNaira = Math.ceil(pricing.totalCostCents / 100);
+    try {
+      sessionStorage.setItem(PENDING_CAMPAIGN_KEY, JSON.stringify({
+        sourceUrl: sourceUrl.trim(),
+        viewCount,
+        selectedGenre,
+      }));
+    } catch {}
+    router.push(
+      `/fund-wallet?amount=${amountNaira}&redirect=${encodeURIComponent('/promote')}&reason=${reason}`
+    );
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAuthenticated || !user?.id) {
-      alert('Please sign in to create a campaign');
-      return;
-    }
     if (!sourceUrl.trim()) {
       alert('Please enter a YouTube URL');
+      return;
+    }
+
+    // Guests always hit insufficient funds (a new account starts at
+    // ₦0), so send them straight to funding rather than a dead-end
+    // "please sign in" alert -- the account gets created for them the
+    // moment their payment confirms.
+    if (!isAuthenticated || !user?.id) {
+      goFundWallet('launch_campaign');
       return;
     }
 
@@ -73,6 +116,8 @@ export default function PromotePage() {
       const updated = await getArtistCampaigns(user.id);
       setCampaigns(updated);
       setTimeout(() => setShowSuccess(false), 4000);
+    } else if (/insufficient/i.test(result.error || '')) {
+      goFundWallet('insufficient_funds');
     } else {
       alert(result.error || 'Failed to create campaign');
     }
