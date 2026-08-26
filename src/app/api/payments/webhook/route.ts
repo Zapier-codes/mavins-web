@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceClient } from '@/lib/supabase/serviceClient';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     const amount = data.amount;
     const email = data.customer?.email;
 
-    const supabase = createServiceClient();
+    const supabase = createAdminClient();
 
     // Find payment record
     const { data: payment } = await supabase

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceClient } from '@/lib/supabase/serviceClient';
-import { createUserFromPayment } from '@/lib/auth/guestCheckout';
+import { createAdminClient } from '@/lib/supabase/admin';
+import { resolveOrCreateGuestAccount, creditWalletTopUp } from '@/lib/auth/guestCheckout';
 
 export async function GET(
   request: NextRequest,
@@ -11,7 +11,7 @@ export async function GET(
   const redirectPath = searchParams.get('redirect') || '/';
 
   try {
-    const supabase = createServiceClient();
+    const supabase = createAdminClient();
 
     // Check if already processed
     const { data: existing } = await supabase
@@ -90,7 +90,18 @@ export async function GET(
     // Guest checkout: create account if needed
     const pending = existing?.metadata?.guest_checkout;
     if (pending && email) {
-      await createUserFromPayment(supabase, email, reference, amount);
+      const guestAccount = await resolveOrCreateGuestAccount(email);
+      await creditWalletTopUp({
+        userId: guestAccount.userId,
+        amountCents: Math.round(amount * 100),
+        reference,
+        channel: 'korapay',
+      });
+      // Note: guestAccount.session (only populated for brand-new
+      // accounts) isn't applied here — this route only redirects, it
+      // doesn't set auth cookies. New guests land on /login same as
+      // returning ones for now; wiring an auto-login session is a
+      // separate follow-up if the product owner wants that UX.
     }
 
     return NextResponse.redirect(new URL(redirectPath, request.url));

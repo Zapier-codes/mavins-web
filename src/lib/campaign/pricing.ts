@@ -60,9 +60,16 @@ export interface CampaignPricing {
   tierLabel: string;
   savingsPercent: number;
   platformFeesCents: number;
-  platformFeePercent: number;
   subtotalCents: number;
 }
+
+/**
+ * Alias for CampaignPricing — some call sites (e.g.
+ * campaign.service.ts) import this name specifically.
+ * Kept as a type alias rather than renaming CampaignPricing itself
+ * to avoid touching every other existing call site.
+ */
+export type PricingResult = CampaignPricing;
 
 const PLATFORM_FEE_PERCENT = 15; // 15% platform fee
 

@@ -127,6 +127,38 @@ export async function getArtistCampaigns(artistId: string) {
   return data || [];
 }
 
+/**
+ * Aggregate dashboard data for the analytics page: campaigns (each
+ * with their daily_metrics for the stream/geo charts), milestones,
+ * and rollup totals. Backed by the get_artist_dashboard(p_artist_id)
+ * RPC documented in HANDOVER.md. Falls back to an empty-but-safe
+ * shape on error so callers can keep using optional chaining
+ * (dashboard?.campaigns, dashboard?.milestones, etc.) without the
+ * page crashing if the RPC isn't provisioned in a given environment
+ * yet.
+ */
+export async function getArtistDashboard(artistId: string) {
+  const emptyDashboard = {
+    campaigns: [] as any[],
+    milestones: [] as any[],
+    total_streams: 0,
+    active_campaigns: 0,
+    total_spent_cents: 0,
+    total_budget_cents: 0,
+  };
+
+  const { data, error } = await supabase.rpc('get_artist_dashboard', {
+    p_artist_id: artistId,
+  });
+
+  if (error || !data) {
+    console.error('Error fetching artist dashboard:', error);
+    return emptyDashboard;
+  }
+
+  return { ...emptyDashboard, ...data };
+}
+
 export async function getCampaignById(campaignId: string) {
   const { data, error } = await supabase
     .from('track_campaigns')
