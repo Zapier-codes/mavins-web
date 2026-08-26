@@ -50,14 +50,20 @@ export async function middleware(req: NextRequest) {
   }
 
   // --- PROTECTED ROUTES ---
-  // NOTE: /leaderboard is intentionally NOT protected. The rankings are public
-  // by design (get_leaderboard is granted to the `anon` role in Supabase) so
-  // visitors can see real participation and gamification progress before
-  // signing up.
-  const isProtectedRoute = req.nextUrl.pathname.startsWith('/dashboard') ||
-                          req.nextUrl.pathname.startsWith('/profile') ||
-                          req.nextUrl.pathname.startsWith('/earnings') ||
-                          req.nextUrl.pathname.startsWith('/api/protected');
+  // The whole artist-facing product is intentionally public: home,
+  // leaderboard, analytics, other artists' performance/spikes/graphs,
+  // activity, and earnings pages all render for anonymous visitors
+  // (get_leaderboard etc. are granted to the `anon` role in Supabase)
+  // so guests can see real participation and gamification progress
+  // before ever creating an account. The only thing that stays gated
+  // is the internal admin console -- "public app" means the product,
+  // not the ops panel.
+  //
+  // Pages that show a signed-in user's OWN data (e.g. /earnings) are
+  // still expected to render a generic/guest state client-side rather
+  // than someone else's private ledger -- that's handled in the page
+  // itself via useAuth(), not by blocking the route here.
+  const isProtectedRoute = req.nextUrl.pathname.startsWith('/admin');
 
   if (isProtectedRoute && !session) {
     const redirectUrl = new URL('/login', req.url);
@@ -107,6 +113,7 @@ export async function middleware(req: NextRequest) {
 export const config = {
   matcher: [
     '/',
+    '/admin/:path*',
     '/earnings/:path*',
     '/api/:path*',
     '/login/:path*',
