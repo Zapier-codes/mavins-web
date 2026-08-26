@@ -108,14 +108,14 @@ export default function EarningsPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
+      <div className="min-h-screen bg-[var(--background)] flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-[#1db954]/30 border-t-[#1db954] rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white">
+    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-[500px] h-[500px] bg-[#1db954]/4 rounded-full blur-3xl animate-ambient" />
         <div className="absolute -bottom-40 -left-40 w-[400px] h-[400px] bg-[#f59e0b]/4 rounded-full blur-3xl animate-ambient-slow" />
@@ -124,7 +124,7 @@ export default function EarningsPage() {
       <div className="relative max-w-3xl mx-auto px-4 sm:px-6 pt-20 pb-24 md:pb-8 space-y-5">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Earnings</h1>
-          <p className="text-[#a0a0b0] text-sm mt-1">Manage your wallet and withdrawals</p>
+          <p className="text-[var(--muted-foreground)] text-sm mt-1">Manage your wallet and withdrawals</p>
         </div>
 
         {/* Balance Card */}
@@ -133,7 +133,7 @@ export default function EarningsPage() {
           <div className="relative">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-[#a0a0b0] mb-1">Available Balance</p>
+                <p className="text-sm text-[var(--muted-foreground)] mb-1">Available Balance</p>
                 <p className="text-4xl font-bold">{formatCents(balance)}</p>
               </div>
               <div className="w-12 h-12 rounded-xl glass-card flex items-center justify-center">
@@ -165,7 +165,7 @@ export default function EarningsPage() {
             <h3 className="font-bold text-sm mb-4">Add Funds via Korapay</h3>
             <form onSubmit={handleAddFunds} className="space-y-4">
               <div>
-                <label className="block text-xs text-[#a0a0b0] mb-1">Amount (NGN)</label>
+                <label className="block text-xs text-[var(--muted-foreground)] mb-1">Amount (NGN)</label>
                 <input
                   type="number"
                   step="1"
@@ -173,7 +173,7 @@ export default function EarningsPage() {
                   value={fundAmount}
                   onChange={(e) => setFundAmount(e.target.value)}
                   placeholder="1000"
-                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[var(--subtle-foreground)]"
                   required
                 />
               </div>
@@ -211,7 +211,7 @@ export default function EarningsPage() {
             <h3 className="font-bold text-sm mb-4">Withdraw Funds</h3>
             <form onSubmit={handleWithdraw} className="space-y-4">
               <div>
-                <label className="block text-xs text-[#a0a0b0] mb-1">Amount (USD)</label>
+                <label className="block text-xs text-[var(--muted-foreground)] mb-1">Amount (USD)</label>
                 <input
                   type="number"
                   step="0.01"
@@ -220,7 +220,7 @@ export default function EarningsPage() {
                   value={withdrawAmount}
                   onChange={(e) => setWithdrawAmount(e.target.value)}
                   placeholder="0.00"
-                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[var(--subtle-foreground)]"
                   required
                 />
               </div>
@@ -250,7 +250,7 @@ export default function EarningsPage() {
           </div>
           <div className="divide-y divide-white/5">
             {entries.length === 0 ? (
-              <div className="p-8 text-center text-[#6b6b7b] text-sm">
+              <div className="p-8 text-center text-[var(--subtle-foreground)] text-sm">
                 <Clock className="w-8 h-8 mx-auto mb-2 opacity-50" />
                 <p>No transactions yet</p>
               </div>
@@ -270,7 +270,7 @@ export default function EarningsPage() {
                     </div>
                     <div>
                       <p className="text-sm font-medium">{entry.description || entry.type}</p>
-                      <p className="text-xs text-[#6b6b7b]">
+                      <p className="text-xs text-[var(--subtle-foreground)]">
                         {new Date(entry.created_at).toLocaleDateString()}
                       </p>
                     </div>

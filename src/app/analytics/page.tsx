@@ -87,7 +87,7 @@ export default function AnalyticsPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
+      <div className="min-h-screen bg-[var(--background)] flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-[#1db954]/30 border-t-[#1db954] rounded-full animate-spin" />
       </div>
     );
@@ -95,18 +95,18 @@ export default function AnalyticsPage() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center px-4">
+      <div className="min-h-screen bg-[var(--background)] flex items-center justify-center px-4">
         <div className="glass-strong rounded-2xl p-8 text-center max-w-sm">
-          <TrendingUp className="w-12 h-12 text-[#6b6b7b] mx-auto mb-4" />
+          <TrendingUp className="w-12 h-12 text-[var(--subtle-foreground)] mx-auto mb-4" />
           <h2 className="text-xl font-bold mb-2">Sign in to view analytics</h2>
-          <p className="text-[#a0a0b0] text-sm">Track your campaign performance in real-time</p>
+          <p className="text-[var(--muted-foreground)] text-sm">Track your campaign performance in real-time</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white">
+    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-[#1db954]/3 rounded-full blur-3xl" />
         <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-[#3d91f4]/3 rounded-full blur-3xl" />
@@ -117,7 +117,7 @@ export default function AnalyticsPage() {
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Analytics</h1>
-            <p className="text-[#a0a0b0] text-sm mt-1">Track your growth across all campaigns</p>
+            <p className="text-[var(--muted-foreground)] text-sm mt-1">Track your growth across all campaigns</p>
           </div>
           <div className="flex items-center gap-2">
             {(['7d', '30d', '90d', 'all'] as const).map((range) => (
@@ -128,7 +128,7 @@ export default function AnalyticsPage() {
                   'px-3 py-1.5 rounded-xl text-xs font-medium transition-all',
                   timeRange === range
                     ? 'bg-[#1db954] text-black'
-                    : 'glass-card text-[#a0a0b0]'
+                    : 'glass-card text-[var(--muted-foreground)]'
                 )}
               >
                 {range === 'all' ? 'All time' : range}
@@ -168,11 +168,11 @@ export default function AnalyticsPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
                 <XAxis 
                   dataKey="date" 
-                  stroke="#6b6b7b" 
+                  stroke="var(--subtle-foreground)" 
                   fontSize={11}
                   tickFormatter={(val) => new Date(val).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                 />
-                <YAxis stroke="#6b6b7b" fontSize={11} tickFormatter={formatCompactNumber} />
+                <YAxis stroke="var(--subtle-foreground)" fontSize={11} tickFormatter={formatCompactNumber} />
                 <Tooltip 
                   contentStyle={{ 
                     background: 'rgba(18, 18, 24, 0.9)', 
@@ -241,13 +241,13 @@ export default function AnalyticsPage() {
                         />
                         <span className="capitalize">{item.name}</span>
                       </div>
-                      <span className="text-[#a0a0b0]">{formatNumber(item.value)}</span>
+                      <span className="text-[var(--muted-foreground)]">{formatNumber(item.value)}</span>
                     </div>
                   ))}
                 </div>
               </>
             ) : (
-              <div className="h-56 flex items-center justify-center text-[#6b6b7b] text-sm">
+              <div className="h-56 flex items-center justify-center text-[var(--subtle-foreground)] text-sm">
                 No geographic data yet
               </div>
             )}
@@ -265,7 +265,7 @@ export default function AnalyticsPage() {
                   <div className="flex items-center justify-between">
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{c.source_url}</p>
-                      <p className="text-xs text-[#6b6b7b] mt-0.5">
+                      <p className="text-xs text-[var(--subtle-foreground)] mt-0.5">
                         {formatNumber(c.streams)} streams · {formatCents(c.spent_cents)} spent
                       </p>
                     </div>
@@ -286,7 +286,7 @@ export default function AnalyticsPage() {
                 </div>
               ))}
               {(!dashboard?.campaigns || dashboard.campaigns.length === 0) && (
-                <div className="text-center py-8 text-[#6b6b7b] text-sm">
+                <div className="text-center py-8 text-[var(--subtle-foreground)] text-sm">
                   No campaigns yet. Create your first one!
                 </div>
               )}
@@ -321,11 +321,11 @@ function StatCard({ label, value, icon: Icon }: { label: string; value: string; 
     <div className="glass-card rounded-xl p-4">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-xs text-[#6b6b7b] mb-1">{label}</p>
+          <p className="text-xs text-[var(--subtle-foreground)] mb-1">{label}</p>
           <p className="text-xl sm:text-2xl font-bold">{value}</p>
         </div>
         <div className="w-8 h-8 rounded-lg glass-card flex items-center justify-center">
-          <Icon className="w-4 h-4 text-[#6b6b7b]" />
+          <Icon className="w-4 h-4 text-[var(--subtle-foreground)]" />
         </div>
       </div>
     </div>

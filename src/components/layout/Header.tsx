@@ -51,10 +51,10 @@ export const Header = ({
               </button>
             )}
             <Link href="/" className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#f4e4bc] to-[#a8862c] flex items-center justify-center shadow-lg shadow-[#d4af37]/20">
-                <Zap className="w-4 h-4 text-[#08070a]" />
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[var(--accent-light)] to-[var(--accent-dark)] flex items-center justify-center shadow-lg shadow-[var(--accent)]/20">
+                <Zap className="w-4 h-4 text-[var(--background)]" />
               </div>
-              <span className="font-display font-semibold text-lg tracking-tight hidden sm:block text-[#f5f1e8]">
+              <span className="font-display font-semibold text-lg tracking-tight hidden sm:block text-[var(--foreground)]">
                 Mavins
               </span>
             </Link>
@@ -63,11 +63,11 @@ export const Header = ({
           {/* Center: Search (desktop only) */}
           <div className="hidden md:flex flex-1 max-w-md mx-6">
             <div className="relative w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#a39a8b]" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted-foreground)]" />
               <input 
                 type="text" 
                 placeholder="Search campaigns, tracks..." 
-                className="w-full pl-10 pr-4 py-2 rounded-xl text-sm glass-input text-[#f5f1e8] placeholder:text-[#a39a8b]"
+                className="w-full pl-10 pr-4 py-2 rounded-xl text-sm glass-input text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]"
               />
             </div>
           </div>
@@ -76,9 +76,9 @@ export const Header = ({
           <div className="flex items-center gap-1.5 sm:gap-2">
             {/* Wallet */}
             {isAuthenticated && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass-card border-[#d4af37]/25">
-                <Wallet className="w-3.5 h-3.5 text-[#d4af37]" />
-                <span className="text-sm font-semibold text-[#f4e4bc]">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass-card border-[var(--accent)]/25">
+                <Wallet className="w-3.5 h-3.5 text-[var(--accent)]" />
+                <span className="text-sm font-semibold text-[var(--accent-light)]">
                   ${(points / 100).toFixed(2)}
                 </span>
               </div>
@@ -89,7 +89,7 @@ export const Header = ({
               onClick={onNotificationClick} 
               className="p-2 rounded-xl glass-card relative"
             >
-              <Bell className="w-5 h-5 text-[#a39a8b]" />
+              <Bell className="w-5 h-5 text-[var(--muted-foreground)]" />
               {notificationCount > 0 && (
                 <span className="absolute top-1 right-1 w-2 h-2 bg-[#c0392b] rounded-full pulse-ring" />
               )}
@@ -101,15 +101,15 @@ export const Header = ({
               className="p-2 rounded-xl glass-card"
             >
               {mode === 'dark' ? (
-                <Sun className="w-5 h-5 text-[#a39a8b]" />
+                <Sun className="w-5 h-5 text-[var(--muted-foreground)]" />
               ) : (
-                <Moon className="w-5 h-5 text-[#a39a8b]" />
+                <Moon className="w-5 h-5 text-[var(--muted-foreground)]" />
               )}
             </button>
 
             {/* Avatar */}
             {isAuthenticated && user && (
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#f4e4bc] to-[#a8862c] flex items-center justify-center text-xs font-bold text-[#08070a] shadow-lg shadow-[#d4af37]/20">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[var(--accent-light)] to-[var(--accent-dark)] flex items-center justify-center text-xs font-bold text-[var(--background)] shadow-lg shadow-[var(--accent)]/20">
                 {user.artistName?.charAt(0) || user.email?.charAt(0) || 'U'}
               </div>
             )}

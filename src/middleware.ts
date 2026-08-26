@@ -50,10 +50,13 @@ export async function middleware(req: NextRequest) {
   }
 
   // --- PROTECTED ROUTES ---
+  // NOTE: /leaderboard is intentionally NOT protected. The rankings are public
+  // by design (get_leaderboard is granted to the `anon` role in Supabase) so
+  // visitors can see real participation and gamification progress before
+  // signing up.
   const isProtectedRoute = req.nextUrl.pathname.startsWith('/dashboard') ||
                           req.nextUrl.pathname.startsWith('/profile') ||
                           req.nextUrl.pathname.startsWith('/earnings') ||
-                          req.nextUrl.pathname.startsWith('/leaderboard') ||
                           req.nextUrl.pathname.startsWith('/api/protected');
 
   if (isProtectedRoute && !session) {
@@ -105,7 +108,6 @@ export const config = {
   matcher: [
     '/',
     '/earnings/:path*',
-    '/leaderboard/:path*',
     '/api/:path*',
     '/login/:path*',
     '/share/:path*',

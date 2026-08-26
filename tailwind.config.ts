@@ -20,6 +20,14 @@ const config: Config = {
       colors: {
         background: "var(--background)",
         foreground: "var(--foreground)",
+        muted: "var(--muted-foreground)",
+        subtle: "var(--subtle-foreground)",
+        accent: {
+          DEFAULT: 'var(--accent)',
+          light: 'var(--accent-light)',
+          dark: 'var(--accent-dark)',
+        },
+        /* gold/onyx kept for any markup still referencing them directly; prefer `accent` for new theme-aware work */
         gold: {
           DEFAULT: '#d4af37',
           light: '#f4e4bc',

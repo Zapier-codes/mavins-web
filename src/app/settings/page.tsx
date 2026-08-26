@@ -75,7 +75,7 @@ export default function SettingsPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white">
+    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute -top-40 -right-40 w-96 h-96 bg-[#3d91f4]/5 rounded-full blur-3xl animate-ambient" />
       </div>
@@ -83,7 +83,7 @@ export default function SettingsPage() {
       <div className="relative max-w-3xl mx-auto px-4 sm:px-6 pt-20 pb-24 md:pb-8 space-y-6">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Settings</h1>
-          <p className="text-[#a0a0b0] text-sm mt-1">Manage your account and preferences</p>
+          <p className="text-[var(--muted-foreground)] text-sm mt-1">Manage your account and preferences</p>
         </div>
 
         {/* Settings nav */}
@@ -93,7 +93,7 @@ export default function SettingsPage() {
               key={s.id}
               className={cn(
                 'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all',
-                s.active ? 'bg-[#1db954]/15 text-[#1db954] border border-[#1db954]/20' : 'glass-card text-[#a0a0b0]'
+                s.active ? 'bg-[#1db954]/15 text-[#1db954] border border-[#1db954]/20' : 'glass-card text-[var(--muted-foreground)]'
               )}
             >
               <s.icon className="w-4 h-4" />
@@ -110,45 +110,45 @@ export default function SettingsPage() {
             </div>
             <div>
               <h3 className="font-bold">Profile</h3>
-              <p className="text-xs text-[#6b6b7b]">Update your artist information</p>
+              <p className="text-xs text-[var(--subtle-foreground)]">Update your artist information</p>
             </div>
           </div>
 
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs text-[#a0a0b0] mb-1.5">Artist Name</label>
+              <label className="block text-xs text-[var(--muted-foreground)] mb-1.5">Artist Name</label>
               <input
                 value={artistName}
                 onChange={(e) => setArtistName(e.target.value)}
                 placeholder="Your artist name"
-                className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+                className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[var(--subtle-foreground)]"
               />
             </div>
             <div>
-              <label className="block text-xs text-[#a0a0b0] mb-1.5">Email</label>
+              <label className="block text-xs text-[var(--muted-foreground)] mb-1.5">Email</label>
               <input
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="your@email.com"
-                className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+                className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[var(--subtle-foreground)]"
               />
             </div>
             <div>
-              <label className="block text-xs text-[#a0a0b0] mb-1.5">Location</label>
+              <label className="block text-xs text-[var(--muted-foreground)] mb-1.5">Location</label>
               <input
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
                 placeholder="City, Country"
-                className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+                className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[var(--subtle-foreground)]"
               />
             </div>
             <div>
-              <label className="block text-xs text-[#a0a0b0] mb-1.5">Primary Genre</label>
+              <label className="block text-xs text-[var(--muted-foreground)] mb-1.5">Primary Genre</label>
               <input
                 value={genre}
                 onChange={(e) => setGenre(e.target.value)}
                 placeholder="Afrobeats, Hip-Hop, etc."
-                className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+                className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[var(--subtle-foreground)]"
               />
             </div>
           </div>
@@ -156,63 +156,63 @@ export default function SettingsPage() {
           {/* Social Handles */}
           <div className="pt-4 border-t border-white/5">
             <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
-              <Globe className="w-4 h-4 text-[#a0a0b0]" />
+              <Globe className="w-4 h-4 text-[var(--muted-foreground)]" />
               Social & Contact
             </h4>
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs text-[#a0a0b0] mb-1.5 flex items-center gap-1">
+                <label className="block text-xs text-[var(--muted-foreground)] mb-1.5 flex items-center gap-1">
                   <MessageCircle className="w-3 h-3" /> WhatsApp Number
                 </label>
                 <input
                   value={whatsapp}
                   onChange={(e) => setWhatsapp(e.target.value)}
                   placeholder="+234..."
-                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[var(--subtle-foreground)]"
                 />
               </div>
               <div>
-                <label className="block text-xs text-[#a0a0b0] mb-1.5 flex items-center gap-1">
+                <label className="block text-xs text-[var(--muted-foreground)] mb-1.5 flex items-center gap-1">
                   <Instagram className="w-3 h-3" /> Instagram Handle
                 </label>
                 <input
                   value={instagram}
                   onChange={(e) => setInstagram(e.target.value)}
                   placeholder="@yourhandle"
-                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[var(--subtle-foreground)]"
                 />
               </div>
               <div>
-                <label className="block text-xs text-[#a0a0b0] mb-1.5 flex items-center gap-1">
+                <label className="block text-xs text-[var(--muted-foreground)] mb-1.5 flex items-center gap-1">
                   <Twitter className="w-3 h-3" /> Twitter / X Handle
                 </label>
                 <input
                   value={twitter}
                   onChange={(e) => setTwitter(e.target.value)}
                   placeholder="@yourhandle"
-                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[var(--subtle-foreground)]"
                 />
               </div>
               <div>
-                <label className="block text-xs text-[#a0a0b0] mb-1.5 flex items-center gap-1">
+                <label className="block text-xs text-[var(--muted-foreground)] mb-1.5 flex items-center gap-1">
                   <Video className="w-3 h-3" /> TikTok Handle
                 </label>
                 <input
                   value={tiktok}
                   onChange={(e) => setTiktok(e.target.value)}
                   placeholder="@yourhandle"
-                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[var(--subtle-foreground)]"
                 />
               </div>
               <div>
-                <label className="block text-xs text-[#a0a0b0] mb-1.5 flex items-center gap-1">
+                <label className="block text-xs text-[var(--muted-foreground)] mb-1.5 flex items-center gap-1">
                   <Music2 className="w-3 h-3" /> Spotify Artist ID
                 </label>
                 <input
                   value={spotifyId}
                   onChange={(e) => setSpotifyId(e.target.value)}
                   placeholder="spotify:artist:..."
-                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+                  className="w-full px-4 py-3 rounded-xl glass-input text-sm text-white placeholder:text-[var(--subtle-foreground)]"
                 />
               </div>
             </div>

@@ -80,20 +80,20 @@ export default function AdminPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
+      <div className="min-h-screen bg-[var(--background)] flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-[#1db954]/30 border-t-[#1db954] rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white">
+    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
       <div className="relative max-w-6xl mx-auto px-4 sm:px-6 pt-20 pb-24 md:pb-8 space-y-6">
         <div className="flex items-center gap-3">
           <Shield className="w-6 h-6 text-[#1db954]" />
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Admin Dashboard</h1>
-            <p className="text-[#a0a0b0] text-sm">Platform health and management</p>
+            <p className="text-[var(--muted-foreground)] text-sm">Platform health and management</p>
           </div>
         </div>
 
@@ -115,7 +115,7 @@ export default function AdminPage() {
               onClick={() => setActiveTab(tab)}
               className={cn(
                 'px-4 py-2 rounded-xl text-sm font-medium capitalize transition-all',
-                activeTab === tab ? 'bg-[#1db954] text-black' : 'glass-card text-[#a0a0b0]'
+                activeTab === tab ? 'bg-[#1db954] text-black' : 'glass-card text-[var(--muted-foreground)]'
               )}
             >
               {tab}
@@ -129,7 +129,7 @@ export default function AdminPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-white/5 text-[#a0a0b0]">
+                  <tr className="border-b border-white/5 text-[var(--muted-foreground)]">
                     <th className="text-left px-4 py-3 font-medium">Artist</th>
                     <th className="text-left px-4 py-3 font-medium">Stage</th>
                     <th className="text-left px-4 py-3 font-medium">Streams</th>
@@ -143,7 +143,7 @@ export default function AdminPage() {
                     <tr key={c.id} className="border-b border-white/5 hover:bg-white/5">
                       <td className="px-4 py-3">
                         <div className="font-medium">{c.artist?.artist_name || 'Unknown'}</div>
-                        <div className="text-xs text-[#6b6b7b]">{c.artist?.email}</div>
+                        <div className="text-xs text-[var(--subtle-foreground)]">{c.artist?.email}</div>
                       </td>
                       <td className="px-4 py-3">
                         <span className={cn(
@@ -199,7 +199,7 @@ export default function AdminPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-white/5 text-[#a0a0b0]">
+                  <tr className="border-b border-white/5 text-[var(--muted-foreground)]">
                     <th className="text-left px-4 py-3 font-medium">Artist</th>
                     <th className="text-left px-4 py-3 font-medium">Email</th>
                     <th className="text-left px-4 py-3 font-medium">Genre</th>
@@ -210,9 +210,9 @@ export default function AdminPage() {
                   {users.map((u) => (
                     <tr key={u.id} className="border-b border-white/5 hover:bg-white/5">
                       <td className="px-4 py-3 font-medium">{u.artist_name || '—'}</td>
-                      <td className="px-4 py-3 text-[#a0a0b0]">{u.email}</td>
+                      <td className="px-4 py-3 text-[var(--muted-foreground)]">{u.email}</td>
                       <td className="px-4 py-3">{u.primary_genre || '—'}</td>
-                      <td className="px-4 py-3 text-[#6b6b7b]">
+                      <td className="px-4 py-3 text-[var(--subtle-foreground)]">
                         {new Date(u.created_at).toLocaleDateString()}
                       </td>
                     </tr>
@@ -229,7 +229,7 @@ export default function AdminPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-white/5 text-[#a0a0b0]">
+                  <tr className="border-b border-white/5 text-[var(--muted-foreground)]">
                     <th className="text-left px-4 py-3 font-medium">User</th>
                     <th className="text-left px-4 py-3 font-medium">Type</th>
                     <th className="text-left px-4 py-3 font-medium">Amount</th>
@@ -255,8 +255,8 @@ export default function AdminPage() {
                       <td className={cn('px-4 py-3 font-medium', e.amount_cents >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
                           {e.amount_cents >= 0 ? '+' : ''}{formatCents(e.amount_cents)}
                       </td>
-                      <td className="px-4 py-3 text-[#a0a0b0] max-w-xs truncate">{e.description}</td>
-                      <td className="px-4 py-3 text-[#6b6b7b]">{new Date(e.created_at).toLocaleDateString()}</td>
+                      <td className="px-4 py-3 text-[var(--muted-foreground)] max-w-xs truncate">{e.description}</td>
+                      <td className="px-4 py-3 text-[var(--subtle-foreground)]">{new Date(e.created_at).toLocaleDateString()}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -272,9 +272,9 @@ export default function AdminPage() {
 function StatCard({ icon: Icon, label, value, color = 'text-white' }: { icon: any; label: string; value: string | number; color?: string }) {
   return (
     <div className="glass-card rounded-2xl p-4">
-      <Icon className="w-5 h-5 text-[#6b6b7b] mb-2" />
+      <Icon className="w-5 h-5 text-[var(--subtle-foreground)] mb-2" />
       <div className={cn('text-xl font-bold', color)}>{value}</div>
-      <div className="text-xs text-[#6b6b7b]">{label}</div>
+      <div className="text-xs text-[var(--subtle-foreground)]">{label}</div>
     </div>
   );
 }

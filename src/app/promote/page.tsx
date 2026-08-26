@@ -85,8 +85,8 @@ export default function PromotePage() {
       case 'root_system': return 'text-violet-400 bg-violet-400/10 border-violet-400/20';
       case 'branching': return 'text-amber-400 bg-amber-400/10 border-amber-400/20';
       case 'full_bloom': return 'text-rose-400 bg-rose-400/10 border-rose-400/20';
-      case 'completed': return 'text-[#6b6b7b] bg-[#6b6b7b]/10 border-[#6b6b7b]/20';
-      default: return 'text-[#6b6b7b] bg-[#6b6b7b]/10 border-[#6b6b7b]/20';
+      case 'completed': return 'text-[var(--subtle-foreground)] bg-[var(--subtle-foreground)]/10 border-[var(--subtle-foreground)]/20';
+      default: return 'text-[var(--subtle-foreground)] bg-[var(--subtle-foreground)]/10 border-[var(--subtle-foreground)]/20';
     }
   };
 
@@ -103,7 +103,7 @@ export default function PromotePage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white">
+    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
       {/* Ambient background blobs */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-[500px] h-[500px] bg-[#1db954]/4 rounded-full blur-3xl animate-ambient" />
@@ -115,7 +115,7 @@ export default function PromotePage() {
         {/* Header */}
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Promote Your Track</h1>
-          <p className="text-[#a0a0b0] text-sm mt-1">Paste your YouTube link. We handle the rest.</p>
+          <p className="text-[var(--muted-foreground)] text-sm mt-1">Paste your YouTube link. We handle the rest.</p>
         </div>
 
         {/* Success toast */}
@@ -143,15 +143,15 @@ export default function PromotePage() {
           <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-6">
             {/* YouTube URL */}
             <div>
-              <label className="block text-sm font-medium mb-2 text-[#a0a0b0]">YouTube URL</label>
+              <label className="block text-sm font-medium mb-2 text-[var(--muted-foreground)]">YouTube URL</label>
               <div className="relative">
-                <Link2 className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6b6b7b]" />
+                <Link2 className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--subtle-foreground)]" />
                 <input
                   type="url"
                   placeholder="https://youtube.com/watch?v=..."
                   value={sourceUrl}
                   onChange={(e) => setSourceUrl(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3.5 rounded-xl glass-input text-sm text-white placeholder:text-[#6b6b7b]"
+                  className="w-full pl-11 pr-4 py-3.5 rounded-xl glass-input text-sm text-white placeholder:text-[var(--subtle-foreground)]"
                   required
                 />
               </div>
@@ -159,7 +159,7 @@ export default function PromotePage() {
 
             {/* Genre */}
             <div>
-              <label className="block text-sm font-medium mb-2 text-[#a0a0b0]">Genre</label>
+              <label className="block text-sm font-medium mb-2 text-[var(--muted-foreground)]">Genre</label>
               <div className="flex flex-wrap gap-2">
                 {GENRES.map((genre) => (
                   <button
@@ -170,7 +170,7 @@ export default function PromotePage() {
                       'px-3.5 py-1.5 rounded-full text-xs font-medium transition-all',
                       selectedGenre === genre
                         ? 'bg-[#1db954] text-black shadow-lg shadow-[#1db954]/20'
-                        : 'glass-card text-[#a0a0b0]'
+                        : 'glass-card text-[var(--muted-foreground)]'
                     )}
                   >
                     {genre}
@@ -182,7 +182,7 @@ export default function PromotePage() {
             {/* View Count Slider */}
             <div>
               <div className="flex items-center justify-between mb-3">
-                <label className="text-sm font-medium text-[#a0a0b0]">Target Views</label>
+                <label className="text-sm font-medium text-[var(--muted-foreground)]">Target Views</label>
                 <div className="flex items-center gap-2">
                   <TrendingUp className="w-4 h-4 text-[#1db954]" />
                   <span className="text-xl font-bold">{formatNumber(viewCount)}</span>
@@ -197,7 +197,7 @@ export default function PromotePage() {
                 onChange={handleSliderChange}
                 className="w-full"
               />
-              <div className="flex justify-between text-xs text-[#6b6b7b] mt-1.5">
+              <div className="flex justify-between text-xs text-[var(--subtle-foreground)] mt-1.5">
                 <span>1K</span>
                 <span>100K</span>
                 <span>250K</span>
@@ -208,8 +208,8 @@ export default function PromotePage() {
             {/* Duration Slot Display (auto-calculated, not selectable) */}
             <div className="glass-card rounded-xl p-4">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-[#a0a0b0]">Campaign Duration</span>
-                <span className="text-xs text-[#6b6b7b]">Auto-calculated</span>
+                <span className="text-sm font-medium text-[var(--muted-foreground)]">Campaign Duration</span>
+                <span className="text-xs text-[var(--subtle-foreground)]">Auto-calculated</span>
               </div>
               <div className="grid grid-cols-5 gap-2">
                 {DURATION_SLOTS.map((slot) => {
@@ -221,7 +221,7 @@ export default function PromotePage() {
                         'text-center p-2.5 rounded-xl border transition-all',
                         isSelected
                           ? 'bg-[#1db954]/10 border-[#1db954]/30 text-[#1db954]'
-                          : 'glass-card border-white/5 text-[#6b6b7b]'
+                          : 'glass-card border-white/5 text-[var(--subtle-foreground)]'
                       )}
                     >
                       <p className="text-xs font-bold">{slot.label}</p>
@@ -230,7 +230,7 @@ export default function PromotePage() {
                   );
                 })}
               </div>
-              <p className="text-xs text-[#6b6b7b] mt-2 text-center">
+              <p className="text-xs text-[var(--subtle-foreground)] mt-2 text-center">
                 Based on {formatNumber(pricing.dailyDripRate)} views/day drip rate
               </p>
             </div>
@@ -238,30 +238,30 @@ export default function PromotePage() {
             {/* Pricing Breakdown — Glass */}
             <div className="glass-card rounded-xl p-4 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm text-[#a0a0b0]">Duration</span>
+                <span className="text-sm text-[var(--muted-foreground)]">Duration</span>
                 <div className="flex items-center gap-1.5">
                   <Clock className="w-4 h-4 text-[#3d91f4]" />
                   <span className="text-sm font-semibold">{pricing.durationSlot.label}</span>
-                  <span className="text-xs text-[#6b6b7b]">({pricing.durationSlot.days} days)</span>
+                  <span className="text-xs text-[var(--subtle-foreground)]">({pricing.durationSlot.days} days)</span>
                 </div>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-[#a0a0b0]">Daily Drip</span>
+                <span className="text-sm text-[var(--muted-foreground)]">Daily Drip</span>
                 <span className="text-sm font-semibold">{formatNumber(pricing.dailyDripRate)} views/day</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-[#a0a0b0]">Cost per 1K views</span>
+                <span className="text-sm text-[var(--muted-foreground)]">Cost per 1K views</span>
                 <span className="text-sm font-semibold">{formatCents(Math.round(pricing.subtotalCents / (viewCount / 1000)))}</span>
               </div>
               {pricing.savingsPercent > 0 && (
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-[#a0a0b0]">Volume savings</span>
+                  <span className="text-sm text-[var(--muted-foreground)]">Volume savings</span>
                   <span className="text-sm font-semibold text-[#1db954]">-{pricing.savingsPercent}%</span>
                 </div>
               )}
               <div className="h-px bg-white/5" />
               <div className="flex items-center justify-between">
-                <span className="text-sm text-[#a0a0b0]">Platform fee (15%)</span>
+                <span className="text-sm text-[var(--muted-foreground)]">Platform fee (15%)</span>
                 <span className="text-sm">{formatCents(pricing.platformFeesCents)}</span>
               </div>
               <div className="flex items-center justify-between pt-1">
@@ -271,7 +271,7 @@ export default function PromotePage() {
             </div>
 
             {/* Refund policy */}
-            <div className="flex items-start gap-2 text-xs text-[#6b6b7b]">
+            <div className="flex items-start gap-2 text-xs text-[var(--subtle-foreground)]">
               <ShieldCheck className="w-4 h-4 mt-0.5 flex-shrink-0 text-[#1db954]/50" />
               <p>You only pay for delivered views. If we fall short, the difference is refunded to your wallet automatically.</p>
             </div>
@@ -310,11 +310,11 @@ export default function PromotePage() {
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="w-10 h-10 rounded-xl glass-card flex items-center justify-center flex-shrink-0">
-                        <Music className="w-5 h-5 text-[#6b6b7b]" />
+                        <Music className="w-5 h-5 text-[var(--subtle-foreground)]" />
                       </div>
                       <div className="min-w-0">
                         <p className="font-medium text-sm truncate">{campaign.source_url}</p>
-                        <p className="text-xs text-[#6b6b7b]">
+                        <p className="text-xs text-[var(--subtle-foreground)]">
                           {formatNumber(campaign.total_streams)} streams · {formatCents(campaign.spent_cents)} spent
                         </p>
                       </div>
@@ -330,8 +330,8 @@ export default function PromotePage() {
                   {/* Progress bar */}
                   <div className="mt-3">
                     <div className="flex justify-between text-xs mb-1">
-                      <span className="text-[#6b6b7b]">Budget used</span>
-                      <span className="text-[#a0a0b0]">
+                      <span className="text-[var(--subtle-foreground)]">Budget used</span>
+                      <span className="text-[var(--muted-foreground)]">
                         {formatCents(campaign.spent_cents)} / {formatCents(campaign.total_budget_cents)}
                       </span>
                     </div>
@@ -344,7 +344,7 @@ export default function PromotePage() {
                   </div>
 
                   {/* Stats row */}
-                  <div className="flex items-center gap-4 mt-3 text-xs text-[#6b6b7b]">
+                  <div className="flex items-center gap-4 mt-3 text-xs text-[var(--subtle-foreground)]">
                     <div className="flex items-center gap-1">
                       <BarChart3 className="w-3.5 h-3.5" />
                       <span>{formatNumber(campaign.total_streams)} streams</span>
@@ -364,7 +364,7 @@ export default function PromotePage() {
                         <span>Active</span>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-1 text-[#6b6b7b]">
+                      <div className="flex items-center gap-1 text-[var(--subtle-foreground)]">
                         <Play className="w-3.5 h-3.5" />
                         <span>Completed</span>
                       </div>
@@ -391,7 +391,7 @@ export default function PromotePage() {
                   <item.icon className="w-5 h-5" />
                 </div>
                 <p className="font-medium text-sm">{item.title}</p>
-                <p className="text-xs text-[#6b6b7b] mt-0.5">{item.desc}</p>
+                <p className="text-xs text-[var(--subtle-foreground)] mt-0.5">{item.desc}</p>
               </div>
             ))}
           </div>

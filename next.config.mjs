@@ -34,7 +34,10 @@ const nextConfig = {
     return config;
   },
   experimental: {
-    optimizeCss: true,
+    // optimizeCss (critters) has known issues silently dropping stylesheets
+    // on some routes in production builds — disabled after it was linked to
+    // components rendering unstyled (raw underlined links, no glass/theme
+    // styling) in Chrome production builds.
     scrollRestoration: true,
     optimizePackageImports: ['recharts', 'lucide-react'],
   },
