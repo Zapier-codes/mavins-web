@@ -19,7 +19,7 @@ export function PartnersMarquee() {
         WebkitMaskImage: 'linear-gradient(90deg, transparent, black 8%, black 92%, transparent)',
       }}
     >
-      <div className="marquee-track flex items-center gap-8 w-max">
+      <div className="marquee-track marquee-track--reverse flex items-center gap-8 w-max">
         {looped.map((partner, i) => (
           <div
             key={`${partner.id}-${i}`}

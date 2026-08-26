@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/auth/useAuth';
 import { supabase } from '@/lib/supabase/client';
 import { formatCompactNumber } from '@/lib/campaign/pricing';
 import { cn } from '@/lib/utils/cn';
+import { getFallbackLeaderboard } from '@/services/leaderboard/leaderboardFallback.service';
 import { Trophy, TrendingUp, Crown, Medal, Award } from 'lucide-react';
 
 interface LeaderboardEntry {
@@ -44,8 +45,10 @@ export default function LeaderboardPage() {
           .limit(50);
       });
 
-    if (data) {
-      const formatted = (Array.isArray(data) ? data : []).map((d: any, i: number) => ({
+    const rows = Array.isArray(data) ? data : [];
+
+    if (!error && rows.length > 0) {
+      const formatted = rows.map((d: any, i: number) => ({
         rank: i + 1,
         artist_name: d.artist_name || d.artist?.artist_name || 'Unknown Artist',
         total_streams: d.total_streams || 0,
@@ -53,6 +56,10 @@ export default function LeaderboardPage() {
         avatar_url: d.avatar_url || d.artist?.avatar_url,
       }));
       setEntries(formatted);
+    } else {
+      // DB unreachable / RLS blocked / genuinely empty on a fresh env — show
+      // a rotating, clearly-fictional ranking rather than "No entries yet."
+      setEntries(getFallbackLeaderboard());
     }
     setIsLoading(false);
   }
