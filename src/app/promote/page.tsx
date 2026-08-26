@@ -176,7 +176,7 @@ const DurationSlotsGrid = memo(function DurationSlotsGrid({ selectedSlotId }: { 
         <span className="text-sm font-medium text-[var(--muted-foreground)]">Campaign Duration</span>
         <span className="text-xs text-[var(--subtle-foreground)]">Auto-calculated</span>
       </div>
-      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+      <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-5 gap-1.5 xs:gap-2">
         {DURATION_SLOTS.map((slot) => (
           <div key={slot.id} className={cn('text-center p-2.5 rounded-xl border transition-all',
             selectedSlotId === slot.id ? 'bg-[#1db954]/10 border-[#1db954]/30 text-[#1db954]' : 'chip-card border-white/5 text-[var(--subtle-foreground)]'
@@ -209,7 +209,7 @@ const PricingBreakdown = memo(function PricingBreakdown({
         <span className="text-sm font-medium text-[var(--muted-foreground)]">Pricing Breakdown</span>
         {pricing.savingsPercent > 0 && <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#1db954]/10 text-[#1db954] border border-[#1db954]/20">Save {pricing.savingsPercent}%</span>}
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
         <div className="p-3 rounded-xl bg-white/5 border border-white/5">
           <p className="text-[10px] uppercase tracking-wider text-[var(--subtle-foreground)] mb-1">Subtotal</p>
           <p className="text-lg font-bold">{formatCents(pricing.subtotalCents)}</p>
@@ -260,7 +260,7 @@ const CampaignCard = memo(function CampaignCard({ campaign }: { campaign: any })
         <div className="h-full rounded-full bg-gradient-to-r from-[#1db954] to-[#3d91f4] transition-all duration-700"
           style={{ width: `${Math.min(100, campaign.total_budget_cents > 0 ? (campaign.spent_cents / campaign.total_budget_cents) * 100 : 0)}%` }} />
       </div>
-      <div className="flex items-center justify-between text-[11px] text-[var(--subtle-foreground)]">
+      <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-[11px] text-[var(--subtle-foreground)]">
         <div className="flex items-center gap-1"><TrendingUp className="w-3.5 h-3.5" /><span>{formatNumber(campaign.total_streams)} streams</span></div>
         <div className="flex items-center gap-1"><Globe className="w-3.5 h-3.5" /><span className="capitalize">{campaign.geographic_tier}</span></div>
         {campaign.is_paused ? <div className="flex items-center gap-1 text-amber-400"><PauseCircle className="w-3.5 h-3.5" /><span>Paused</span></div>
@@ -412,7 +412,7 @@ export default function PromotePage() {
         <div className="absolute top-[40%] -left-[10%] w-[40vw] h-[40vw] rounded-full bg-[#3d91f4]/5 blur-[100px] animate-ambient-slow" />
       </div>
 
-      <div className="relative max-w-2xl mx-auto px-4 py-6 sm:py-10 space-y-8">
+      <div className="relative max-w-2xl mx-auto px-3 xs:px-4 py-5 xs:py-6 sm:py-10 space-y-6 xs:space-y-8">
         <div className="text-center space-y-2">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Promote Your Track</h1>
           <p className="text-sm text-[var(--muted-foreground)] max-w-md mx-auto">Paste a YouTube link, set your target, and let the seed network deliver organic streams.</p>
@@ -428,7 +428,7 @@ export default function PromotePage() {
           </div>
         )}
 
-        <div className="glass-strong rounded-2xl p-5 sm:p-6 space-y-5 gpu-layer">
+        <div className="glass-strong rounded-2xl p-4 xs:p-5 sm:p-6 space-y-5 gpu-layer">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-[#1db954]/10 border border-[#1db954]/20 flex items-center justify-center">
