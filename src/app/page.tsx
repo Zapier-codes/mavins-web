@@ -10,6 +10,7 @@ import {
   Music, ArrowRight, Play, Users, Globe, Sparkles
 } from 'lucide-react';
 import { EarningsMarquee } from '@/components/landing/EarningsMarquee';
+import { PartnersMarquee } from '@/components/landing/PartnersMarquee';
 
 export default function HomePage() {
   const { user, isAuthenticated } = useAuth();
@@ -60,9 +61,13 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Live earnings marquee */}
-          <div className="-mx-4 sm:-mx-6 mb-14">
+          {/* Live earnings marquee, with the (placeholder) supporting-partners
+              strip layered directly beneath it. */}
+          <div className="-mx-4 sm:-mx-6 mb-3">
             <EarningsMarquee />
+          </div>
+          <div className="-mx-4 sm:-mx-6 mb-14">
+            <PartnersMarquee />
           </div>
 
           {/* Features grid */}
