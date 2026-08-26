@@ -6,12 +6,14 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/auth/useAuth';
 import { createCampaign, getArtistCampaigns } from '@/services/campaign/campaign.service';
 import { getPublicSeedStats } from '@/services/stats/publicStats.service';
+import { detectUserGeo } from '@/services/geo/ipGeolocation.service';
 import { calculatePricing, formatCents, formatNumber, DURATION_SLOTS } from '@/lib/campaign/pricing';
+import { getRecommendedGeographies, scoreLabel, type GeoRecommendation } from '@/lib/campaign/geoAffinity';
 import { cn } from '@/lib/utils/cn';
 import { 
   Rocket, Link2, TrendingUp, Clock, DollarSign, 
   ShieldCheck, Zap, ChevronRight, Play, PauseCircle,
-  BarChart3, Globe, Music, CheckCircle2, Sparkles
+  BarChart3, Globe, Music, CheckCircle2, Sparkles, MapPin, Wand2
 } from 'lucide-react';
 
 // Heavy (recharts-backed) section — deferred so it never blocks the initial
@@ -112,6 +114,95 @@ const GenreChips = memo(function GenreChips({
   );
 });
 
+const GeoTargetingSection = memo(function GeoTargetingSection({
+  genre,
+  homeCountryCode,
+  selectedCodes,
+  onToggle,
+}: {
+  genre: string;
+  homeCountryCode: string | null;
+  selectedCodes: string[];
+  onToggle: (code: string) => void;
+}) {
+  const ranked = useMemo(
+    () => getRecommendedGeographies(genre || null, homeCountryCode),
+    [genre, homeCountryCode]
+  );
+  const topCodes = useMemo(() => new Set(ranked.slice(0, 3).map((r) => r.code)), [ranked]);
+
+  return (
+    <div className="space-y-2.5">
+      <div className="flex items-center justify-between">
+        <label className="text-sm font-medium text-[var(--muted-foreground)]">Target Geography</label>
+        {genre ? (
+          <span className="flex items-center gap-1 text-[10px] text-[var(--subtle-foreground)]">
+            <Wand2 className="w-3 h-3" />
+            Ranked for {genre}
+          </span>
+        ) : (
+          <span className="text-[10px] text-[var(--subtle-foreground)]">Pick a genre for tailored picks</span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 gap-2">
+        {ranked.map((rec) => {
+          const isSelected = selectedCodes.includes(rec.code);
+          const isTop = topCodes.has(rec.code);
+          const fit = scoreLabel(rec.score);
+          return (
+            <button
+              key={rec.code}
+              type="button"
+              onClick={() => onToggle(rec.code)}
+              className={cn(
+                'relative text-left px-2.5 py-2 rounded-xl border transition-all active:scale-95',
+                isSelected
+                  ? 'bg-[#1db954]/10 border-[#1db954]/40 text-[#1db954]'
+                  : 'glass-card border-white/5 text-[var(--muted-foreground)]'
+              )}
+            >
+              {isTop && (
+                <span className="absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase bg-[#1db954] text-black shadow">
+                  Top
+                </span>
+              )}
+              <div className="flex items-center gap-1.5">
+                <span aria-hidden>{rec.flag}</span>
+                <span className="text-xs font-semibold truncate">{rec.country}</span>
+              </div>
+              <div className="flex items-center gap-1 mt-1">
+                <span
+                  className={cn(
+                    'text-[9px] font-medium',
+                    fit.tone === 'strong' && 'text-[#1db954]',
+                    fit.tone === 'good' && 'text-[#3d91f4]',
+                    fit.tone === 'moderate' && 'text-amber-400',
+                    fit.tone === 'light' && 'text-[var(--subtle-foreground)]'
+                  )}
+                >
+                  {fit.label}
+                </span>
+                {rec.isHomeMarket && (
+                  <span className="flex items-center gap-0.5 text-[9px] text-[var(--subtle-foreground)]">
+                    <MapPin className="w-2.5 h-2.5" /> You
+                  </span>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[11px] text-[var(--subtle-foreground)]">
+        {selectedCodes.length > 0
+          ? `Targeting ${selectedCodes.length} ${selectedCodes.length === 1 ? 'market' : 'markets'}. Leave empty to distribute across the whole network.`
+          : 'No markets selected — views will be distributed network-wide. Tap countries above to target specific markets.'}
+      </p>
+    </div>
+  );
+});
+
+
 const DurationSlotsGrid = memo(function DurationSlotsGrid({
   selectedSlotId,
 }: {
@@ -149,14 +240,19 @@ const DurationSlotsGrid = memo(function DurationSlotsGrid({
 const PricingBreakdown = memo(function PricingBreakdown({
   pricing,
   topGeo,
+  targetedGeo,
 }: {
   pricing: ReturnType<typeof calculatePricing>;
   topGeo: { country: string; flag: string } | null;
+  targetedGeo: { country: string; flag: string } | null;
 }) {
   // Artists care about how fast and how widely a campaign is moving, not a
   // raw per-1K rate — so instead of "cost per view" this surfaces an hourly
-  // pace and where that pace is landing geographically.
+  // pace and where that pace is landing geographically. If the artist has
+  // explicitly targeted markets, show their top pick; otherwise fall back
+  // to the network's current top-reach country.
   const hourlyViews = Math.max(1, Math.round(pricing.dailyDripRate / 24));
+  const geoBadge = targetedGeo || topGeo;
 
   return (
     <>
@@ -177,10 +273,10 @@ const PricingBreakdown = memo(function PricingBreakdown({
           <span className="text-sm text-[var(--muted-foreground)]">Hourly Reach</span>
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="text-sm font-semibold whitespace-nowrap">~{formatNumber(hourlyViews)} views/hr</span>
-            {topGeo && (
+            {geoBadge && (
               <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white/5 text-[10px] text-[var(--subtle-foreground)] flex-shrink-0">
-                <span aria-hidden>{topGeo.flag}</span>
-                <span className="truncate max-w-[70px]">{topGeo.country}</span>
+                <span aria-hidden>{geoBadge.flag}</span>
+                <span className="truncate max-w-[70px]">{geoBadge.country}</span>
               </span>
             )}
           </div>
@@ -295,6 +391,8 @@ export default function PromotePage() {
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [showSuccess, setShowSuccess] = useState(false);
   const [topGeo, setTopGeo] = useState<{ country: string; flag: string } | null>(null);
+  const [homeCountryCode, setHomeCountryCode] = useState<string | null>(null);
+  const [targetCountries, setTargetCountries] = useState<string[]>([]);
 
   // Lightweight, cached (60s) lookup of where the seed network's reach is
   // concentrated right now, so the pricing card can show the artist where
@@ -311,6 +409,19 @@ export default function PromotePage() {
     };
   }, []);
 
+  // Best-effort IP geolocation (ipapi.co) so geo-targeting recommendations
+  // can be nudged toward the artist's own likely home audience. Silently
+  // no-ops if it fails — targeting still works from genre alone.
+  useEffect(() => {
+    let cancelled = false;
+    detectUserGeo().then((geo) => {
+      if (!cancelled && geo) setHomeCountryCode(geo.countryCode);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Recomputed only when viewCount actually changes, not on every render
   // (form field typing, campaigns refresh, etc. no longer re-run the
   // pricing engine).
@@ -319,6 +430,16 @@ export default function PromotePage() {
     () => TIERS.find(t => viewCount >= t.min && viewCount <= t.max) || TIERS[0],
     [viewCount]
   );
+
+  // The artist's own #1 ranked target market (by genre-affinity score),
+  // shown on the pricing card instead of the network-wide top country
+  // once they've actually picked geo targets.
+  const topTargetedGeo = useMemo(() => {
+    if (targetCountries.length === 0) return null;
+    const ranked = getRecommendedGeographies(selectedGenre || null, homeCountryCode);
+    const best = ranked.find((r) => targetCountries.includes(r.code));
+    return best ? { country: best.country, flag: best.flag } : null;
+  }, [targetCountries, selectedGenre, homeCountryCode]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -338,6 +459,7 @@ export default function PromotePage() {
       if (draft.sourceUrl) setSourceUrl(draft.sourceUrl);
       if (draft.viewCount) setViewCount(draft.viewCount);
       if (draft.selectedGenre) setSelectedGenre(draft.selectedGenre);
+      if (Array.isArray(draft.targetCountries)) setTargetCountries(draft.targetCountries);
       sessionStorage.removeItem(PENDING_CAMPAIGN_KEY);
     } catch {}
   }, [isAuthenticated]);
@@ -350,6 +472,23 @@ export default function PromotePage() {
     setSelectedGenre(genre);
   }, []);
 
+  const handleToggleCountry = useCallback((code: string) => {
+    setTargetCountries((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
+    );
+  }, []);
+
+  // Maps the number of explicitly targeted markets onto the schema's fixed
+  // geographic_tier enum (local/regional/national/global). No selection at
+  // all keeps the previous default behavior (network-wide distribution).
+  const geographicTier = useMemo(() => {
+    const n = targetCountries.length;
+    if (n === 0) return 'local';
+    if (n <= 2) return 'regional';
+    if (n <= 5) return 'national';
+    return 'global';
+  }, [targetCountries]);
+
   const goFundWallet = useCallback((reason: string) => {
     // The amount is always what the pricing engine computed for the
     // campaign they're trying to launch, not a number either of us
@@ -360,12 +499,13 @@ export default function PromotePage() {
         sourceUrl: sourceUrl.trim(),
         viewCount,
         selectedGenre,
+        targetCountries,
       }));
     } catch {}
     router.push(
       `/fund-wallet?amount=${amountNaira}&redirect=${encodeURIComponent('/promote')}&reason=${reason}`
     );
-  }, [pricing.totalCostCents, sourceUrl, viewCount, selectedGenre, router]);
+  }, [pricing.totalCostCents, sourceUrl, viewCount, selectedGenre, targetCountries, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -388,6 +528,9 @@ export default function PromotePage() {
       sourceUrl: sourceUrl.trim(),
       viewCount,
       artistId: user.id,
+      genre: selectedGenre || undefined,
+      geographicTier,
+      targetCountries,
     });
     setIsSubmitting(false);
 
@@ -395,6 +538,7 @@ export default function PromotePage() {
       setShowSuccess(true);
       setSourceUrl('');
       setSelectedGenre('');
+      setTargetCountries([]);
       const updated = await getArtistCampaigns(user.id);
       setCampaigns(updated);
       setTimeout(() => setShowSuccess(false), 4000);
@@ -460,6 +604,11 @@ export default function PromotePage() {
                   required
                 />
               </div>
+              {sourceUrl.trim() && !selectedGenre && (
+                <p className="text-[11px] text-[var(--subtle-foreground)] mt-1.5">
+                  Pick your genre below and we'll rank the best-fit markets for this track.
+                </p>
+              )}
             </div>
 
             {/* Genre */}
@@ -467,6 +616,14 @@ export default function PromotePage() {
               <label className="block text-sm font-medium mb-2 text-[var(--muted-foreground)]">Genre</label>
               <GenreChips selectedGenre={selectedGenre} onSelect={handleGenreSelect} />
             </div>
+
+            {/* Geo Targeting */}
+            <GeoTargetingSection
+              genre={selectedGenre}
+              homeCountryCode={homeCountryCode}
+              selectedCodes={targetCountries}
+              onToggle={handleToggleCountry}
+            />
 
             {/* View Count Slider */}
             <div>
@@ -501,7 +658,7 @@ export default function PromotePage() {
             </p>
 
             {/* Pricing Breakdown — Glass */}
-            <PricingBreakdown pricing={pricing} topGeo={topGeo} />
+            <PricingBreakdown pricing={pricing} topGeo={topGeo} targetedGeo={topTargetedGeo} />
 
             {/* Submit */}
             <button
