@@ -154,6 +154,44 @@ body {
   transform: translateY(-1px);
 }
 
+/* Lightweight "chip" surface — same visual language as .glass-card (border +
+   subtle tint) but WITHOUT backdrop-filter. Used for small, high-count
+   repeated controls (genre chips, geo-target buttons, duration cells) where
+   stacking 10-20+ independent backdrop-filter layers is what actually causes
+   the mobile scroll jank — each one forces its own GPU compositing layer.
+   Visually near-identical at these sizes; costs a fraction of the paint. */
+.chip-card {
+  background: rgba(var(--accent-rgb), 0.06);
+  border: 1px solid var(--glass-border);
+  transition: background-color 200ms ease, border-color 200ms ease, transform 150ms ease;
+}
+.chip-card:active {
+  transform: scale(0.96);
+}
+
+/* On phones, cut blur radius on the few remaining glass surfaces — blur
+   cost scales with radius, and mobile GPUs (esp. mid-range Android/older
+   iPhones) choke on 26-34px backdrop-filter blur during scroll. Visually a
+   softer blur is barely noticeable but the perf difference is large. */
+@media (max-width: 640px) {
+  .glass,
+  .glass-light,
+  .glass-nav,
+  .glass-sidebar,
+  .glass-elevated {
+    backdrop-filter: blur(14px) saturate(1.4);
+    -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  }
+  .glass-strong {
+    backdrop-filter: blur(18px) saturate(1.5);
+    -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  }
+  .glass-card {
+    backdrop-filter: blur(12px) saturate(1.3);
+    -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  }
+}
+
 .glass-input {
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
@@ -362,9 +400,19 @@ input[type="range"]::-moz-range-thumb {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
+/* NOTE: this pseudo-element pair combines filter:blur() + an animated
+   transform (rotate) *inside* a card that itself sits on a backdrop-filter
+   (.glass-card) surface. Stacking filter + backdrop-filter like that is the
+   exact known iOS/Android WebView compositing bug that also affects the
+   ambient blobs above: the blurred layer can flash solid black instead of
+   rendering the blur, especially mid-scroll when the layer gets repainted.
+   `overflow: hidden` on the container (so the oversized ::before/::after
+   never paint outside the card's own layer) + the same mask/translateZ
+   mitigation used on .ambient-blob fixes it here too. */
 .card-solar-flare {
   position: relative;
   isolation: isolate;
+  overflow: hidden;
 }
 .card-solar-flare::before {
   content: '';
@@ -384,6 +432,12 @@ input[type="range"]::-moz-range-thumb {
   opacity: 0.35;
   filter: blur(24px);
   animation: solar-flare-spin 12s linear infinite;
+  -webkit-mask-image: radial-gradient(circle, #fff 60%, #fff 100%);
+  mask-image: radial-gradient(circle, #fff 60%, #fff 100%);
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
 .card-solar-flare::after {
   content: '';
@@ -397,6 +451,23 @@ input[type="range"]::-moz-range-thumb {
   opacity: 0.5;
   filter: blur(20px);
   pointer-events: none;
+  -webkit-mask-image: radial-gradient(circle, #fff 60%, #fff 100%);
+  mask-image: radial-gradient(circle, #fff 60%, #fff 100%);
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+@media (max-width: 640px) {
+  /* Phones: drop the blur radius further and stop the constant 12s
+     rotation from repainting every frame — this single element, on a
+     card that's visible on first paint (not lazy-mounted like the
+     analytics charts), was the single biggest remaining contributor to
+     the reported black-flash/overlap on mobile. */
+  .card-solar-flare::before {
+    filter: blur(14px);
+    animation: none;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .card-solar-flare::before {

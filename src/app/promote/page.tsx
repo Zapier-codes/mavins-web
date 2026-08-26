@@ -104,7 +104,7 @@ const GenreChips = memo(function GenreChips({
             'w-full px-2 py-1.5 rounded-full text-xs font-medium text-center truncate transition-all active:scale-95',
             selectedGenre === genre
               ? 'bg-[#1db954] text-black shadow-lg shadow-[#1db954]/20'
-              : 'glass-card text-[var(--muted-foreground)]'
+              : 'chip-card text-[var(--muted-foreground)]'
           )}
         >
           {genre}
@@ -159,7 +159,7 @@ const GeoTargetingSection = memo(function GeoTargetingSection({
                 'relative text-left px-2.5 py-2 rounded-xl border transition-all active:scale-95',
                 isSelected
                   ? 'bg-[#1db954]/10 border-[#1db954]/40 text-[#1db954]'
-                  : 'glass-card border-white/5 text-[var(--muted-foreground)]'
+                  : 'chip-card border-white/5 text-[var(--muted-foreground)]'
               )}
             >
               {isTop && (
@@ -224,7 +224,7 @@ const DurationSlotsGrid = memo(function DurationSlotsGrid({
                 'text-center p-2.5 rounded-xl border transition-all',
                 isSelected
                   ? 'bg-[#1db954]/10 border-[#1db954]/30 text-[#1db954]'
-                  : 'glass-card border-white/5 text-[var(--subtle-foreground)]'
+                  : 'chip-card border-white/5 text-[var(--subtle-foreground)]'
               )}
             >
               <p className="text-xs font-bold">{slot.label}</p>
@@ -641,7 +641,7 @@ export default function PromotePage() {
                 step="1000"
                 value={viewCount}
                 onChange={handleSliderChange}
-                className="w-full touch-none"
+                className="w-full"
               />
               <div className="flex justify-between text-xs text-[var(--subtle-foreground)] mt-1.5">
                 <span>1K</span>

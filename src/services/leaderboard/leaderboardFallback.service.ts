@@ -17,6 +17,8 @@ export interface LeaderboardEntry {
   total_streams: number;
   total_campaigns: number;
   avatar_url?: string;
+  /** Stable per-name id so the UI can key/animate rows across re-fetches. */
+  id: string;
 }
 
 const FALLBACK_NAME_POOL: string[] = [
@@ -56,6 +58,7 @@ export function getFallbackLeaderboard(): LeaderboardEntry[] {
       artist_name: name,
       total_streams: Math.max(500, streams - jitter),
       total_campaigns: 1 + Math.floor(Math.random() * 8),
+      id: `fallback-${name}`,
     };
     streams = Math.max(500, streams - jitter - (6_000 + Math.floor(Math.random() * 5_000)));
     return entry;
