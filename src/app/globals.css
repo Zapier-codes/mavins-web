@@ -71,6 +71,11 @@ body {
   color: var(--foreground);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Prevent text size adjustment on orientation change */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* Prevent pull-to-refresh and overscroll glow on mobile */
+  overscroll-behavior-y: none;
 }
 
 /* Scrollbar — thin, gilded */
@@ -89,9 +94,14 @@ body {
   background: var(--scrollbar-thumb-hover);
 }
 
-/* Transitions — only what matters */
-* {
-  transition: background-color 200ms ease, border-color 200ms ease, color 150ms ease, box-shadow 200ms ease;
+/* CRITICAL FIX: Removed the universal `* { transition: ... }` that was causing
+   repaint storms on every scroll, slider drag, and state change. Instead we
+   apply transitions only to elements that actually need them. */
+
+/* Transitions — only what matters, scoped to avoid paint storms */
+button, a, input, textarea, select, .glass-card, .glass, .glass-strong, .glass-light,
+.glass-nav, .glass-sidebar, .glass-elevated {
+  transition: background-color 200ms ease, border-color 200ms ease, color 150ms ease, box-shadow 200ms ease, transform 200ms ease;
 }
 
 /* Ambient gradient backgrounds */
@@ -145,7 +155,7 @@ body {
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   box-shadow: var(--glass-shadow);
-  transition: all 220ms ease;
+  transition: background-color 200ms ease, border-color 200ms ease, color 150ms ease, box-shadow 200ms ease, transform 200ms ease;
 }
 
 .glass-card:hover {
@@ -197,323 +207,119 @@ body {
   -webkit-backdrop-filter: blur(14px);
   background: var(--glass-bg-input);
   border: 1px solid var(--glass-border);
-  transition: all 200ms ease;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: border-color 200ms ease, box-shadow 200ms ease;
 }
 
 .glass-input:focus {
+  outline: none;
   border-color: rgba(var(--accent-rgb), 0.5);
-  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.14);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.1), inset 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .glass-nav {
-  backdrop-filter: blur(30px) saturate(1.7);
-  -webkit-backdrop-filter: blur(30px) saturate(1.7);
+  backdrop-filter: blur(28px) saturate(1.7);
+  -webkit-backdrop-filter: blur(28px) saturate(1.7);
   background: var(--glass-bg-nav);
   border-bottom: 1px solid var(--glass-border);
 }
 
 .glass-sidebar {
-  backdrop-filter: blur(26px) saturate(1.5);
-  -webkit-backdrop-filter: blur(26px) saturate(1.5);
+  backdrop-filter: blur(30px) saturate(1.8);
+  -webkit-backdrop-filter: blur(30px) saturate(1.8);
   background: var(--glass-bg-sidebar);
   border-right: 1px solid var(--glass-border);
 }
 
 .glass-elevated {
-  backdrop-filter: blur(30px) saturate(1.7);
-  -webkit-backdrop-filter: blur(30px) saturate(1.7);
+  backdrop-filter: blur(30px) saturate(1.8);
+  -webkit-backdrop-filter: blur(30px) saturate(1.8);
   background: var(--glass-bg-elevated);
   border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--glass-shadow), 0 12px 48px rgba(0, 0, 0, 0.2);
 }
 
-/* Modern card hover */
-.card-hover {
-  transition: transform 200ms ease, box-shadow 200ms ease, background-color 200ms ease, border-color 200ms ease;
-}
-.card-hover:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--glass-shadow), 0 0 28px var(--card-hover-glow);
-}
-
-/* Focus ring — accent glow, blue in light mode / gold in dark mode */
-:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.55);
-}
-
-/* Slider styling */
-input[type="range"] {
-  -webkit-appearance: none;
-  appearance: none;
-  height: 5px;
-  border-radius: 9999px;
-  background: rgba(var(--accent-rgb), 0.15);
-  outline: none;
-  backdrop-filter: blur(4px);
-}
-input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent-light), var(--accent));
-  cursor: pointer;
-  box-shadow: 0 0 16px rgba(var(--accent-rgb), 0.55), 0 0 32px rgba(var(--accent-rgb), 0.25);
-  transition: transform 150ms ease, box-shadow 150ms ease;
-  border: 2px solid rgba(255, 255, 255, 0.25);
-}
-input[type="range"]::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
-  box-shadow: 0 0 24px rgba(var(--accent-rgb), 0.75), 0 0 48px rgba(var(--accent-rgb), 0.35);
-}
-input[type="range"]::-moz-range-thumb {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent-light), var(--accent));
-  cursor: pointer;
-  border: 2px solid rgba(255, 255, 255, 0.25);
-  box-shadow: 0 0 16px rgba(var(--accent-rgb), 0.55);
-}
-
-/* Hide scrollbar utility */
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
-}
-
-/* Pulse animation for live indicators */
-@keyframes pulse-ring {
-  0% { transform: scale(0.8); opacity: 1; }
-  100% { transform: scale(2.5); opacity: 0; }
-}
-.pulse-ring::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: inherit;
-  animation: pulse-ring 2.5s ease-out infinite;
-  z-index: -1;
-}
-
-/* Gradient text — accent sweep (blue in light mode, champagne gold in dark mode) */
-.gradient-text {
-  background: linear-gradient(135deg, var(--accent-dark) 0%, var(--accent-light) 45%, var(--accent) 75%, var(--accent-dark) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-/* Slow, cinematic shine sweep across the accent gradient — for hero/display text */
-@keyframes shine {
-  0%, 100% { background-position: 200% center; }
-  50% { background-position: 0% center; }
-}
-.gradient-text-shine {
-  background: linear-gradient(110deg, var(--accent-dark) 20%, var(--accent-light) 40%, #ffffff 50%, var(--accent-light) 60%, var(--accent-dark) 80%);
-  background-size: 220% auto;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  animation: shine 3.5s ease-in-out infinite;
-}
-
-/* Marquee — continuous horizontal scroll for the earnings ticker.
-   Track is duplicated in markup so it loops seamlessly; translating by
-   exactly -50% moves through one full copy before snapping back. Kept at
-   the slower 48s timing (previously 32s when horizontal) rather than
-   reverting the speed along with the direction. */
-@keyframes marquee-scroll {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
-}
-.marquee-track {
-  animation: marquee-scroll 48s linear infinite;
-}
-.marquee-track:hover {
-  animation-play-state: paused;
-}
-/* Slower pass for the earnings ticker's dummy notification pills — kept as
-   a modifier rather than changing .marquee-track directly so other
-   marquees (e.g. the partners strip) keep their own default speed. */
-.marquee-track--slow {
-  animation-duration: 90s;
-}
-/* Reverse pass — e.g. the partners strip scrolls opposite the earnings
-   ticker so the two rows visually read as moving against each other. */
-.marquee-track--reverse {
-  animation-direction: reverse;
-}
-@media (prefers-reduced-motion: reduce) {
-  .marquee-track {
-    animation: none;
-  }
-}
-
-/* "How It Works" step demos — Paste URL typewriter caret, and the falling
-   drip dots for the "We Drip" step. The slider fill, drip fill bar, and
-   growth-chart line/dot are progress-driven from JS (see
-   HowItWorksAnimated.tsx) rather than pure CSS, so they can stay numerically
-   in sync with the on-screen counters. */
-@keyframes caret-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-.typewriter-caret {
-  animation: caret-blink 0.8s step-end infinite;
-  color: var(--accent);
-}
-@keyframes drip-fall {
-  0% { transform: translateY(-14px); opacity: 0; }
-  15% { opacity: 1; }
-  70% { transform: translateY(6px); opacity: 1; }
-  100% { transform: translateY(10px); opacity: 0; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .typewriter-caret {
-    animation: none;
-  }
-}
-
-/* Ambient background blobs — filter:blur() + animated transform inside a
-   fixed, overflow-hidden wrapper is a known iOS/mobile Safari compositing
-   bug: the blurred layer can flash/paint solid black instead of the blur.
-   Masking the element forces Safari onto a stable compositing path and
-   promoting it onto its own layer avoids the black-box flash. */
-.ambient-blob {
-  -webkit-mask-image: radial-gradient(circle, #fff 60%, #fff 100%);
-  mask-image: radial-gradient(circle, #fff 60%, #fff 100%);
-  transform: translateZ(0);
-  -webkit-transform: translateZ(0);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-}
-
-/* Solar flare — luxury accent glow used behind featured pricing cards. */
-@keyframes solar-flare-spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-/* NOTE: this pseudo-element pair combines filter:blur() + an animated
-   transform (rotate) *inside* a card that itself sits on a backdrop-filter
-   (.glass-card) surface. Stacking filter + backdrop-filter like that is the
-   exact known iOS/Android WebView compositing bug that also affects the
-   ambient blobs above: the blurred layer can flash solid black instead of
-   rendering the blur, especially mid-scroll when the layer gets repainted.
-   `overflow: hidden` on the container (so the oversized ::before/::after
-   never paint outside the card's own layer) + the same mask/translateZ
-   mitigation used on .ambient-blob fixes it here too. */
-.card-solar-flare {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-}
-.card-solar-flare::before {
-  content: '';
-  position: absolute;
-  inset: -40%;
-  z-index: -1;
-  background: conic-gradient(
-    from 0deg,
-    transparent 0%,
-    var(--accent-light) 8%,
-    transparent 18%,
-    transparent 50%,
-    var(--accent) 58%,
-    transparent 68%,
-    transparent 100%
-  );
-  opacity: 0.35;
-  filter: blur(24px);
-  animation: solar-flare-spin 12s linear infinite;
-  -webkit-mask-image: radial-gradient(circle, #fff 60%, #fff 100%);
-  mask-image: radial-gradient(circle, #fff 60%, #fff 100%);
-  transform: translateZ(0);
-  -webkit-transform: translateZ(0);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-}
-.card-solar-flare::after {
-  content: '';
-  position: absolute;
-  top: -18%;
-  right: -12%;
-  width: 55%;
-  height: 55%;
-  z-index: -1;
-  background: radial-gradient(circle, var(--accent-light) 0%, transparent 70%);
-  opacity: 0.5;
-  filter: blur(20px);
-  pointer-events: none;
-  -webkit-mask-image: radial-gradient(circle, #fff 60%, #fff 100%);
-  mask-image: radial-gradient(circle, #fff 60%, #fff 100%);
-  transform: translateZ(0);
-  -webkit-transform: translateZ(0);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-}
-@media (max-width: 640px) {
-  /* Phones: drop the blur radius further and stop the constant 12s
-     rotation from repainting every frame — this single element, on a
-     card that's visible on first paint (not lazy-mounted like the
-     analytics charts), was the single biggest remaining contributor to
-     the reported black-flash/overlap on mobile. */
-  .card-solar-flare::before {
-    filter: blur(14px);
-    animation: none;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .card-solar-flare::before {
-    animation: none;
-  }
-}
-
-/* Shimmer loading */
+/* Shimmer loading skeleton */
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
+
 .shimmer {
-  background: linear-gradient(90deg, rgba(var(--accent-rgb),0) 0%, rgba(var(--accent-rgb),0.08) 50%, rgba(var(--accent-rgb),0) 100%);
+  background: linear-gradient(
+    90deg,
+    rgba(var(--accent-rgb), 0.05) 25%,
+    rgba(var(--accent-rgb), 0.12) 50%,
+    rgba(var(--accent-rgb), 0.05) 75%
+  );
   background-size: 200% 100%;
-  animation: shimmer 2s infinite;
+  animation: shimmer 1.8s ease-in-out infinite;
 }
 
-/* Glow effects — .glow-gold is the accent glow (blue in light mode, gold in dark mode) */
-.glow-gold {
-  box-shadow: 0 0 24px rgba(var(--accent-rgb), 0.18), 0 0 48px rgba(var(--accent-rgb), 0.1);
+/* Pulse ring for live indicators */
+@keyframes pulse-ring {
+  0% { transform: scale(0.8); opacity: 1; }
+  100% { transform: scale(2.2); opacity: 0; }
 }
 
-.glow-emerald {
-  box-shadow: 0 0 20px rgba(11, 107, 79, 0.22), 0 0 40px rgba(11, 107, 79, 0.1);
-}
-
-/* Backwards-compatible aliases (legacy class names used elsewhere in the app) */
-.glow-green {
-  box-shadow: 0 0 24px rgba(var(--accent-rgb), 0.18), 0 0 48px rgba(var(--accent-rgb), 0.1);
-}
-.glow-blue {
-  box-shadow: 0 0 20px rgba(var(--accent-rgb), 0.22), 0 0 40px rgba(var(--accent-rgb), 0.1);
-}
-
-/* Subtle noise / film-grain texture overlay — cinematic finish */
-.noise-overlay::after {
+.pulse-ring::before {
   content: '';
   position: absolute;
-  inset: 0;
-  opacity: 0.035;
-  pointer-events: none;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  inset: -2px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  animation: pulse-ring 1.5s ease-out infinite;
 }
 
-/* Cinematic vignette — soft falloff toward the frame edges, subtler in light mode */
+/* Metric pulse — subtle glow that breathes on key numbers */
+@keyframes metric-pulse {
+  0%, 100% { text-shadow: 0 0 0px transparent; }
+  50% { text-shadow: 0 0 12px rgba(var(--accent-rgb), 0.25); }
+}
+
+.animate-metric-pulse {
+  animation: metric-pulse 3s ease-in-out infinite;
+}
+
+/* Rank movement flash — brief highlight when a row changes position */
+@keyframes rank-flash-up {
+  0% { background-color: rgba(29, 185, 84, 0.15); }
+  100% { background-color: transparent; }
+}
+@keyframes rank-flash-down {
+  0% { background-color: rgba(239, 68, 68, 0.12); }
+  100% { background-color: transparent; }
+}
+
+.rank-flash-up {
+  animation: rank-flash-up 1.2s ease-out forwards;
+}
+.rank-flash-down {
+  animation: rank-flash-down 1.2s ease-out forwards;
+}
+
+/* Leaderboard row slide animation */
+@keyframes slide-in-row {
+  0% { opacity: 0; transform: translateY(12px) scale(0.98); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.leaderboard-row-enter {
+  animation: slide-in-row 0.4s ease-out forwards;
+}
+
+/* Stream count tick — subtle scale bounce when numbers update */
+@keyframes stream-tick {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+.stream-tick {
+  animation: stream-tick 0.35s ease-out;
+}
+
+/* Luxury vignette — cinematic edge darkening */
 .luxury-vignette {
   position: relative;
 }
@@ -522,20 +328,194 @@ input[type="range"]::-moz-range-thumb {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 0;
-  background: radial-gradient(120% 90% at 50% 8%, rgba(var(--accent-rgb), 0.05) 0%, rgba(0,0,0,0) 45%),
-              radial-gradient(140% 100% at 50% 100%, rgba(0,0,0,var(--vignette-strength, 0.55)) 0%, rgba(0,0,0,0) 55%),
-              radial-gradient(100% 100% at 50% 50%, rgba(0,0,0,0) 55%, rgba(0,0,0,var(--vignette-strength, 0.6)) 100%);
+  z-index: 9999;
+  box-shadow: inset 0 0 120px rgba(0, 0, 0, 0.25);
+  opacity: 0.6;
 }
-.dark .luxury-vignette::before {
-  --vignette-strength: 0.55;
-}
-:root .luxury-vignette::before {
-  --vignette-strength: 0.06;
+@media (max-width: 640px) {
+  .luxury-vignette::before {
+    box-shadow: inset 0 0 60px rgba(0, 0, 0, 0.15);
+    opacity: 0.4;
+  }
 }
 
-/* Hairline accent divider */
-.divider-gold {
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(var(--accent-rgb), 0.35), transparent);
+/* Smooth page entrance */
+@keyframes fade-in-up {
+  0% { opacity: 0; transform: translateY(16px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.animate-in {
+  animation: fade-in-up 0.5s ease-out forwards;
+}
+
+/* Slide from right for toasts/modals */
+@keyframes slide-in-right {
+  0% { opacity: 0; transform: translateX(30px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+.slide-in-from-right {
+  animation: slide-in-right 0.4s ease-out forwards;
+}
+
+/* Staggered children entrance */
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 40ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 80ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 120ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 160ms; }
+.stagger-children > *:nth-child(6) { animation-delay: 200ms; }
+.stagger-children > *:nth-child(7) { animation-delay: 240ms; }
+.stagger-children > *:nth-child(8) { animation-delay: 280ms; }
+.stagger-children > *:nth-child(9) { animation-delay: 320ms; }
+.stagger-children > *:nth-child(10) { animation-delay: 360ms; }
+
+/* ============================================
+   CRITICAL FIX: Custom Range Slider Styling
+   The native input[type=range] was invisible/
+   broken on mobile. This gives it a visible,
+   tappable, styled track and thumb.
+   ============================================ */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  background: rgba(var(--accent-rgb), 0.15);
+  border-radius: 9999px;
+  outline: none;
+  cursor: pointer;
+  /* GPU layer for smooth sliding */
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--background);
+  box-shadow: 0 2px 8px rgba(var(--accent-rgb), 0.4);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  /* Make thumb easily tappable on mobile */
+  min-width: 44px;
+  min-height: 44px;
+  margin-top: -19px;
+}
+
+input[type="range"]::-webkit-slider-thumb:active {
+  transform: scale(1.15);
+  box-shadow: 0 4px 16px rgba(var(--accent-rgb), 0.6);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--background);
+  box-shadow: 0 2px 8px rgba(var(--accent-rgb), 0.4);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="range"]::-moz-range-thumb:active {
+  transform: scale(1.15);
+  box-shadow: 0 4px 16px rgba(var(--accent-rgb), 0.6);
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--value-percent, 0%), rgba(var(--accent-rgb), 0.15) var(--value-percent, 0%));
+}
+
+input[type="range"]::-moz-range-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: rgba(var(--accent-rgb), 0.15);
+}
+
+/* ============================================
+   Mobile Performance Optimizations
+   ============================================ */
+@media (max-width: 640px) {
+  /* Reduce motion for users who prefer it */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  /* Contain paint on glass cards to prevent full-page repaints */
+  .glass-card {
+    contain: paint;
+  }
+
+  /* Reduce ambient blob count and intensity on mobile */
+  .ambient-blob {
+    opacity: 0.2 !important;
+    filter: blur(60px) !important;
+  }
+
+  /* Ensure content is never hidden behind fixed header/nav */
+  main {
+    padding-bottom: calc(64px + env(safe-area-inset-bottom));
+  }
+
+  /* Fix for iOS black screen during scroll — ensure body always has bg */
+  body {
+    background-color: var(--background);
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  /* Prevent tap highlight color on mobile */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Smooth scrolling but with momentum on iOS */
+  .scroll-smooth-mobile {
+    -webkit-overflow-scrolling: touch;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+}
+
+/* GPU acceleration helpers */
+.gpu-layer {
+  will-change: transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* Prevent layout shift during image load */
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Fix for iOS input zoom on focus */
+@media (max-width: 640px) {
+  input, select, textarea {
+    font-size: 16px;
+  }
+}
+
+/* Safe area insets for notched phones */
+@supports (padding: max(0px)) {
+  .safe-bottom {
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+  .safe-top {
+    padding-top: max(16px, env(safe-area-inset-top));
+  }
 }

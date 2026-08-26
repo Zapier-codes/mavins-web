@@ -26,13 +26,13 @@ const PublicAnalyticsShowcase = dynamic(
     ssr: false,
     loading: () => (
       <div className="space-y-3" aria-hidden>
-        <div className="h-6 w-48 rounded-lg shimmer glass-card" />
+        <div className="h-6 w-48 rounded-lg shimmer" />
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-24 rounded-xl shimmer glass-card" />
+            <div key={i} className="h-24 rounded-xl shimmer" />
           ))}
         </div>
-        <div className="h-56 rounded-2xl shimmer glass-card" />
+        <div className="h-56 rounded-2xl shimmer" />
       </div>
     ),
   }
@@ -248,105 +248,83 @@ const PricingBreakdown = memo(function PricingBreakdown({
 }) {
   // Artists care about how fast and how widely a campaign is moving, not a
   // raw per-1K rate — so instead of "cost per view" this surfaces an hourly
-  // pace and where that pace is landing geographically. If the artist has
-  // explicitly targeted markets, show their top pick; otherwise fall back
-  // to the network's current top-reach country.
-  const hourlyViews = Math.max(1, Math.round(pricing.dailyDripRate / 24));
-  const geoBadge = targetedGeo || topGeo;
+  // pace and where that pace is landing geographically. If the artist hasn't
+  // picked geo targets yet, it shows the network-wide top market.
+  const geo = targetedGeo || topGeo;
+  const hourlyRate = Math.round(pricing.dailyDripRate / 24);
 
   return (
-    <>
-      <div className="card-solar-flare glass-card rounded-xl p-4 space-y-3 border border-[var(--glass-border)]">
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-[var(--muted-foreground)]">Duration</span>
-          <div className="flex items-center gap-1.5">
-            <Clock className="w-4 h-4 text-[#3d91f4]" />
-            <span className="text-sm font-semibold">{pricing.durationSlot.label}</span>
-            <span className="text-xs text-[var(--subtle-foreground)]">({pricing.durationSlot.days} days)</span>
-          </div>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-[var(--muted-foreground)]">Daily Drip</span>
-          <span className="text-sm font-semibold">{formatNumber(pricing.dailyDripRate)} views/day</span>
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-sm text-[var(--muted-foreground)]">Hourly Reach</span>
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="text-sm font-semibold whitespace-nowrap">~{formatNumber(hourlyViews)} views/hr</span>
-            {geoBadge && (
-              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white/5 text-[10px] text-[var(--subtle-foreground)] flex-shrink-0">
-                <span aria-hidden>{geoBadge.flag}</span>
-                <span className="truncate max-w-[70px]">{geoBadge.country}</span>
-              </span>
-            )}
-          </div>
-        </div>
+    <div className="glass-card rounded-xl p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium text-[var(--muted-foreground)]">Pricing Breakdown</span>
         {pricing.savingsPercent > 0 && (
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-[var(--muted-foreground)]">Volume savings</span>
-            <span className="text-sm font-semibold text-[#1db954]">-{pricing.savingsPercent}%</span>
-          </div>
+          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#1db954]/10 text-[#1db954] border border-[#1db954]/20">
+            Save {pricing.savingsPercent}%
+          </span>
         )}
-        <div className="h-px bg-white/5" />
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-[var(--muted-foreground)]">Platform fee (15%)</span>
-          <span className="text-sm">{formatCents(pricing.platformFeesCents)}</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <p className="text-[10px] text-[var(--subtle-foreground)] uppercase tracking-wider">Subtotal</p>
+          <p className="text-sm font-semibold">{formatCents(pricing.subtotalCents)}</p>
         </div>
-        <div className="flex items-center justify-between pt-1">
-          <span className="text-base font-bold">Total</span>
-          <span className="text-2xl font-bold text-[#1db954]">{formatCents(pricing.totalCostCents)}</span>
+        <div className="space-y-1">
+          <p className="text-[10px] text-[var(--subtle-foreground)] uppercase tracking-wider">Platform Fee ({pricing.platformFeesCents / (pricing.subtotalCents / 100)}%)</p>
+          <p className="text-sm font-semibold">{formatCents(pricing.platformFeesCents)}</p>
+        </div>
+        <div className="space-y-1">
+          <p className="text-[10px] text-[var(--subtle-foreground)] uppercase tracking-wider">Est. Hourly Pace</p>
+          <p className="text-sm font-semibold flex items-center gap-1">
+            <Zap className="w-3.5 h-3.5 text-[#1db954]" />
+            {formatNumber(hourlyRate)}/hr
+          </p>
+        </div>
+        <div className="space-y-1">
+          <p className="text-[10px] text-[var(--subtle-foreground)] uppercase tracking-wider">Primary Market</p>
+          <p className="text-sm font-semibold flex items-center gap-1">
+            <Globe className="w-3.5 h-3.5 text-[#3d91f4]" />
+            {geo ? `${geo.flag} ${geo.country}` : 'Network-wide'}
+          </p>
         </div>
       </div>
 
-      <div className="flex items-start gap-2 text-xs text-[var(--subtle-foreground)]">
-        <ShieldCheck className="w-4 h-4 mt-0.5 flex-shrink-0 text-[#1db954]/50" />
-        <p>You only pay for delivered views. If we fall short, the difference is refunded to your wallet automatically.</p>
+      <div className="pt-2 border-t border-[var(--glass-border)] flex items-center justify-between">
+        <span className="text-sm font-medium text-[var(--muted-foreground)]">Total</span>
+        <span className="text-xl font-bold">{formatCents(pricing.totalCostCents)}</span>
       </div>
-    </>
+    </div>
   );
 });
 
 const CampaignCard = memo(function CampaignCard({ campaign }: { campaign: any }) {
   return (
-    <div className="glass-card rounded-xl p-4">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl glass-card flex items-center justify-center flex-shrink-0">
-            <Music className="w-5 h-5 text-[var(--subtle-foreground)]" />
-          </div>
-          <div className="min-w-0">
-            <p className="font-medium text-sm truncate max-w-[180px] sm:max-w-xs">{campaign.source_url}</p>
-            <p className="text-xs text-[var(--subtle-foreground)]">
-              {formatNumber(campaign.total_streams)} streams · {formatCents(campaign.spent_cents)} spent
-            </p>
-          </div>
+    <div className="glass-card rounded-xl p-4 space-y-2.5 gpu-layer">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-semibold text-sm truncate">{campaign.resolved_song_id || 'Campaign'}</p>
+          <p className="text-[11px] text-[var(--subtle-foreground)] mt-0.5">
+            {new Date(campaign.created_at).toLocaleDateString()}
+          </p>
         </div>
-        <span className={cn(
-          'px-2.5 py-1 rounded-full text-xs font-medium flex-shrink-0 border',
-          getStageColor(campaign.current_stage)
-        )}>
+        <span className={cn('text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full border flex-shrink-0', getStageColor(campaign.current_stage))}>
           {getStageLabel(campaign.current_stage)}
         </span>
       </div>
 
-      <div className="mt-3">
-        <div className="flex justify-between text-xs mb-1">
-          <span className="text-[var(--subtle-foreground)]">Budget used</span>
-          <span className="text-[var(--muted-foreground)]">
-            {formatCents(campaign.spent_cents)} / {formatCents(campaign.total_budget_cents)}
-          </span>
-        </div>
-        <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
-          <div 
-            className="h-full bg-gradient-to-r from-[#1db954] to-[#3d91f4] rounded-full transition-all"
-            style={{ width: `${Math.min((campaign.spent_cents / campaign.total_budget_cents) * 100, 100)}%` }}
-          />
-        </div>
+      {/* Progress bar */}
+      <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-[#1db954] to-[#3d91f4] transition-all duration-700"
+          style={{
+            width: `${Math.min(100, campaign.total_budget_cents > 0 ? (campaign.spent_cents / campaign.total_budget_cents) * 100 : 0)}%`,
+          }}
+        />
       </div>
 
-      <div className="flex items-center gap-4 mt-3 text-xs text-[var(--subtle-foreground)] flex-wrap">
+      <div className="flex items-center justify-between text-[11px] text-[var(--subtle-foreground)]">
         <div className="flex items-center gap-1">
-          <BarChart3 className="w-3.5 h-3.5" />
+          <TrendingUp className="w-3.5 h-3.5" />
           <span>{formatNumber(campaign.total_streams)} streams</span>
         </div>
         <div className="flex items-center gap-1">
@@ -550,7 +528,7 @@ export default function PromotePage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
+    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] scroll-smooth-mobile">
       {/* Ambient background blobs — smaller + fewer on mobile, where GPU
           budget for blurred, animated layers is much tighter. */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
@@ -568,14 +546,14 @@ export default function PromotePage() {
 
         {/* Success toast */}
         {showSuccess && (
-          <div className="fixed top-20 right-4 left-4 sm:left-auto z-50 glass-strong border-[#1db954]/30 px-5 py-3 rounded-xl shadow-2xl flex items-center gap-2 animate-in slide-in-from-right">
+          <div className="fixed top-20 right-4 left-4 sm:left-auto z-50 glass-strong border-[#1db954]/30 px-5 py-3 rounded-xl shadow-2xl flex items-center gap-2 slide-in-from-right">
             <CheckCircle2 className="w-5 h-5 text-[#1db954] flex-shrink-0" />
             <span className="font-semibold text-sm">Campaign created successfully!</span>
           </div>
         )}
 
         {/* Main Form Card — Glass */}
-        <div className="glass-strong rounded-2xl overflow-hidden">
+        <div className="glass-strong rounded-2xl overflow-hidden gpu-layer">
           {/* Tier badge */}
           <div className={cn(
             'px-5 py-2.5 text-xs font-bold uppercase tracking-wider',
@@ -625,7 +603,7 @@ export default function PromotePage() {
               onToggle={handleToggleCountry}
             />
 
-            {/* View Count Slider */}
+            {/* View Count Slider — CRITICAL FIX: now properly styled via CSS */}
             <div>
               <div className="flex items-center justify-between mb-3">
                 <label className="text-sm font-medium text-[var(--muted-foreground)]">Target Views</label>
@@ -641,7 +619,8 @@ export default function PromotePage() {
                 step="1000"
                 value={viewCount}
                 onChange={handleSliderChange}
-                className="w-full"
+                className="w-full gpu-layer"
+                style={{ '--value-percent': `${((viewCount - 1000) / (500000 - 1000)) * 100}%` } as React.CSSProperties}
               />
               <div className="flex justify-between text-xs text-[var(--subtle-foreground)] mt-1.5">
                 <span>1K</span>
@@ -664,7 +643,7 @@ export default function PromotePage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-3.5 rounded-xl bg-[#1db954] text-black font-semibold hover:bg-[#1ed760] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-[#1db954]/20"
+              className="w-full py-3.5 rounded-xl bg-[#1db954] text-black font-semibold hover:bg-[#1ed760] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-[#1db954]/20 gpu-layer"
             >
               {isSubmitting ? (
                 <>
@@ -698,7 +677,7 @@ export default function PromotePage() {
         <PublicAnalyticsShowcase />
 
         {/* How it works — Glass */}
-        <div className="glass-strong rounded-2xl p-5 sm:p-6">
+        <div className="glass-strong rounded-2xl p-5 sm:p-6 gpu-layer">
           <h3 className="font-bold mb-4">How It Works</h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {HOW_IT_WORKS.map((item) => (

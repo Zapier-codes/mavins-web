@@ -11,6 +11,8 @@ interface AnimatedCounterProps {
   decimals?: number;
   formatFn?: (n: number) => string;
   className?: string;
+  /** Trigger a subtle pulse animation when the value updates */
+  pulseOnUpdate?: boolean;
 }
 
 /**
@@ -31,11 +33,14 @@ export function AnimatedCounter({
   decimals = 0,
   formatFn,
   className,
+  pulseOnUpdate = false,
 }: AnimatedCounterProps) {
   const [display, setDisplay] = useState(0);
+  const [isPulsing, setIsPulsing] = useState(false);
   const elRef = useRef<HTMLSpanElement>(null);
   const rafRef = useRef<number | null>(null);
   const hasAnimatedRef = useRef(false);
+  const prevValueRef = useRef(value);
 
   useEffect(() => {
     const el = elRef.current;
@@ -46,7 +51,43 @@ export function AnimatedCounter({
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
     const runAnimation = () => {
-      if (hasAnimatedRef.current) return;
+      if (hasAnimatedRef.current) {
+        // If we've already animated once, just update the display smoothly
+        // for subsequent value changes (e.g., live data updates)
+        if (prefersReducedMotion) {
+          setDisplay(value);
+          return;
+        }
+
+        const start = performance.now();
+        const from = display;
+        const to = value;
+        const updateDuration = Math.min(duration, 800); // Faster for updates
+
+        const tick = (now: number) => {
+          const elapsed = now - start;
+          const progress = Math.min(elapsed / updateDuration, 1);
+          const eased = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+          setDisplay(from + (to - from) * eased);
+
+          if (progress < 1) {
+            rafRef.current = requestAnimationFrame(tick);
+          } else {
+            setDisplay(value);
+          }
+        };
+
+        rafRef.current = requestAnimationFrame(tick);
+
+        // Trigger pulse effect
+        if (pulseOnUpdate && value !== prevValueRef.current) {
+          setIsPulsing(true);
+          setTimeout(() => setIsPulsing(false), 600);
+        }
+        prevValueRef.current = value;
+        return;
+      }
+
       hasAnimatedRef.current = true;
 
       if (prefersReducedMotion) {
@@ -72,6 +113,7 @@ export function AnimatedCounter({
       };
 
       rafRef.current = requestAnimationFrame(tick);
+      prevValueRef.current = value;
     };
 
     const observer = new IntersectionObserver(
@@ -103,7 +145,10 @@ export function AnimatedCounter({
       });
 
   return (
-    <span ref={elRef} className={className}>
+    <span 
+      ref={elRef} 
+      className={`${className || ''} ${isPulsing ? 'stream-tick' : ''}`}
+    >
       {prefix}
       {rendered}
       {suffix}
