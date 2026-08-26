@@ -74,20 +74,27 @@ callback). This was a pure database-function bug.
 
 ---
 
-## Task 2 — Promote page responsiveness (mobile-first pass) [ ]
+## Task 2 — Promote page responsiveness (mobile-first pass) [x]
 
-**Ask:** "Adjust the responsiveness of the promote page."
+**Done in commit `8e146ba`.** Scoped to sections not already owned by
+a later dedicated task: page container padding/spacing, the campaign
+form wrapper padding, `DurationSlotsGrid` (2 cols below 475px instead
+of cramming 5 slots into 3), `PricingBreakdown`'s stat grid (1 col
+below 475px instead of 2 tight columns), and `CampaignCard`'s status
+row (wrap-safe instead of a rigid `justify-between`). Verified via
+`npx tsc --noEmit` — clean.
 
-No specific breakpoints/elements were named — this needs a fresh
-pass across `src/app/promote/page.tsx` at common mobile widths
-(360px, 390px, 428px) and tablet (768px). Cross-reference with Task 4
-below since they're likely the same underlying layout issues.
+**Deliberately left alone:** `GenreChips` / `GeoTargetingSection`
+(Task 4 owns the "categories aligned not scattered" + black-screen
+issue in that specific section) and `RangeSlider` (Task 6 owns the
+slider revert). Fixing those here would step on tasks that already
+have their own dedicated diagnosis below.
 
-**Where to start:** `src/app/promote/page.tsx` is currently ~500+
-lines, single file, several `memo()`-wrapped subsections
-(`GenreChips`, `GeoTargetingSection`, `DurationSlotsGrid`,
-`PricingBreakdown`, `CampaignCard`). Check each subsection's grid/flex
-classes at narrow widths.
+**Not verified:** actual pixel-width rendering at 360/390/428/768px —
+this sandbox has no headless browser/screenshot tooling. Worth a
+quick manual check in Chrome DevTools' device toolbar, particularly
+the duration-slot and pricing-grid reflow at 360px, before considering
+this fully closed.
 
 ---
 
