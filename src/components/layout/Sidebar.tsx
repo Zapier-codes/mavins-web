@@ -7,7 +7,7 @@ import { useAuth } from '@/hooks/auth/useAuth';
 import { cn } from '@/lib/utils/cn';
 import { 
   Home, BarChart3, Rocket, Trophy, Settings, 
-  Wallet, X, ChevronRight, LogOut, Zap
+  Wallet, X, ChevronRight, LogOut, Zap, Bell
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -21,6 +21,7 @@ const navItems = [
   { icon: BarChart3, label: 'Analytics', href: '/analytics' },
   { icon: Trophy, label: 'Leaderboard', href: '/leaderboard' },
   { icon: Wallet, label: 'Earnings', href: '/earnings' },
+  { icon: Bell, label: 'Notifications', href: '/notifications' },
   { icon: Settings, label: 'Settings', href: '/settings' },
 ];
 

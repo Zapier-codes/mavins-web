@@ -9,6 +9,7 @@ import {
   Rocket, BarChart3, Trophy, Zap, TrendingUp,
   Music, ArrowRight, Play, Users, Globe, Sparkles
 } from 'lucide-react';
+import { EarningsMarquee } from '@/components/landing/EarningsMarquee';
 
 export default function HomePage() {
   const { user, isAuthenticated } = useAuth();
@@ -57,6 +58,11 @@ export default function HomePage() {
                 View Rankings
               </Link>
             </div>
+          </div>
+
+          {/* Live earnings marquee */}
+          <div className="-mx-4 sm:-mx-6 mb-14">
+            <EarningsMarquee />
           </div>
 
           {/* Features grid */}

@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, type ComponentType, type CSSProperties } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/auth/useAuth';
 import { useTheme } from '@/components/providers/ThemeProvider';
 import { supabase } from '@/lib/supabase/client';
@@ -8,12 +9,28 @@ import { cn } from '@/lib/utils/cn';
 import { 
   User, Bell, Shield, Palette, Globe, 
   ChevronRight, Save, CheckCircle2, MessageCircle,
-  Instagram, Twitter, Music2, Video
 } from 'lucide-react';
+import { SiInstagram, SiX, SiTiktok, SiSpotify } from 'react-icons/si';
+
+// react-icons' IconType returns React.ReactNode, which React 18's stricter
+// function-component typing won't accept directly as a JSX tag — same cast
+// used in PublicAnalyticsShowcase.tsx instead of sprinkling `as any` below.
+type BrandIcon = ComponentType<{ className?: string; style?: CSSProperties }>;
+
+// Real brand marks instead of generic lucide placeholders (Music2/Video/etc
+// don't represent these platforms) — same react-icons/si set already used
+// on the promote page's live network showcase.
+const BRAND_ICONS = {
+  instagram: { Icon: SiInstagram as BrandIcon, color: '#e1306c' },
+  x: { Icon: SiX as BrandIcon, color: '#ffffff' },
+  tiktok: { Icon: SiTiktok as BrandIcon, color: '#ff0050' },
+  spotify: { Icon: SiSpotify as BrandIcon, color: '#1db954' },
+};
 
 export default function SettingsPage() {
   const { user, isAuthenticated } = useAuth();
   const { mode, toggleTheme } = useTheme();
+  const router = useRouter();
   const [artistName, setArtistName] = useState(user?.artist_name || '');
   const [email, setEmail] = useState(user?.email || '');
   const [location, setLocation] = useState(user?.location || '');
@@ -68,10 +85,10 @@ export default function SettingsPage() {
   };
 
   const sections = [
-    { id: 'profile', icon: User, label: 'Profile', active: true },
-    { id: 'notifications', icon: Bell, label: 'Notifications', active: false },
-    { id: 'security', icon: Shield, label: 'Security', active: false },
-    { id: 'appearance', icon: Palette, label: 'Appearance', active: false },
+    { id: 'profile', icon: User, label: 'Profile', active: true, href: null },
+    { id: 'notifications', icon: Bell, label: 'Notifications', active: false, href: '/notifications' },
+    { id: 'security', icon: Shield, label: 'Security', active: false, href: null },
+    { id: 'appearance', icon: Palette, label: 'Appearance', active: false, href: null },
   ];
 
   return (
@@ -91,9 +108,11 @@ export default function SettingsPage() {
           {sections.map((s) => (
             <button
               key={s.id}
+              onClick={() => s.href && router.push(s.href)}
               className={cn(
                 'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all',
-                s.active ? 'bg-[#1db954]/15 text-[#1db954] border border-[#1db954]/20' : 'glass-card text-[var(--muted-foreground)]'
+                s.active ? 'bg-[#1db954]/15 text-[#1db954] border border-[#1db954]/20' : 'glass-card text-[var(--muted-foreground)]',
+                s.href && 'cursor-pointer hover:text-[var(--foreground)]'
               )}
             >
               <s.icon className="w-4 h-4" />
@@ -173,7 +192,7 @@ export default function SettingsPage() {
               </div>
               <div>
                 <label className="block text-xs text-[var(--muted-foreground)] mb-1.5 flex items-center gap-1">
-                  <Instagram className="w-3 h-3" /> Instagram Handle
+                  <BRAND_ICONS.instagram.Icon className="w-3 h-3" style={{ color: BRAND_ICONS.instagram.color }} /> Instagram Handle
                 </label>
                 <input
                   value={instagram}
@@ -184,7 +203,7 @@ export default function SettingsPage() {
               </div>
               <div>
                 <label className="block text-xs text-[var(--muted-foreground)] mb-1.5 flex items-center gap-1">
-                  <Twitter className="w-3 h-3" /> Twitter / X Handle
+                  <BRAND_ICONS.x.Icon className="w-3 h-3" style={{ color: BRAND_ICONS.x.color }} /> Twitter / X Handle
                 </label>
                 <input
                   value={twitter}
@@ -195,7 +214,7 @@ export default function SettingsPage() {
               </div>
               <div>
                 <label className="block text-xs text-[var(--muted-foreground)] mb-1.5 flex items-center gap-1">
-                  <Video className="w-3 h-3" /> TikTok Handle
+                  <BRAND_ICONS.tiktok.Icon className="w-3 h-3" style={{ color: BRAND_ICONS.tiktok.color }} /> TikTok Handle
                 </label>
                 <input
                   value={tiktok}
@@ -206,7 +225,7 @@ export default function SettingsPage() {
               </div>
               <div>
                 <label className="block text-xs text-[var(--muted-foreground)] mb-1.5 flex items-center gap-1">
-                  <Music2 className="w-3 h-3" /> Spotify Artist ID
+                  <BRAND_ICONS.spotify.Icon className="w-3 h-3" style={{ color: BRAND_ICONS.spotify.color }} /> Spotify Artist ID
                 </label>
                 <input
                   value={spotifyId}
