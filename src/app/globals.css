@@ -286,22 +286,23 @@ input[type="range"]::-moz-range-thumb {
   animation: shine 3.5s ease-in-out infinite;
 }
 
-/* Marquee — continuous vertical scroll (upward) for the earnings ticker.
+/* Marquee — continuous horizontal scroll for the earnings ticker.
    Track is duplicated in markup so it loops seamlessly; translating by
-   exactly -50% moves through one full copy before snapping back. Slowed
-   down from the old horizontal timing so individual pills stay readable. */
-@keyframes marquee-scroll-vertical {
-  0% { transform: translateY(0); }
-  100% { transform: translateY(-50%); }
+   exactly -50% moves through one full copy before snapping back. Kept at
+   the slower 48s timing (previously 32s when horizontal) rather than
+   reverting the speed along with the direction. */
+@keyframes marquee-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
 }
-.marquee-track-vertical {
-  animation: marquee-scroll-vertical 48s linear infinite;
+.marquee-track {
+  animation: marquee-scroll 48s linear infinite;
 }
-.marquee-track-vertical:hover {
+.marquee-track:hover {
   animation-play-state: paused;
 }
 @media (prefers-reduced-motion: reduce) {
-  .marquee-track-vertical {
+  .marquee-track {
     animation: none;
   }
 }

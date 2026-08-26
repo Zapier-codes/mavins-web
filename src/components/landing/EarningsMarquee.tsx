@@ -27,14 +27,14 @@ function formatWholeDollars(cents: number): string {
 function TickerPill({ item }: { item: EarningTickerItem }) {
   const meta = PLATFORM_META[item.platform];
   return (
-    <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-full glass-card w-full max-w-md mx-auto flex-shrink-0">
+    <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-full glass-card whitespace-nowrap flex-shrink-0">
       <span
         className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
         style={{ backgroundColor: `${meta.color}1a`, color: meta.color }}
       >
         <meta.Icon className="w-3 h-3" />
       </span>
-      <span className="text-sm truncate">
+      <span className="text-sm">
         <span className="font-semibold">{item.name}</span>
         <span className="text-[var(--muted-foreground)]"> just earned </span>
         <span className="font-semibold text-[var(--accent-light)]">{formatWholeDollars(item.amountCents)}</span>
@@ -59,9 +59,9 @@ export function EarningsMarquee() {
 
   if (!items || items.length === 0) {
     return (
-      <div className="flex flex-col gap-3 overflow-hidden py-1 h-64 sm:h-72 px-4">
+      <div className="flex gap-3 overflow-hidden py-1">
         {[...Array(4)].map((_, i) => (
-          <div key={i} className="h-11 w-full max-w-md mx-auto rounded-full shimmer glass-card flex-shrink-0" />
+          <div key={i} className="h-11 w-56 rounded-full shimmer glass-card flex-shrink-0" />
         ))}
       </div>
     );
@@ -73,13 +73,13 @@ export function EarningsMarquee() {
 
   return (
     <div
-      className="relative overflow-hidden py-1 h-64 sm:h-72 px-4"
+      className="relative overflow-hidden py-1"
       style={{
-        maskImage: 'linear-gradient(180deg, transparent, black 10%, black 90%, transparent)',
-        WebkitMaskImage: 'linear-gradient(180deg, transparent, black 10%, black 90%, transparent)',
+        maskImage: 'linear-gradient(90deg, transparent, black 8%, black 92%, transparent)',
+        WebkitMaskImage: 'linear-gradient(90deg, transparent, black 8%, black 92%, transparent)',
       }}
     >
-      <div className="marquee-track-vertical flex flex-col gap-3">
+      <div className="marquee-track flex gap-3 w-max">
         {looped.map((item, i) => (
           <TickerPill key={`${item.id}-${i}`} item={item} />
         ))}
