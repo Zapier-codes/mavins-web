@@ -52,20 +52,20 @@ export async function middleware(req: NextRequest) {
   // --- PROTECTED ROUTES ---
   const isProtectedRoute = req.nextUrl.pathname.startsWith('/dashboard') ||
                           req.nextUrl.pathname.startsWith('/profile') ||
-                          req.nextUrl.pathname.startsWith('/earn') ||
+                          req.nextUrl.pathname.startsWith('/earnings') ||
                           req.nextUrl.pathname.startsWith('/leaderboard') ||
                           req.nextUrl.pathname.startsWith('/api/protected');
 
   if (isProtectedRoute && !session) {
-    const redirectUrl = new URL('/auth/login', req.url);
+    const redirectUrl = new URL('/login', req.url);
     redirectUrl.searchParams.set('redirect', req.nextUrl.pathname);
     return NextResponse.redirect(redirectUrl);
   }
 
   // --- AUTH ROUTES ---
-  const isAuthRoute = req.nextUrl.pathname.startsWith('/auth/');
+  const isAuthRoute = req.nextUrl.pathname.startsWith('/login');
   if (isAuthRoute && session) {
-    return NextResponse.redirect(new URL('/dashboard', req.url));
+    return NextResponse.redirect(new URL('/', req.url));
   }
 
   // --- API ROUTE HANDLING ---
@@ -104,10 +104,10 @@ export async function middleware(req: NextRequest) {
 export const config = {
   matcher: [
     '/',
-    '/earn/:path*',
+    '/earnings/:path*',
     '/leaderboard/:path*',
     '/api/:path*',
-    '/auth/:path*',
+    '/login/:path*',
     '/share/:path*',
     '/api/share/:path*',
     '/api/deeplink/:path*',
