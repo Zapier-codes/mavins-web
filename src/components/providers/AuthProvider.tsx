@@ -74,9 +74,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     getSession();
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((_event: string, session: any) => {
       if (session?.user) {
-        supabase.from('users').select('*').eq('id', session.user.id).single().then(({ data }) => {
+        supabase.from('users').select('*').eq('id', session.user.id).single().then(({ data }: { data: any }) => {
           setUser({ ...session.user, ...data });
         });
         try {

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyWebhookSignature } from '@/services/payment/korapay.service';
-import { createClient } from '@/lib/supabase/server';
-import { cookies } from 'next/headers';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 /**
  * POST /api/payments/webhook
@@ -30,8 +29,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Missing user_id' }, { status: 400 });
       }
 
-      const cookieStore = cookies();
-      const supabase = createClient(cookieStore);
+      const supabase = await createServerSupabaseClient();
 
       // Check if already credited (idempotency)
       const { data: existing } = await supabase

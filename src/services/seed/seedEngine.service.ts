@@ -437,11 +437,15 @@ export class SeedEngine {
         .eq('id', campaign.id);
 
       // Unlock milestone
-      await this.supabase.from('artist_growth_milestones').insert({
-        artist_id: campaign.artist_id,
-        campaign_id: campaign.id,
-        milestone_type: `first_${threshold >= 1000 ? (threshold >= 10000 ? (threshold >= 50000 ? (threshold >= 100000 ? '1m' : '100k') : '50k') : '10k') : '1k'}_streams`,
-      }).catch(() => {}); // Ignore duplicate milestone errors
+      try {
+        await this.supabase.from('artist_growth_milestones').insert({
+          artist_id: campaign.artist_id,
+          campaign_id: campaign.id,
+          milestone_type: `first_${threshold >= 1000 ? (threshold >= 10000 ? (threshold >= 50000 ? (threshold >= 100000 ? '1m' : '100k') : '50k') : '10k') : '1k'}_streams`,
+        });
+      } catch {
+        // Ignore duplicate milestone errors
+      }
     }
   }
 
@@ -453,11 +457,15 @@ export class SeedEngine {
 
     const totalSeeds = results.reduce((s, r) => s + r.interactions, 0);
 
-    await this.supabase.rpc('update_pool_velocity', {
-      p_pool_id: 'global',
-      p_hour_bucket: hourBucket.toISOString(),
-      p_seed_count: totalSeeds,
-    }).catch((err) => console.warn('[SeedEngine] Velocity update error:', err.message));
+    try {
+      await this.supabase.rpc('update_pool_velocity', {
+        p_pool_id: 'global',
+        p_hour_bucket: hourBucket.toISOString(),
+        p_seed_count: totalSeeds,
+      });
+    } catch (err: any) {
+      console.warn('[SeedEngine] Velocity update error:', err.message);
+    }
   }
 
   // ── Step 10: Nakama sync ───────────────────────────────────

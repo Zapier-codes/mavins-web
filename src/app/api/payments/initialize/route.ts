@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { initializeCharge } from '@/services/payment/korapay.service';
-import { createClient } from '@/lib/supabase/server';
-import { cookies } from 'next/headers';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 /**
  * POST /api/payments/initialize
@@ -10,8 +9,7 @@ import { cookies } from 'next/headers';
  */
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = cookies();
-    const supabase = createClient(cookieStore);
+    const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
@@ -38,12 +36,12 @@ export async function POST(request: NextRequest) {
       amount,
       currency,
       reference,
-      email: profile?.email || user.email!,
-      name: profile?.artist_name || 'Mavins User',
-      description: 'Mavins Wallet Top-up',
+      customerEmail: profile?.email || user.email!,
+      customerName: profile?.artist_name || 'Mavins User',
       metadata: {
         user_id: user.id,
         type: 'wallet_topup',
+        description: 'Mavins Wallet Top-up',
       },
     });
 

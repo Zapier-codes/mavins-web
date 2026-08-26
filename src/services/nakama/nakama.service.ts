@@ -44,8 +44,8 @@ class NakamaService {
       // Use a deterministic system ID for server auth
       const session = await this.client.authenticateCustom(
         'mavins-server-system',
-        undefined,
         true, // create if not exists
+        undefined,
         { role: 'system', source: 'mavins-web' }
       );
       this.serverSession = session;
@@ -69,13 +69,11 @@ class NakamaService {
   ): Promise<void> {
     try {
       const session = await this.authenticateServer();
-      await this.client.writeLeaderboardRecord(
-        session,
-        leaderboardId,
-        score,
-        subscore,
-        metadata ? JSON.stringify(metadata) : undefined
-      );
+      await this.client.writeLeaderboardRecord(session, leaderboardId, {
+        score: score.toString(),
+        subscore: subscore?.toString(),
+        metadata,
+      });
     } catch (err: any) {
       console.warn(`[Nakama] Leaderboard write failed (${leaderboardId}):`, err.message);
     }
@@ -94,8 +92,7 @@ class NakamaService {
       const result = await this.client.listLeaderboardRecords(
         session,
         leaderboardId,
-        ownerIds || [],
-        undefined,
+        ownerId ? [ownerId] : [],
         limit
       );
       return result.records || [];
@@ -123,8 +120,10 @@ class NakamaService {
         {
           collection,
           key,
-          user_id: userId,
-          value: JSON.stringify(value),
+          // Note: nakama-js's WriteStorageObject type has no user_id field —
+          // writes always land under the authenticated (server) session's
+          // own user via this client method.
+          value,
           permission_read: permissionRead,
           permission_write: permissionWrite,
         },
@@ -144,14 +143,14 @@ class NakamaService {
   ): Promise<any[]> {
     try {
       const session = await this.authenticateServer();
-      const ids = keys
-        ? keys.map((k) => ({ collection, key: k, userId }))
-        : [{ collection, key: '*', userId }];
+      const objectIds = keys
+        ? keys.map((k) => ({ collection, key: k, user_id: userId }))
+        : [{ collection, key: '*', user_id: userId }];
 
-      const result = await this.client.readStorageObjects(session, ids);
+      const result = await this.client.readStorageObjects(session, { object_ids: objectIds });
       return (result.objects || []).map((obj) => ({
         ...obj,
-        value: obj.value ? JSON.parse(obj.value) : null,
+        value: obj.value ?? null,
       }));
     } catch (err: any) {
       console.warn(`[Nakama] Storage read failed (${collection}):`, err.message);
@@ -179,7 +178,7 @@ class NakamaService {
       return {
         objects: (result.objects || []).map((obj) => ({
           ...obj,
-          value: obj.value ? JSON.parse(obj.value) : null,
+          value: obj.value ?? null,
         })),
         cursor: result.cursor,
       };
@@ -193,14 +192,10 @@ class NakamaService {
    * Get real-time presence count (approximate online users).
    */
   async getOnlineCount(): Promise<number> {
-    try {
-      // This is a simplified approximation — real presence requires socket
-      const session = await this.authenticateServer();
-      const result = await this.client.listUsers(session, [], 1);
-      return result.users?.length || 0;
-    } catch {
-      return 0;
-    }
+    // Note: nakama-js's Client has no listUsers API; accurate presence
+    // requires a live socket connection. Returning 0 as a safe placeholder
+    // until real-time presence tracking is wired up via Socket.
+    return 0;
   }
 
   /**

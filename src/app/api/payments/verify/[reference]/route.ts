@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyCharge } from '@/services/payment/korapay.service';
-import { createClient } from '@/lib/supabase/server';
-import { cookies } from 'next/headers';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 /**
  * GET /api/payments/verify/{reference}
@@ -18,8 +17,7 @@ export async function GET(
       return NextResponse.json({ error: 'Reference required' }, { status: 400 });
     }
 
-    const cookieStore = cookies();
-    const supabase = createClient(cookieStore);
+    const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
@@ -44,7 +42,7 @@ export async function GET(
           user_id: user.id,
           amount_cents: result.data.amount,
           type: 'bonus',
-          description: `Wallet top-up via ${result.data.payment_method || 'korapay'}: ${reference}`,
+          description: `Wallet top-up via ${result.data.channel || 'korapay'}: ${reference}`,
         });
       }
 
