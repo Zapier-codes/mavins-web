@@ -3,10 +3,26 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getClickBatcher } from '@/lib/utils/clickBatcher';
 
-// Initialize Supabase client with service role key for write access
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+// Force dynamic rendering — this route writes to the database and requires
+// runtime env vars. Without this, Next.js tries to statically collect page
+// data at build time, evaluating the module before env vars are available.
+export const dynamic = 'force-dynamic';
+
+// Initialize inside a helper (called from each handler) so the client is
+// never created at module load time (which happens during the build's
+// static analysis phase). Uses the service role key for write access —
+// this must never be a NEXT_PUBLIC_ var, since that would ship the secret
+// admin key to the browser.
+function getServiceClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error('Missing Supabase env vars');
+  }
+
+  return createClient(supabaseUrl, supabaseServiceKey);
+}
 
 export async function POST(
   request: Request,
@@ -37,6 +53,7 @@ export async function POST(
     // This is a separate operation from the click count
     (async () => {
       try {
+        const supabase = getServiceClient();
         await supabase
           .from('share_analytics')
           .insert({
@@ -86,7 +103,7 @@ export async function GET(
       );
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await getServiceClient()
       .from('shares')
       .select('*')
       .eq('share_id', shareId)

@@ -3,16 +3,26 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getClickBatcher } from '@/lib/utils/clickBatcher';
 
-// Initialize Supabase client with anonymous key for read access
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Force dynamic rendering — this route needs runtime env vars. Without this,
+// Next.js tries to statically collect page data at build time, evaluating
+// the module before env vars are available.
+export const dynamic = 'force-dynamic';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { shareId: string } }
 ) {
   const shareId = params.shareId;
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error('[Share Redirect] Missing Supabase env vars');
+    return NextResponse.redirect(new URL('/', request.url));
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
   try {
     // Fetch share data from Supabase
