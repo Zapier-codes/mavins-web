@@ -20,9 +20,9 @@ import {
   Flame, Megaphone, ChevronDown, ChevronUp, Play, X
 } from 'lucide-react';
 
-const REFRESH_MS = 30_000;
+const REFRESH_MS = 3_600_000; // 1 hour — leaderboard order only updates on this cadence once real data has loaded
 const SHUFFLE_MS = 12_000;
-const BG_CHECK_MS = 15_000;
+const BG_CHECK_MS = 15_000; // fast poll only while waiting for the *first* real data to arrive
 
 interface RankDelta {
   delta: number;
@@ -128,6 +128,10 @@ export default function LeaderboardPage() {
         setHasRealData(true);
         setLastUpdated(new Date());
         if (shuffleIntervalRef.current) { clearInterval(shuffleIntervalRef.current); shuffleIntervalRef.current = null; }
+        // Stop the fast "is real data in yet?" poll once we actually have
+        // real data — from here on, only the hourly refreshIntervalRef
+        // should trigger a re-fetch, so the visible ranking holds steady.
+        if (bgCheckIntervalRef.current) { clearInterval(bgCheckIntervalRef.current); bgCheckIntervalRef.current = null; }
       }
     } catch { /* silent */ }
   }, []);
@@ -158,7 +162,9 @@ export default function LeaderboardPage() {
       });
     }, SHUFFLE_MS);
 
-    bgCheckIntervalRef.current = setInterval(() => loadRealData(true), BG_CHECK_MS);
+    bgCheckIntervalRef.current = hasRealData
+      ? null
+      : setInterval(() => loadRealData(true), BG_CHECK_MS);
     refreshIntervalRef.current = setInterval(() => { if (hasRealData) loadRealData(true); }, REFRESH_MS);
 
     return () => {

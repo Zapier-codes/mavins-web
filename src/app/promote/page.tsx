@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/auth/useAuth';
 import { createCampaign, getArtistCampaigns } from '@/services/campaign/campaign.service';
 import { getPublicSeedStats } from '@/services/stats/publicStats.service';
 import { detectUserGeo } from '@/services/geo/ipGeolocation.service';
+import { convertUsdCentsTo, convertUsdCentsToMinorUnits, formatCurrency } from '@/services/currency/currency.service';
 import { calculatePricing, formatCents, formatNumber, DURATION_SLOTS } from '@/lib/campaign/pricing';
 import { getRecommendedGeographies, scoreLabel, type GeoRecommendation } from '@/lib/campaign/geoAffinity';
 import { cn } from '@/lib/utils/cn';
@@ -241,10 +242,12 @@ const PricingBreakdown = memo(function PricingBreakdown({
   pricing,
   topGeo,
   targetedGeo,
+  localAmountDisplay,
 }: {
   pricing: ReturnType<typeof calculatePricing>;
   topGeo: { country: string; flag: string } | null;
   targetedGeo: { country: string; flag: string } | null;
+  localAmountDisplay: string | null;
 }) {
   // Artists care about how fast and how widely a campaign is moving, not a
   // raw per-1K rate — so instead of "cost per view" this surfaces an hourly
@@ -291,7 +294,14 @@ const PricingBreakdown = memo(function PricingBreakdown({
 
       <div className="pt-2 border-t border-[var(--glass-border)] flex items-center justify-between">
         <span className="text-sm font-medium text-[var(--muted-foreground)]">Total</span>
-        <span className="text-xl font-bold">{formatCents(pricing.totalCostCents)}</span>
+        <div className="text-right">
+          <span className="text-xl font-bold">{formatCents(pricing.totalCostCents)}</span>
+          {localAmountDisplay && (
+            <p className="text-xs text-[var(--subtle-foreground)] mt-0.5">
+              ≈ {localAmountDisplay} — you'll pay the NGN equivalent at checkout
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -371,6 +381,8 @@ export default function PromotePage() {
   const [topGeo, setTopGeo] = useState<{ country: string; flag: string } | null>(null);
   const [homeCountryCode, setHomeCountryCode] = useState<string | null>(null);
   const [targetCountries, setTargetCountries] = useState<string[]>([]);
+  const [localCurrencyCode, setLocalCurrencyCode] = useState<string | null>(null);
+  const [localAmountDisplay, setLocalAmountDisplay] = useState<string | null>(null);
 
   // Lightweight, cached (60s) lookup of where the seed network's reach is
   // concentrated right now, so the pricing card can show the artist where
@@ -388,12 +400,15 @@ export default function PromotePage() {
   }, []);
 
   // Best-effort IP geolocation (ipapi.co) so geo-targeting recommendations
-  // can be nudged toward the artist's own likely home audience. Silently
-  // no-ops if it fails — targeting still works from genre alone.
+  // can be nudged toward the artist's own likely home audience, and so we
+  // know which local currency to show them a converted price estimate in.
+  // Silently no-ops if it fails — targeting/pricing still work off USD/NGN.
   useEffect(() => {
     let cancelled = false;
     detectUserGeo().then((geo) => {
-      if (!cancelled && geo) setHomeCountryCode(geo.countryCode);
+      if (cancelled || !geo) return;
+      setHomeCountryCode(geo.countryCode);
+      if (geo.currencyCode) setLocalCurrencyCode(geo.currencyCode);
     });
     return () => {
       cancelled = true;
@@ -404,6 +419,24 @@ export default function PromotePage() {
   // (form field typing, campaigns refresh, etc. no longer re-run the
   // pricing engine).
   const pricing = useMemo(() => calculatePricing(viewCount), [viewCount]);
+  // Live USD -> local-currency conversion for display only. Recomputes
+  // whenever the price or detected currency changes; NGN is the artist's
+  // own currency (formatCents already shows USD, ngn breakdown is in
+  // PricingBreakdown), so we skip showing a redundant "≈" line for it.
+  useEffect(() => {
+    if (!localCurrencyCode || localCurrencyCode === 'USD') {
+      setLocalAmountDisplay(null);
+      return;
+    }
+    let cancelled = false;
+    convertUsdCentsTo(pricing.totalCostCents, localCurrencyCode).then((amount) => {
+      if (!cancelled) setLocalAmountDisplay(formatCurrency(amount, localCurrencyCode));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [pricing.totalCostCents, localCurrencyCode]);
+
   const currentTier = useMemo(
     () => TIERS.find(t => viewCount >= t.min && viewCount <= t.max) || TIERS[0],
     [viewCount]
@@ -467,11 +500,13 @@ export default function PromotePage() {
     return 'global';
   }, [targetCountries]);
 
-  const goFundWallet = useCallback((reason: string) => {
+  const goFundWallet = useCallback(async (reason: string) => {
     // The amount is always what the pricing engine computed for the
-    // campaign they're trying to launch, not a number either of us
-    // typed in by hand.
-    const amountNaira = Math.ceil(pricing.totalCostCents / 100);
+    // campaign they're trying to launch, converted from USD to the
+    // wallet's own NGN denomination via a live exchange rate — NOT the
+    // USD-cents number reinterpreted as naira (that was the old bug: a
+    // $35 campaign was quietly only charging ~₦35).
+    const amountNaira = Math.ceil(await convertUsdCentsTo(pricing.totalCostCents, 'NGN'));
     try {
       sessionStorage.setItem(PENDING_CAMPAIGN_KEY, JSON.stringify({
         sourceUrl: sourceUrl.trim(),
@@ -497,7 +532,7 @@ export default function PromotePage() {
     // "please sign in" alert -- the account gets created for them the
     // moment their payment confirms.
     if (!isAuthenticated || !user?.id) {
-      goFundWallet('launch_campaign');
+      await goFundWallet('launch_campaign');
       return;
     }
 
@@ -521,7 +556,7 @@ export default function PromotePage() {
       setCampaigns(updated);
       setTimeout(() => setShowSuccess(false), 4000);
     } else if (/insufficient/i.test(result.error || '')) {
-      goFundWallet('insufficient_funds');
+      await goFundWallet('insufficient_funds');
     } else {
       alert(result.error || 'Failed to create campaign');
     }
@@ -603,13 +638,16 @@ export default function PromotePage() {
               onToggle={handleToggleCountry}
             />
 
-            {/* View Count Slider — CRITICAL FIX: now properly styled via CSS */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
+            {/* View Count Slider — gilded, futuristic styling; isolated onto
+                its own stacking context so drag interactions never force
+                the surrounding backdrop-filter glass card to recomposite
+                (the old cause of the iOS black-flash-while-dragging bug). */}
+            <div className="glass-card rounded-xl p-4" style={{ isolation: 'isolate', contain: 'layout paint style' }}>
+              <div className="flex items-center justify-between mb-4">
                 <label className="text-sm font-medium text-[var(--muted-foreground)]">Target Views</label>
-                <div className="flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-[#1db954]" />
-                  <span className="text-xl font-bold tabular-nums">{formatNumber(viewCount)}</span>
+                <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-[#d4af37]/10 border border-[#d4af37]/25">
+                  <TrendingUp className="w-3.5 h-3.5 text-[#d4af37]" />
+                  <span className="text-lg font-bold tabular-nums text-[#f4e4bc]">{formatNumber(viewCount)}</span>
                 </div>
               </div>
               <input
@@ -619,10 +657,11 @@ export default function PromotePage() {
                 step="1000"
                 value={viewCount}
                 onChange={handleSliderChange}
-                className="w-full gpu-layer"
+                className="w-full slider-gold"
                 style={{ '--value-percent': `${((viewCount - 1000) / (500000 - 1000)) * 100}%` } as React.CSSProperties}
+                aria-label="Target views"
               />
-              <div className="flex justify-between text-xs text-[var(--subtle-foreground)] mt-1.5">
+              <div className="flex justify-between text-[10px] font-medium uppercase tracking-wider text-[var(--subtle-foreground)] mt-2">
                 <span>1K</span>
                 <span>100K</span>
                 <span>250K</span>
@@ -637,7 +676,7 @@ export default function PromotePage() {
             </p>
 
             {/* Pricing Breakdown — Glass */}
-            <PricingBreakdown pricing={pricing} topGeo={topGeo} targetedGeo={topTargetedGeo} />
+            <PricingBreakdown pricing={pricing} topGeo={topGeo} targetedGeo={topTargetedGeo} localAmountDisplay={localAmountDisplay} />
 
             {/* Submit */}
             <button

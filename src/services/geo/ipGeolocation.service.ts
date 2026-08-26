@@ -14,6 +14,7 @@
 export interface DetectedGeo {
   countryCode: string;
   countryName: string;
+  currencyCode: string | null;
 }
 
 const SESSION_KEY = 'mavins_detected_geo';
@@ -26,8 +27,14 @@ export async function detectUserGeo(): Promise<DetectedGeo | null> {
     try {
       const stored = sessionStorage.getItem(SESSION_KEY);
       if (stored) {
-        cached = JSON.parse(stored);
-        return cached ?? null;
+        const parsed = JSON.parse(stored);
+        // Older cached entries (before currencyCode existed) won't have
+        // the field — treat those as a miss so we re-fetch once and pick
+        // up the currency instead of caching `undefined` forever.
+        if (parsed && 'currencyCode' in parsed) {
+          cached = parsed;
+          return cached ?? null;
+        }
       }
     } catch {
       // sessionStorage unavailable (private mode, etc.) — fall through to network
@@ -51,6 +58,7 @@ export async function detectUserGeo(): Promise<DetectedGeo | null> {
     const geo: DetectedGeo = {
       countryCode: data.country_code,
       countryName: data.country_name || data.country_code,
+      currencyCode: typeof data.currency === 'string' ? data.currency : null,
     };
     cached = geo;
     try {
