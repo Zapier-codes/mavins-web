@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useMemo, memo, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, memo } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/auth/useAuth';
@@ -8,12 +8,13 @@ import { createCampaign, getArtistCampaigns } from '@/services/campaign/campaign
 import { getPublicSeedStats } from '@/services/stats/publicStats.service';
 import { detectUserGeo } from '@/services/geo/ipGeolocation.service';
 import { calculatePricing, formatCents, formatNumber, DURATION_SLOTS } from '@/lib/campaign/pricing';
-import { getRecommendedGeographies, scoreLabel } from '@/lib/campaign/geoAffinity';
+import { getRecommendedGeographies, scoreLabel, TARGET_COUNTRIES } from '@/lib/campaign/geoAffinity';
+import { RangeSlider } from '@/components/ui/RangeSlider';
 import { cn } from '@/lib/utils/cn';
-import { 
-  Rocket, Link2, TrendingUp, Clock, DollarSign, 
+import {
+  Rocket, Link2, TrendingUp, Globe, DollarSign,
   ShieldCheck, Zap, ChevronRight, Play, PauseCircle,
-  BarChart3, Globe, Music, CheckCircle2, Sparkles, MapPin, Wand2
+  BarChart3, Music, CheckCircle2, Sparkles, MapPin, Wand2
 } from 'lucide-react';
 
 const PublicAnalyticsShowcase = dynamic(
@@ -35,7 +36,7 @@ const PublicAnalyticsShowcase = dynamic(
 );
 
 const GENRES = [
-  'Afrobeats', 'Amapiano', 'Hip-Hop', 'R&B', 'Pop', 
+  'Afrobeats', 'Amapiano', 'Hip-Hop', 'R&B', 'Pop',
   'Electronic', 'Reggae', 'Gospel', 'Highlife', 'Jazz',
   'Rock', 'Afro-fusion', 'Drill', 'Dancehall'
 ];
@@ -50,6 +51,7 @@ const TIERS = [
 ];
 
 const PENDING_CAMPAIGN_KEY = 'mavins_pending_campaign';
+const MAX_COUNTRIES_FREE = 3;
 
 // Country → currency mapping for ipapi.co conversion
 const COUNTRY_CURRENCY: Record<string, { code: string; symbol: string; rate: number }> = {
@@ -98,7 +100,9 @@ function getStageLabel(stage: string) {
 
 // ── Memoized subsections ──────────────────────────────────────────────
 
-const GenreChips = memo(function GenreChips({ selectedGenre, onSelect }: { selectedGenre: string; onSelect: (genre: string) => void }) {
+const GenreChips = memo(function GenreChips({ selectedGenre, onSelect }: {
+  selectedGenre: string; onSelect: (genre: string) => void;
+}) {
   return (
     <div className="grid grid-cols-3 xs:grid-cols-4 sm:grid-cols-5 gap-2">
       {GENRES.map((genre) => (
@@ -111,11 +115,15 @@ const GenreChips = memo(function GenreChips({ selectedGenre, onSelect }: { selec
   );
 });
 
-const GeoTargetingSection = memo(function GeoTargetingSection({ genre, homeCountryCode, selectedCodes, onToggle }: {
-  genre: string; homeCountryCode: string | null; selectedCodes: string[]; onToggle: (code: string) => void;
+const GeoTargetingSection = memo(function GeoTargetingSection({
+  genre, homeCountryCode, selectedCodes, onToggle, isAdmin,
+}: {
+  genre: string; homeCountryCode: string | null; selectedCodes: string[];
+  onToggle: (code: string) => void; isAdmin: boolean;
 }) {
   const ranked = useMemo(() => getRecommendedGeographies(genre || null, homeCountryCode), [genre, homeCountryCode]);
   const topCodes = useMemo(() => new Set(ranked.slice(0, 3).map((r) => r.code)), [ranked]);
+  const atLimit = !isAdmin && selectedCodes.length >= MAX_COUNTRIES_FREE;
 
   return (
     <div className="space-y-2.5">
@@ -129,13 +137,21 @@ const GeoTargetingSection = memo(function GeoTargetingSection({ genre, homeCount
           const isSelected = selectedCodes.includes(rec.code);
           const isTop = topCodes.has(rec.code);
           const fit = scoreLabel(rec.score);
+          const disabled = !isSelected && atLimit;
           return (
-            <button key={rec.code} type="button" onClick={() => onToggle(rec.code)} className={cn(
-              'relative text-left px-2.5 py-2 rounded-xl border transition-all active:scale-95',
-              isSelected ? 'bg-[#1db954]/10 border-[#1db954]/40 text-[#1db954]' : 'chip-card border-white/5 text-[var(--muted-foreground)]'
-            )}>
+            <button
+              key={rec.code}
+              type="button"
+              onClick={() => !disabled && onToggle(rec.code)}
+              disabled={disabled}
+              className={cn(
+                'relative text-left px-2.5 py-2 rounded-xl border transition-all active:scale-95',
+                isSelected ? 'bg-[#1db954]/10 border-[#1db954]/40 text-[#1db954]' : 'chip-card border-white/5 text-[var(--muted-foreground)]',
+                disabled && 'opacity-40 cursor-not-allowed'
+              )}
+            >
               {isTop && <span className="absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase bg-[#1db954] text-black shadow">Top</span>}
-              <div className="flex items-center gap-1.5"><span aria-hidden>{rec.flag}</span><span className="text-xs font-semibold truncate">{rec.country}</span></div>
+              <div className="flex items-center gap-1.5"><span aria-hidden className="text-base">{rec.flag}</span><span className="text-xs font-semibold truncate">{rec.country}</span></div>
               <div className="flex items-center gap-1 mt-1">
                 <span className={cn('text-[9px] font-medium', fit.tone === 'strong' && 'text-[#1db954]', fit.tone === 'good' && 'text-[#3d91f4]', fit.tone === 'moderate' && 'text-amber-400', fit.tone === 'light' && 'text-[var(--subtle-foreground)]')}>{fit.label}</span>
                 {rec.isHomeMarket && <span className="flex items-center gap-0.5 text-[9px] text-[var(--subtle-foreground)]"><MapPin className="w-2.5 h-2.5" />You</span>}
@@ -144,7 +160,11 @@ const GeoTargetingSection = memo(function GeoTargetingSection({ genre, homeCount
           );
         })}
       </div>
-      <p className="text-[11px] text-[var(--subtle-foreground)]">{selectedCodes.length > 0 ? `Targeting ${selectedCodes.length} ${selectedCodes.length === 1 ? 'market' : 'markets'}.` : 'No markets selected — views distributed network-wide.'}</p>
+      <p className="text-[11px] text-[var(--subtle-foreground)]">
+        {selectedCodes.length > 0
+          ? `Targeting ${selectedCodes.length} ${selectedCodes.length === 1 ? 'market' : 'markets'}.${!isAdmin ? ` Max ${MAX_COUNTRIES_FREE} for free accounts.` : ''}`
+          : 'No markets selected — views distributed network-wide.'}
+      </p>
     </div>
   );
 });
@@ -170,7 +190,9 @@ const DurationSlotsGrid = memo(function DurationSlotsGrid({ selectedSlotId }: { 
   );
 });
 
-const PricingBreakdown = memo(function PricingBreakdown({ pricing, topGeo, targetedGeo, localCurrency }: {
+const PricingBreakdown = memo(function PricingBreakdown({
+  pricing, topGeo, targetedGeo, localCurrency,
+}: {
   pricing: ReturnType<typeof calculatePricing>;
   topGeo: { country: string; flag: string } | null;
   targetedGeo: { country: string; flag: string } | null;
@@ -179,6 +201,7 @@ const PricingBreakdown = memo(function PricingBreakdown({ pricing, topGeo, targe
   const geo = targetedGeo || topGeo;
   const hourlyRate = Math.round(pricing.dailyDripRate / 24);
   const localTotal = localCurrency ? Math.round(pricing.totalCostCents * localCurrency.rate) : null;
+  const selectedFlags = targetedGeo ? targetedGeo.flag : (topGeo ? topGeo.flag : '🌍');
 
   return (
     <div className="glass-card rounded-xl p-4 space-y-3">
@@ -187,18 +210,34 @@ const PricingBreakdown = memo(function PricingBreakdown({ pricing, topGeo, targe
         {pricing.savingsPercent > 0 && <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#1db954]/10 text-[#1db954] border border-[#1db954]/20">Save {pricing.savingsPercent}%</span>}
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1"><p className="text-[10px] text-[var(--subtle-foreground)] uppercase tracking-wider">Subtotal</p><p className="text-sm font-semibold">{formatCents(pricing.subtotalCents)}</p></div>
-        <div className="space-y-1"><p className="text-[10px] text-[var(--subtle-foreground)] uppercase tracking-wider">Platform Fee</p><p className="text-sm font-semibold">{formatCents(pricing.platformFeesCents)}</p></div>
-        <div className="space-y-1"><p className="text-[10px] text-[var(--subtle-foreground)] uppercase tracking-wider">Est. Hourly Pace</p><p className="text-sm font-semibold flex items-center gap-1"><Zap className="w-3.5 h-3.5 text-[#1db954]" />{formatNumber(hourlyRate)}/hr</p></div>
-        <div className="space-y-1"><p className="text-[10px] text-[var(--subtle-foreground)] uppercase tracking-wider">Primary Market</p><p className="text-sm font-semibold flex items-center gap-1"><Globe className="w-3.5 h-3.5 text-[#3d91f4]" />{geo ? `${geo.flag} ${geo.country}` : 'Network-wide'}</p></div>
+        <div className="p-3 rounded-xl bg-white/5 border border-white/5">
+          <p className="text-[10px] uppercase tracking-wider text-[var(--subtle-foreground)] mb-1">Subtotal</p>
+          <p className="text-lg font-bold">{formatCents(pricing.subtotalCents)}</p>
+        </div>
+        <div className="p-3 rounded-xl bg-white/5 border border-white/5">
+          <p className="text-[10px] uppercase tracking-wider text-[var(--subtle-foreground)] mb-1">Platform Fee ({pricing.platformFeePercent}%)</p>
+          <p className="text-lg font-bold">{formatCents(pricing.platformFeesCents)}</p>
+        </div>
+        <div className="p-3 rounded-xl bg-white/5 border border-white/5">
+          <p className="text-[10px] uppercase tracking-wider text-[var(--subtle-foreground)] mb-1">Delivery Rate</p>
+          <p className="text-sm font-bold">{formatNumber(pricing.dailyDripRate)}/day</p>
+          <p className="text-[10px] text-[var(--subtle-foreground)]">~{formatNumber(hourlyRate)}/hr</p>
+        </div>
+        <div className="p-3 rounded-xl bg-white/5 border border-white/5">
+          <p className="text-[10px] uppercase tracking-wider text-[var(--subtle-foreground)] mb-1">Primary Market</p>
+          <p className="text-sm font-bold flex items-center gap-1"><span>{selectedFlags}</span><span className="truncate">{geo?.country || 'Global'}</span></p>
+          <p className="text-[10px] text-[var(--subtle-foreground)]">{targetedGeo ? 'Targeted' : 'Auto-selected'}</p>
+        </div>
       </div>
-      <div className="pt-2 border-t border-[var(--glass-border)] flex items-center justify-between">
-        <span className="text-sm font-medium text-[var(--muted-foreground)]">Total</span>
-        <div className="text-right">
-          <span className="text-xl font-bold">{formatCents(pricing.totalCostCents)}</span>
-          {localCurrency && localTotal !== null && (
-            <p className="text-xs text-[var(--subtle-foreground)] mt-0.5">≈ {localCurrency.symbol}{localTotal.toLocaleString()} {localCurrency.code}</p>
-          )}
+      <div className="pt-3 border-t border-white/5">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium">Total</span>
+          <div className="text-right">
+            <p className="text-2xl font-bold text-[#1db954]">{formatCents(pricing.totalCostCents)}</p>
+            {localTotal !== null && localCurrency && (
+              <p className="text-xs text-[var(--subtle-foreground)]">≈ {localCurrency.symbol}{localTotal.toLocaleString()} {localCurrency.code}</p>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -235,12 +274,12 @@ const CampaignCard = memo(function CampaignCard({ campaign }: { campaign: any })
 const HOW_IT_WORKS = [
   { step: 1, title: 'Paste URL', desc: 'Drop your YouTube link', icon: Link2 },
   { step: 2, title: 'Set Target', desc: 'Slide to choose views', icon: TrendingUp },
-  { step: 3, title: 'We Drip', desc: 'Organic delivery over time', icon: Clock },
+  { step: 3, title: 'We Deliver', desc: 'Organic delivery over time', icon: Globe },
   { step: 4, title: 'Track Growth', desc: 'Real-time analytics', icon: BarChart3 },
 ];
 
 export default function PromotePage() {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, isAdmin } = useAuth();
   const router = useRouter();
   const [viewCount, setViewCount] = useState(5000);
   const [sourceUrl, setSourceUrl] = useState('');
@@ -253,11 +292,7 @@ export default function PromotePage() {
   const [targetCountries, setTargetCountries] = useState<string[]>([]);
   const [localCurrency, setLocalCurrency] = useState<{ code: string; symbol: string; rate: number } | null>(null);
 
-  // Slider ref for CSS-only fill updates (no React re-render on drag)
-  const sliderRef = useRef<HTMLInputElement>(null);
-  const sliderDisplayRef = useRef<HTMLSpanElement>(null);
-
-  // Detect local currency ONCE on mount (not on every render)
+  // Detect local currency ONCE on mount
   useEffect(() => {
     let cancelled = false;
     detectUserGeo().then((geo) => {
@@ -308,32 +343,20 @@ export default function PromotePage() {
     } catch {}
   }, [isAuthenticated]);
 
-  // ── CRITICAL FIX: Slider uses ref-based CSS updates, NOT React state, during drag ──
-  // This prevents the entire page from re-rendering (and glitching/black-screening) on every drag tick
-  const handleSliderInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = Number(e.target.value);
-    // Update CSS custom property for gold fill gradient — DOM only, no React re-render
-    if (sliderRef.current) {
-      const percent = ((val - 1000) / (500000 - 1000)) * 100;
-      sliderRef.current.style.setProperty('--value-percent', `${percent}%`);
-    }
-    // Update display number — DOM only, no React re-render
-    if (sliderDisplayRef.current) {
-      sliderDisplayRef.current.textContent = formatNumber(val);
-    }
-  }, []);
-
-  // Only update React state when user releases the slider (onChange fires on release)
-  const handleSliderChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = Number(e.target.value);
+  // Slider change — only fires when user releases the thumb
+  const handleSliderChange = useCallback((val: number) => {
     setViewCount(val);
   }, []);
 
   const handleGenreSelect = useCallback((genre: string) => { setSelectedGenre(genre); }, []);
 
   const handleToggleCountry = useCallback((code: string) => {
-    setTargetCountries((prev) => prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]);
-  }, []);
+    setTargetCountries((prev) => {
+      if (prev.includes(code)) return prev.filter((c) => c !== code);
+      if (!isAdmin && prev.length >= MAX_COUNTRIES_FREE) return prev;
+      return [...prev, code];
+    });
+  }, [isAdmin]);
 
   const geographicTier = useMemo(() => {
     const n = targetCountries.length;
@@ -356,13 +379,18 @@ export default function PromotePage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!sourceUrl.trim()) { alert('Please enter a YouTube URL'); return; }
-    if (!isAuthenticated || !user?.id) { goFundWallet('launch_campaign'); return; }
+
+    // Guests always hit insufficient funds
+    if (!isAuthenticated || !user?.id) {
+      await goFundWallet('launch_campaign');
+      return;
+    }
 
     setIsSubmitting(true);
     const result = await createCampaign({
       sourceUrl: sourceUrl.trim(), viewCount, artistId: user.id,
       genre: selectedGenre || undefined, geographicTier, targetCountries,
-    });
+    }, isAdmin);
     setIsSubmitting(false);
 
     if (result.success) {
@@ -371,99 +399,98 @@ export default function PromotePage() {
       setCampaigns(updated);
       setTimeout(() => setShowSuccess(false), 4000);
     } else if (/insufficient/i.test(result.error || '')) {
-      goFundWallet('insufficient_funds');
+      await goFundWallet('insufficient_funds');
     } else {
       alert(result.error || 'Failed to create campaign');
     }
   };
 
-  const sliderPercent = ((viewCount - 1000) / (500000 - 1000)) * 100;
-
   return (
     <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] scroll-smooth-mobile">
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="ambient-blob absolute -top-24 -right-24 w-[280px] h-[280px] sm:-top-40 sm:-right-40 sm:w-[500px] sm:h-[500px] bg-[#1db954]/4 rounded-full blur-2xl sm:blur-3xl animate-ambient will-change-transform" />
-        <div className="ambient-blob absolute -bottom-24 -left-24 w-[280px] h-[280px] sm:-bottom-40 sm:-left-40 sm:w-[500px] sm:h-[500px] bg-[#3d91f4]/4 rounded-full blur-2xl sm:blur-3xl animate-ambient-slow will-change-transform" />
-        <div className="ambient-blob hidden sm:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-[#a855f7]/3 rounded-full blur-3xl animate-ambient-fast will-change-transform" />
+        <div className="absolute -top-[20%] -right-[10%] w-[50vw] h-[50vw] rounded-full bg-[#1db954]/5 blur-[120px] animate-ambient" />
+        <div className="absolute top-[40%] -left-[10%] w-[40vw] h-[40vw] rounded-full bg-[#3d91f4]/5 blur-[100px] animate-ambient-slow" />
       </div>
 
-      <div className="relative max-w-5xl mx-auto px-4 sm:px-6 pt-20 pb-24 md:pb-8 space-y-6">
-        <div>
+      <div className="relative max-w-2xl mx-auto px-4 py-6 sm:py-10 space-y-8">
+        <div className="text-center space-y-2">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Promote Your Track</h1>
-          <p className="text-[var(--muted-foreground)] text-sm mt-1">Paste your YouTube link. We handle the rest.</p>
+          <p className="text-sm text-[var(--muted-foreground)] max-w-md mx-auto">Paste a YouTube link, set your target, and let the seed network deliver organic streams.</p>
         </div>
 
         {showSuccess && (
-          <div className="fixed top-20 right-4 left-4 sm:left-auto z-50 glass-strong border-[#1db954]/30 px-5 py-3 rounded-xl shadow-2xl flex items-center gap-2 slide-in-from-right">
+          <div className="glass-strong rounded-xl p-4 flex items-center gap-3 border border-[#1db954]/30 bg-[#1db954]/5">
             <CheckCircle2 className="w-5 h-5 text-[#1db954] flex-shrink-0" />
-            <span className="font-semibold text-sm">Campaign created successfully!</span>
+            <div>
+              <p className="font-semibold text-sm">Campaign Launched!</p>
+              <p className="text-xs text-[var(--subtle-foreground)]">Your track is now in the seed network.</p>
+            </div>
           </div>
         )}
 
-        <div className="glass-strong rounded-2xl overflow-hidden gpu-layer">
-          <div className={cn('px-5 py-2.5 text-xs font-bold uppercase tracking-wider bg-gradient-to-r', currentTier.color, 'text-white shadow-lg')}>
-            <div className="flex items-center gap-2"><Sparkles className="w-3.5 h-3.5 flex-shrink-0" /><span className="truncate">{currentTier.label} Tier</span></div>
+        <div className="glass-strong rounded-2xl p-5 sm:p-6 space-y-5 gpu-layer">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-[#1db954]/10 border border-[#1db954]/20 flex items-center justify-center">
+                <Rocket className="w-4 h-4 text-[#1db954]" />
+              </div>
+              <div>
+                <h2 className="font-bold text-sm">New Campaign</h2>
+                <p className="text-[11px] text-[var(--subtle-foreground)]">{currentTier.label} Tier</p>
+              </div>
+            </div>
+            <span className={cn('text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border bg-gradient-to-r text-white', currentTier.color)}>
+              {currentTier.label}
+            </span>
           </div>
 
-          <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-6">
-            <div>
-              <label className="block text-sm font-medium mb-2 text-[var(--muted-foreground)]">YouTube URL</label>
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-[var(--muted-foreground)]">YouTube URL</label>
               <div className="relative">
-                <Link2 className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--subtle-foreground)]" />
-                <input type="url" inputMode="url" placeholder="https://youtube.com/watch?v=..." value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} className="w-full pl-11 pr-4 py-3.5 rounded-xl glass-input text-sm text-white placeholder:text-[var(--subtle-foreground)]" required />
+                <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--subtle-foreground)]" />
+                <input
+                  type="url"
+                  value={sourceUrl}
+                  onChange={(e) => setSourceUrl(e.target.value)}
+                  placeholder="https://youtube.com/watch?v=..."
+                  className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm placeholder:text-[var(--subtle-foreground)] focus:border-[#1db954]/50 focus:ring-1 focus:ring-[#1db954]/20 transition-all"
+                  required
+                />
               </div>
-              {sourceUrl.trim() && !selectedGenre && <p className="text-[11px] text-[var(--subtle-foreground)] mt-1.5">Pick your genre below and we'll rank the best-fit markets for this track.</p>}
             </div>
 
-            <div>
-              <label className="block text-sm font-medium mb-2 text-[var(--muted-foreground)]">Genre</label>
+            <div className="space-y-2">
+              <label className="text-sm font-medium mb-2 text-[var(--muted-foreground)]">Genre</label>
               <GenreChips selectedGenre={selectedGenre} onSelect={handleGenreSelect} />
             </div>
 
-            <GeoTargetingSection genre={selectedGenre} homeCountryCode={homeCountryCode} selectedCodes={targetCountries} onToggle={handleToggleCountry} />
+            <GeoTargetingSection
+              genre={selectedGenre}
+              homeCountryCode={homeCountryCode}
+              selectedCodes={targetCountries}
+              onToggle={handleToggleCountry}
+              isAdmin={isAdmin}
+            />
 
-            {/* ── FUTURISTIC GOLD SLIDER — CSS-only fill, no React re-render on drag ── */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-[var(--muted-foreground)]">Target Views</label>
-                <div className="flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-[#1db954]" />
-                  {/* ref-based display — updated via DOM, not React state */}
-                  <span ref={sliderDisplayRef} className="text-xl font-bold tabular-nums">{formatNumber(viewCount)}</span>
-                </div>
-              </div>
-
-              <div className="relative py-3 px-1" style={{ touchAction: 'pan-y' }}>
-                <input
-                  ref={sliderRef}
-                  type="range"
-                  min="1000"
-                  max="500000"
-                  step="1000"
-                  value={viewCount}
-                  onInput={handleSliderInput}
-                  onChange={handleSliderChange}
-                  className="w-full"
-                  style={{ '--value-percent': `${sliderPercent}%` } as React.CSSProperties}
-                />
-              </div>
-
-              <div className="flex justify-between text-xs text-[var(--subtle-foreground)]">
-                <span>1K</span>
-                <span>100K</span>
-                <span>250K</span>
-                <span>500K</span>
-              </div>
-            </div>
+            {/* ── RangeSlider: isolated component, zero parent re-renders on drag ── */}
+            <RangeSlider
+              min={1000}
+              max={500000}
+              step={1000}
+              defaultValue={5000}
+              onChange={handleSliderChange}
+              labels={['1K', '100K', '250K', '500K']}
+            />
 
             <DurationSlotsGrid selectedSlotId={pricing.durationSlot.id} />
-            <p className="text-xs text-[var(--subtle-foreground)] -mt-3 text-center">Based on {formatNumber(pricing.dailyDripRate)} views/day drip rate</p>
+            <p className="text-xs text-[var(--subtle-foreground)] -mt-3 text-center">Based on {formatNumber(pricing.dailyDripRate)} views/day delivery rate</p>
 
             <PricingBreakdown pricing={pricing} topGeo={topGeo} targetedGeo={topTargetedGeo} localCurrency={localCurrency} />
 
             <button type="submit" disabled={isSubmitting} className="w-full py-3.5 rounded-xl bg-[#1db954] text-black font-semibold hover:bg-[#1ed760] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-[#1db954]/20 gpu-layer">
               {isSubmitting ? <><div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />Creating campaign...</>
-                : <><Rocket className="w-5 h-5" /><span className="truncate">Launch Campaign — {formatCents(pricing.totalCostCents)}</span></>}
+                : <><Rocket className="w-5 h-5" /><span className="truncate">{isAdmin ? 'Launch Campaign' : `Launch Campaign — ${formatCents(pricing.totalCostCents)}`}</span></>}
             </button>
           </form>
         </div>

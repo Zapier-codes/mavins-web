@@ -19,15 +19,18 @@ interface CampaignResult {
 
 /** Read wallet balance from users.wallet JSONB (no RPC needed). */
 async function getWalletBalanceCents(userId: string): Promise<number> {
-  const { data, error } = await supabase
-    .from('users')
-    .select('wallet')
-    .eq('id', userId)
-    .single();
-  if (error || !data?.wallet) return 0;
-  // wallet is JSONB: { balance: number, currency: string }
-  const wallet = typeof data.wallet === 'string' ? JSON.parse(data.wallet) : data.wallet;
-  return (wallet?.balance || 0);
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('wallet')
+      .eq('id', userId)
+      .single();
+    if (error || !data?.wallet) return 0;
+    const wallet = typeof data.wallet === 'string' ? JSON.parse(data.wallet) : data.wallet;
+    return (wallet?.balance || 0);
+  } catch {
+    return 0;
+  }
 }
 
 /** Credit/debit wallet by updating users.wallet JSONB + logging to wallet_ledger.changeset. */
@@ -35,7 +38,6 @@ async function updateWallet(userId: string, amountCents: number, description: st
   const currentBalance = await getWalletBalanceCents(userId);
   const newBalance = Math.max(0, currentBalance + amountCents);
 
-  // Update users.wallet JSONB
   const { error: walletError } = await supabase
     .from('users')
     .update({
@@ -46,7 +48,6 @@ async function updateWallet(userId: string, amountCents: number, description: st
 
   if (walletError) throw walletError;
 
-  // Log to wallet_ledger.changeset JSONB
   await supabase.from('wallet_ledger').insert({
     id: crypto.randomUUID(),
     user_id: userId,
@@ -66,29 +67,32 @@ async function updateWallet(userId: string, amountCents: number, description: st
   return newBalance;
 }
 
-export async function createCampaign(input: CreateCampaignInput): Promise<CampaignResult> {
+export async function createCampaign(
+  input: CreateCampaignInput,
+  isAdmin: boolean = false
+): Promise<CampaignResult> {
   try {
     const pricing = calculatePricing(input.viewCount);
 
-    // Check wallet balance via users.wallet JSONB
-    const balanceCents = await getWalletBalanceCents(input.artistId);
-    if (balanceCents < pricing.totalCostCents) {
-      return { success: false, error: 'Insufficient wallet balance. Please add funds.' };
+    // Admins launch campaigns for free — skip wallet logic entirely
+    if (!isAdmin) {
+      const balanceCents = await getWalletBalanceCents(input.artistId);
+      if (balanceCents < pricing.totalCostCents) {
+        return { success: false, error: 'Insufficient wallet balance. Please add funds.' };
+      }
+      await updateWallet(
+        input.artistId,
+        -pricing.totalCostCents,
+        `Campaign creation: ${input.sourceUrl.slice(0, 50)}`
+      );
     }
-
-    // Deduct from wallet
-    await updateWallet(
-      input.artistId,
-      -pricing.totalCostCents,
-      `Campaign creation: ${input.sourceUrl.slice(0, 50)}`
-    );
 
     const { data, error } = await supabase
       .from('track_campaigns')
       .insert({
         source_url: input.sourceUrl,
         artist_id: input.artistId,
-        total_budget_cents: pricing.totalCostCents,
+        total_budget_cents: isAdmin ? 0 : pricing.totalCostCents,
         spent_cents: 0,
         geographic_tier: input.geographicTier || 'local',
         target_countries: input.targetCountries || [],
@@ -191,13 +195,11 @@ export async function addFundsToCampaign(campaignId: string, additionalCents: nu
     const campaign = await getCampaignById(campaignId);
     if (!campaign) return { success: false, error: 'Campaign not found' };
 
-    // Check wallet via users.wallet JSONB
     const balance = await getWalletBalanceCents(campaign.artist_id);
     if (balance < additionalCents) {
       return { success: false, error: 'Insufficient wallet balance' };
     }
 
-    // Deduct
     await updateWallet(
       campaign.artist_id,
       -additionalCents,

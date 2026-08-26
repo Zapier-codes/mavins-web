@@ -51,6 +51,7 @@ export const DURATION_SLOTS: DurationSlot[] = [
 ];
 
 export interface CampaignPricing {
+  platformFeePercent: number;
   viewCount: number;
   durationSlot: DurationSlot;
   totalCostCents: number;
@@ -59,6 +60,7 @@ export interface CampaignPricing {
   tierLabel: string;
   savingsPercent: number;
   platformFeesCents: number;
+  platformFeePercent: number;
   subtotalCents: number;
 }
 
@@ -103,6 +105,7 @@ export function calculatePricing(viewCount: number): CampaignPricing {
     tierLabel: tier.label,
     savingsPercent: Math.max(0, savingsPercent),
     platformFeesCents,
+    platformFeePercent: PLATFORM_FEE_PERCENT,
     subtotalCents,
   };
 }
