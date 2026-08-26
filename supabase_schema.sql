@@ -308,6 +308,10 @@ $$;
 GRANT EXECUTE ON FUNCTION public.get_artist_dashboard(UUID) TO authenticated;
 
 -- get_leaderboard — Rankings
+-- Starts from `users` (LEFT JOIN campaigns) so every real/seeded user
+-- shows up even with zero or no active campaigns, instead of requiring
+-- an active campaign to appear at all. See supabase_migration_003 for
+-- the full rationale.
 CREATE OR REPLACE FUNCTION public.get_leaderboard(p_limit INTEGER DEFAULT 50)
 RETURNS TABLE (
     artist_id UUID,
@@ -317,17 +321,17 @@ RETURNS TABLE (
     avatar_url TEXT
 )
 LANGUAGE SQL SECURITY DEFINER SET search_path = public STABLE AS $$
-    SELECT 
-        tc.artist_id,
-        u.artist_name,
-        SUM(tc.total_streams) AS total_streams,
-        COUNT(*)::BIGINT AS total_campaigns,
+    SELECT
+        u.id AS artist_id,
+        COALESCE(u.artist_name, u.display_name, split_part(u.email, '@', 1)) AS artist_name,
+        COALESCE(SUM(tc.total_streams), 0)::BIGINT AS total_streams,
+        COALESCE(COUNT(tc.id), 0)::BIGINT AS total_campaigns,
         u.avatar_url
-    FROM public.track_campaigns tc
-    JOIN public.users u ON u.id = tc.artist_id
-    WHERE tc.is_active
-    GROUP BY tc.artist_id, u.artist_name, u.avatar_url
-    ORDER BY total_streams DESC
+    FROM public.users u
+    LEFT JOIN public.track_campaigns tc ON tc.artist_id = u.id
+    WHERE u.is_active
+    GROUP BY u.id, u.artist_name, u.display_name, u.email, u.avatar_url
+    ORDER BY total_streams DESC, u.created_at ASC
     LIMIT p_limit;
 $$;
 GRANT EXECUTE ON FUNCTION public.get_leaderboard(INTEGER) TO anon;
