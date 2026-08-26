@@ -301,8 +301,39 @@ input[type="range"]::-moz-range-thumb {
 .marquee-track:hover {
   animation-play-state: paused;
 }
+/* Slower pass for the earnings ticker's dummy notification pills — kept as
+   a modifier rather than changing .marquee-track directly so other
+   marquees (e.g. the partners strip) keep their own default speed. */
+.marquee-track--slow {
+  animation-duration: 90s;
+}
 @media (prefers-reduced-motion: reduce) {
   .marquee-track {
+    animation: none;
+  }
+}
+
+/* "How It Works" step demos — Paste URL typewriter caret, and the falling
+   drip dots for the "We Drip" step. The slider fill, drip fill bar, and
+   growth-chart line/dot are progress-driven from JS (see
+   HowItWorksAnimated.tsx) rather than pure CSS, so they can stay numerically
+   in sync with the on-screen counters. */
+@keyframes caret-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.typewriter-caret {
+  animation: caret-blink 0.8s step-end infinite;
+  color: var(--accent);
+}
+@keyframes drip-fall {
+  0% { transform: translateY(-14px); opacity: 0; }
+  15% { opacity: 1; }
+  70% { transform: translateY(6px); opacity: 1; }
+  100% { transform: translateY(10px); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .typewriter-caret {
     animation: none;
   }
 }

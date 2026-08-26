@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { EarningsMarquee } from '@/components/landing/EarningsMarquee';
 import { PartnersMarquee } from '@/components/landing/PartnersMarquee';
+import { HowItWorksAnimated } from '@/components/landing/HowItWorksAnimated';
 
 export default function HomePage() {
   const { user, isAuthenticated } = useAuth();
@@ -99,23 +100,11 @@ export default function HomePage() {
             ))}
           </div>
 
-          {/* How it works */}
+          {/* How it works — fully animated: typewriter URL, live-filling
+              slider, dripping delivery, and a growing line chart. */}
           <div className="mt-16">
             <h2 className="font-display text-xl font-semibold text-center mb-8">How It Works</h2>
-            <div className="grid sm:grid-cols-4 gap-4">
-              {[
-                { step: '01', title: 'Paste URL', desc: 'Drop your YouTube link' },
-                { step: '02', title: 'Set Views', desc: 'Slide to your target' },
-                { step: '03', title: 'We Drip', desc: 'Organic delivery over time' },
-                { step: '04', title: 'Watch Grow', desc: 'Real-time analytics' },
-              ].map((item) => (
-                <div key={item.step} className="text-center">
-                  <span className="font-display text-3xl font-semibold text-[var(--accent)]/25">{item.step}</span>
-                  <h4 className="font-medium mt-2">{item.title}</h4>
-                  <p className="text-xs text-[var(--muted-foreground)] mt-0.5">{item.desc}</p>
-                </div>
-              ))}
-            </div>
+            <HowItWorksAnimated />
           </div>
         </div>
       </div>

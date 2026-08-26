@@ -79,7 +79,7 @@ export function EarningsMarquee() {
         WebkitMaskImage: 'linear-gradient(90deg, transparent, black 8%, black 92%, transparent)',
       }}
     >
-      <div className="marquee-track flex gap-3 w-max">
+      <div className="marquee-track marquee-track--slow flex gap-3 w-max">
         {looped.map((item, i) => (
           <TickerPill key={`${item.id}-${i}`} item={item} />
         ))}
