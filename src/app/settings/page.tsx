@@ -3,7 +3,6 @@
 import React, { useState, useEffect, type ComponentType, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/auth/useAuth';
-import { useTheme } from '@/components/providers/ThemeProvider';
 import { supabase } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils/cn';
 import { 
@@ -29,7 +28,6 @@ const BRAND_ICONS = {
 
 export default function SettingsPage() {
   const { user, isAuthenticated } = useAuth();
-  const { mode, toggleTheme } = useTheme();
   const router = useRouter();
   const [artistName, setArtistName] = useState(user?.artist_name || '');
   const [email, setEmail] = useState(user?.email || '');
@@ -87,8 +85,8 @@ export default function SettingsPage() {
   const sections = [
     { id: 'profile', icon: User, label: 'Profile', active: true, href: null },
     { id: 'notifications', icon: Bell, label: 'Notifications', active: false, href: '/notifications' },
-    { id: 'security', icon: Shield, label: 'Security', active: false, href: null },
-    { id: 'appearance', icon: Palette, label: 'Appearance', active: false, href: null },
+    { id: 'security', icon: Shield, label: 'Security', active: false, href: '/security' },
+    { id: 'appearance', icon: Palette, label: 'Appearance', active: false, href: '/appearance' },
   ];
 
   return (
