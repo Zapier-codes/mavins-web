@@ -10,8 +10,28 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /**
  * POST /api/payments/initialize
  *
- * Authenticated:  Body: { amount: number, currency?: string }
- * Guest:          Body: { amount: number, currency?: string, guestEmail: string }
+ * `amount` is in the base currency unit (whole dollars for USD, the
+ * app's own default/accounting currency -- matching what /fund-wallet
+ * displays to the user) -- NOT cents/kobo. See korapay.service.ts's
+ * InitializeChargeInput comment for why this matters (a prior
+ * caller-side ×100-assuming-NGN here caused a 100x overcharge bug,
+ * fixed this session, then corrected again per project owner
+ * direction: this app does not default to or convert into NGN
+ * client-side at all -- USD is the default, and Korapay's own Dynamic
+ * Currency Conversion (DCC) handles showing a non-US payer their local
+ * currency at checkout. See `paymentCurrency` below.
+ *
+ * Authenticated:  Body: { amount: number, currency?: string, paymentCurrency?: string }
+ * Guest:          Body: { amount: number, currency?: string, paymentCurrency?: string, guestEmail: string }
+ *
+ * `paymentCurrency` (optional): the payer's own local currency, as
+ * resolved client-side via geo-IP (see
+ * src/lib/currency/korapayDccCurrency.ts) -- NOT computed or converted
+ * here, just forwarded. When present, this triggers Korapay's DCC:
+ * the payer sees the converted amount in their currency at checkout,
+ * while we still get settled in USD (this app's settlement_currency,
+ * hardcoded below since this app only ever settles in USD today).
+ * When absent, the payer just pays the USD amount directly.
  *
  * Creates a Korapay checkout session for a wallet top-up. Guests
  * (no session) can hit this too -- that's the whole point of "insufficient
@@ -25,10 +45,20 @@ export async function POST(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
 
     const body = await request.json();
-    const { amount, currency = 'NGN' } = body;
+    const { amount, currency = 'USD', paymentCurrency } = body;
+    // Settlement currency is hardcoded to USD -- this app only ever
+    // settles in USD today (see Korapay dashboard settings, Settlements
+    // section, which is where this would actually need to change, not
+    // here). Only meaningful when paymentCurrency is also set (DCC).
+    const settlementCurrency = 'USD';
 
-    if (!amount || amount < 100) {
-      return NextResponse.json({ error: 'Minimum amount is 100 NGN' }, { status: 400 });
+    // $1 is a placeholder floor to reject zero/negative/garbage input,
+    // not a considered business minimum -- the cheapest real campaign
+    // tier costs several dollars (see pricing.ts's PRICING_TIERS). If
+    // the project owner wants a specific minimum top-up, replace this
+    // with that number explicitly rather than relying on this floor.
+    if (!amount || amount < 1) {
+      return NextResponse.json({ error: 'Minimum amount is $1' }, { status: 400 });
     }
 
     if (user) {
@@ -44,6 +74,9 @@ export async function POST(request: NextRequest) {
       const result = await initializeCharge({
         amount,
         currency,
+        ...(paymentCurrency && paymentCurrency !== settlementCurrency
+          ? { paymentCurrency, settlementCurrency }
+          : {}),
         reference,
         customerEmail: profile?.email || user.email!,
         customerName: profile?.artist_name || 'Mavins User',
@@ -103,6 +136,9 @@ export async function POST(request: NextRequest) {
     const result = await initializeCharge({
       amount,
       currency,
+      ...(paymentCurrency && paymentCurrency !== settlementCurrency
+        ? { paymentCurrency, settlementCurrency }
+        : {}),
       reference,
       customerEmail: guestEmail,
       customerName: 'Mavins User',

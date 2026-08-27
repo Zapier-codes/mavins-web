@@ -1580,6 +1580,110 @@ Verified via `npx tsc --noEmit` — clean. **Not verified:** an actual
 live payment (no sandbox network access to the Render backend or
 Korapay from here) — same limitation noted throughout Task 24.
 
+## Task 26 — Korapay top-up amount bug: wrong currency default + no client-side conversion (cross-repo, originated as B-Pay-backend's own Task 16) [x]
+
+**Origin:** B-Pay-backend's handover.md Task 16 ("Clone Mavins-web,
+diagnose the Korapay amount bug") — see that repo's own file for the
+pointer back to here; this entry is the actual work record, per this
+project's cross-repo continuation convention.
+
+**What was found (first pass):** `fund-wallet/page.tsx` multiplied the
+USD-dollar amount coming from `promote/page.tsx` (mislabeled
+`amountNaira`, actually always USD — `totalCostCents / 100`) by 100
+before sending it to `/api/payments/initialize`, while hardcoding
+`currency: 'NGN'`. That value flowed unconverted through
+`korapay.service.ts` and B-Pay-backend's Korapay provider (confirmed
+base-unit behavior, B-Pay-backend Task 7) straight to Korapay, which
+treated it as naira. Net effect: a $50 top-up sent `amount: 5000` to
+Korapay tagged `currency: NGN` — a currency-code lie on top of a 100x
+unit error.
+
+**Project owner correction (this session, mid-fix):** the first pass
+above just removed the ×100 and kept `currency: 'NGN'` as the "real"
+default — **wrong**. Per the project owner: this app's default/display
+currency is **USD**, not NGN, and the app should not do its own
+currency math or default to any one country's currency at all. Korapay
+has its own **Dynamic Currency Conversion (DCC)** product — confirmed
+directly against developers.korapay.com/docs/dynamic-currency-conversion
+— where the merchant sends the charge in its own base currency plus a
+`payment_currency` (what the payer sees, converted at Korapay's live
+rate) and `settlement_currency` (what the merchant is paid in); Korapay
+does the conversion, not the app. The existing `ipapi.co`-based geo
+detection (`ipGeolocation.service.ts`, previously only used for
+targeting-recommendation nudges) is the right signal for
+`payment_currency` — no separate integration needed, just a new
+consumer of it.
+
+**What was actually implemented this session:**
+- `src/lib/currency/korapayDccCurrency.ts` (new) — country code →
+  Korapay-DCC-supported currency map, restricted to Korapay's own
+  confirmed-supported list (NGN, GHS, KES, ZAR, EGP, TZS, XAF, XOF —
+  see B-Pay-backend Task 7). Countries outside this map (including
+  US/UK/etc.) correctly get no DCC — direct USD charge.
+- `src/services/payment/korapay.service.ts` — `currency` default
+  changed `NGN` → `USD`; added optional `paymentCurrency`/
+  `settlementCurrency` on `InitializeChargeInput`, forwarded to the
+  render backend as `payment_currency`/`settlement_currency` only when
+  both are set.
+- `src/app/api/payments/initialize/route.ts` — default currency
+  `USD`; accepts an optional client-supplied `paymentCurrency` and
+  forwards it + a hardcoded `settlementCurrency: 'USD'` through to
+  `initializeCharge()`; minimum-amount check changed from the
+  NGN-scale `amount < 100` (now meaningless in USD) to a placeholder
+  `amount < 1` floor — **explicitly flagged as a placeholder, not a
+  considered business minimum**; replace with a real number if the
+  project owner wants one.
+- `src/app/fund-wallet/page.tsx` — calls `detectUserGeo()` +
+  `getKorapayDccCurrency()` on mount, sends the result as
+  `paymentCurrency` (omitted entirely if detection fails or the
+  country isn't DCC-mapped); sends `amount` as-is in USD, `currency:
+  'USD'`; UI label/step/min changed from ₦-scale to $-scale; minimum
+  top-up error message updated to match.
+- `src/app/promote/page.tsx` — renamed `amountNaira` → `amountUsd`
+  (same math, `totalCostCents / 100`) purely to stop the misleading
+  name from causing the same confusion again.
+- **B-Pay-backend** (separate repo/commit, see that repo's own
+  handover.md) — `routes.js` and `providers/korapay.js` updated to
+  accept and forward `payment_currency`/`settlement_currency` through
+  to Korapay's API; previously these fields would have been silently
+  dropped even if this repo sent them, since `routes.js` destructured a
+  fixed field whitelist that didn't include them.
+
+**What this does NOT resolve — real, unverifiable-from-code
+prerequisite:** Korapay's DCC requires (1) the merchant account to have
+Currency Conversion product access, which Kora grants manually
+(`request access from [email address in their docs]`), and (2) a
+per-currency dashboard toggle — Settings → Settlements → "Allow this
+merchant to settle payments in another currency" — enabled for USD
+specifically. Neither can be checked or set from this codebase. **If
+these aren't enabled on the live Korapay account, DCC requests will
+fail** — the code now sends `payment_currency`/`settlement_currency`
+correctly, but Korapay may reject them until the account side is
+configured. This should be confirmed directly with Korapay (or in
+their dashboard) before relying on this in production, and is exactly
+the kind of thing B-Pay-backend's own Task 14 (end-to-end manual test
+pass, blocked on real sandbox keys) would have caught — flagging the
+dependency here since it's now relevant to two repos' queues, not
+duplicating a new task for it.
+
+**Not touched, out of scope this session:** the wallet-crediting
+webhook (`src/app/api/payments/webhook/route.ts`) already assumed
+USD-denominated storage (`p_currency DEFAULT 'USD'` in the RPC,
+confirmed by reading `supabase_migration_004_credit_wallet_deposit.sql`
+directly) and multiplies Korapay's *returned* amount by 100 for
+internal cents storage — this was already correct and needed no
+change; the bug was isolated to the outbound initialize call.
+
+Verified via `npx tsc --noEmit` — clean, no errors, across all touched
+files (checked twice, before and after the `promote/page.tsx` rename).
+`node --check` passing on both touched B-Pay-backend files (that
+repo's own verification step). ESLint could not be run in this sandbox
+(`ERR_PACKAGE_PATH_NOT_EXPORTED` on `eslint.config.mjs` against the
+installed `eslint@8.57.1` under Node 22 — pre-existing sandbox/toolchain
+mismatch, unrelated to this change; not something a future session
+should try to "fix" without checking whether it reproduces outside
+this sandbox first).
+
 ---
 
 ## Notes for whoever picks up Task 2 next

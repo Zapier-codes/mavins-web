@@ -500,13 +500,17 @@ export default function PromotePage() {
   }, [targetCountries]);
 
   const goFundWallet = useCallback((reason: string) => {
-    const amountNaira = Math.ceil(pricing.totalCostCents / 100);
+    // totalCostCents is USD cents; this is USD dollars, NOT naira --
+    // was misleadingly named `amountNaira` (it was always just cents/100
+    // regardless of currency). Renamed rather than left to cause the
+    // same confusion this caused in fund-wallet/page.tsx this session.
+    const amountUsd = Math.ceil(pricing.totalCostCents / 100);
     try {
       sessionStorage.setItem(PENDING_CAMPAIGN_KEY, JSON.stringify({
         sourceUrl: sourceUrl.trim(), viewCount, selectedGenre, targetCountries,
       }));
     } catch {}
-    router.push(`/fund-wallet?amount=${amountNaira}&redirect=${encodeURIComponent('/promote')}&reason=${reason}`);
+    router.push(`/fund-wallet?amount=${amountUsd}&redirect=${encodeURIComponent('/promote')}&reason=${reason}`);
   }, [pricing.totalCostCents, sourceUrl, viewCount, selectedGenre, targetCountries, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {

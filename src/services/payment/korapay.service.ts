@@ -51,8 +51,34 @@
 const RENDER_BACKEND_URL = process.env.KORAPAY_RENDER_URL || 'https://b-pay-backend.onrender.com';
 
 export interface InitializeChargeInput {
-  amount: number;        // in cents
-  currency?: string;     // default NGN
+  // Base currency unit (e.g. whole dollars for USD), NOT cents/kobo --
+  // Korapay's charges/initialize takes an Integer amount in the base
+  // unit (confirmed against developers.korapay.com, see B-Pay-backend's
+  // handover.md Task 7). This field was previously mis-documented as
+  // "in cents", which caused fund-wallet/page.tsx to pre-multiply by
+  // 100 and overcharge every top-up 100x. Do not reintroduce that.
+  amount: number;
+  // Default USD, NOT NGN -- this is the app's own accounting/base
+  // currency (matches pricing.ts's totalCostCents, which is USD
+  // cents). Per project owner decision: the app does not do its own
+  // currency conversion or default to any single country's currency.
+  // Region-specific display/checkout happens via Korapay's own Dynamic
+  // Currency Conversion (see paymentCurrency/settlementCurrency below),
+  // not client-side math.
+  currency?: string;
+  // Dynamic Currency Conversion (DCC) — optional, Korapay-specific.
+  // https://developers.korapay.com/docs/dynamic-currency-conversion
+  // When both are supplied, Korapay's checkout shows the payer the
+  // amount converted into `paymentCurrency` at its live rate, while we
+  // still get settled in `settlementCurrency`. `currency`/`amount`
+  // above stay our own accounting figures either way. Omit both to
+  // charge directly in `currency` with no conversion (e.g. a payer
+  // already in the US paying in USD). See
+  // src/lib/currency/korapayDccCurrency.ts for how a caller should
+  // decide whether to set these, and the important caveat there about
+  // account-level prerequisites this code can't itself satisfy.
+  paymentCurrency?: string;
+  settlementCurrency?: string;
   customerEmail: string;
   customerName?: string;
   reference?: string;
@@ -111,8 +137,14 @@ export async function initializeCharge(
       // root cause of the "Invalid URL" bug (see file header).
       provider: 'korapay',
       amount: input.amount,
-      currency: input.currency || 'NGN',
+      currency: input.currency || 'USD',
       reference: input.reference,
+      // Only forwarded when both are set -- see the DCC comment on
+      // InitializeChargeInput above and B-Pay-backend's
+      // providers/korapay.js, which requires both together too.
+      ...(input.paymentCurrency && input.settlementCurrency
+        ? { payment_currency: input.paymentCurrency, settlement_currency: input.settlementCurrency }
+        : {}),
       // Korapay's own API (checkout, mobile money, pool accounts — see
       // developers.korapay.com) always nests the payer's details under
       // a `customer` object, never as flat top-level `email`/`name`
