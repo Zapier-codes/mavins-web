@@ -26,7 +26,7 @@ const navItems = [
 ];
 
 export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
-  const { user, isAuthenticated, signOut } = useAuth();
+  const { user, isAuthenticated, isAdmin, signOut } = useAuth();
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
 
@@ -99,7 +99,7 @@ export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate text-[var(--foreground)]">{user.artistName || user.email}</p>
-                    <p className="text-xs text-[var(--muted-foreground)]">Artist</p>
+                    <p className="text-xs text-[var(--muted-foreground)]">{isAdmin ? 'Admin' : 'Artist'}</p>
                   </div>
                 </div>
                 <button 
