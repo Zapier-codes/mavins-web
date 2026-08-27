@@ -1283,7 +1283,7 @@ delete per the ask, with a clear `// WITHDRAWALS DISABLED — see Task
 
 ---
 
-## Task 22 — Settings page not fully wired [ ]
+## Task 22 — Settings page not fully wired [x]
 
 **Ask:** `/settings` (`src/app/settings/page.tsx`, 258 lines) has UI
 that isn't fully connected to real data/actions yet — exact scope
@@ -1326,6 +1326,32 @@ panels (password/2FA fields; the existing `toggleTheme` control wired
 to a visible switch), or (b) if they're meant to be separate pages
 like Notifications, give them real `href`s and build those pages —
 needs a decision on which before implementing either.
+
+**Decision + fix done in commit `c70d172`.** Product owner picked
+option (b), separate pages like Notifications:
+- `src/app/security/page.tsx` (new) — change-password form
+  (`supabase.auth.updateUser({ password })`) and a sign-out button
+  using the existing `useAuth().signOut()`. Gated behind a sign-in
+  prompt, same pattern as `/notifications`.
+- `src/app/appearance/page.tsx` (new) — a real dark/light theme
+  picker, wired to `ThemeProvider`. Not auth-gated (local device
+  preference). Required adding `setMode(mode)` to `ThemeProvider`
+  alongside the existing `toggleTheme()` so a specific mode can be
+  selected directly rather than only flipped — `toggleTheme()`/`mode`
+  are unchanged for the two pre-existing consumers (`Header.tsx`, and
+  `settings/page.tsx` itself, which no longer touches theme state at
+  all now that the tab is just a link).
+- `settings/page.tsx` — Security/Appearance tabs now have real
+  `href`s instead of `null`; dropped the unused `useTheme()` import
+  that was sitting there with no UI ever wired to it.
+
+Verified via `npx tsc --noEmit` — clean. **Not verified:** an actual
+`supabase.auth.updateUser()` call against a live Supabase project (no
+sandbox network access) — worth a real password-change test after
+deploying. This also assumes the Supabase project's auth config
+allows changing the password from an active client session without
+re-entering the current one (Supabase JS's client-side default) —
+worth confirming that's actually how this project is configured.
 
 ---
 
