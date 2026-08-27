@@ -96,9 +96,19 @@ export async function initializeCharge(
     body: JSON.stringify({
       amount: input.amount,
       currency: input.currency || 'NGN',
-      email: input.customerEmail,
-      name: input.customerName,
       reference: input.reference,
+      // Korapay's own API (checkout, mobile money, pool accounts — see
+      // developers.korapay.com) always nests the payer's details under
+      // a `customer` object, never as flat top-level `email`/`name`
+      // fields. This was sending them flat, so the render backend (or
+      // Korapay itself, if the backend passes the body through
+      // unchanged) never found an email where it expects one — that's
+      // the literal source of the "Email Address is required" error,
+      // even when the user's form field was filled in correctly.
+      customer: {
+        email: input.customerEmail,
+        name: input.customerName,
+      },
       metadata: input.metadata,
     }),
   });
