@@ -426,19 +426,19 @@ change).
 
 ---
 
-## Task 9 — Time icon → world map icon [ ]
+## Task 9 — Time icon → world map icon [x]
 
-**Ask:** Change "the icon for time" to a world map icon.
-
-**Likely refers to:** the `Clock` icon import in `promote/page.tsx`
-(imported from `lucide-react`). Note: commit `b400709` already
-removed `Clock` from the `HOW_IT_WORKS` step 3 icon (replaced with
-`Globe`, see Task 8) — but check if `Clock` is still imported/used
-elsewhere on the page (e.g. duration/tier displays) and swap those
-remaining instances to a world-map-style icon. `lucide-react` doesn't
-have a literal "world map" icon by that exact name — closest options
-are `Globe`, `Globe2`, or `Map` — pick whichever renders best at the
-icon size used.
+**Done in commit `9e1a0bc`.** The premise in this task's original note
+turned out to be slightly off once actually checked: `Clock` (and
+`Timer`/`Hourglass`/`AlarmClock`/`Watch`) were **already completely
+absent** from `promote/page.tsx` — not present-but-wrong, just gone,
+presumably removed in an earlier commit without a replacement. So
+"Campaign Duration" was rendering with no icon at all. Added
+`lucide-react`'s `Map` icon (the literal folded-map glyph — closer to
+"world map" than `Globe`/`Globe2`, which are already used elsewhere
+on this page for actual geo-targeting content and would've been a
+confusing reuse right next to the real geography section) directly
+next to the label. Verified via `npx tsc --noEmit` — clean.
 
 ---
 
