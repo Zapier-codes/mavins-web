@@ -1302,7 +1302,7 @@ worth confirming that's actually how this project is configured.
 ---
 
 ## Task 23 — Promote page: shuffle 8-of-25 countries by genre, cap
-selection at 3 of the shown 8 [ ]
+selection at 3 of the shown 8 [x]
 
 **Ask:** The country-targeting pool should be the full 25 countries,
 but the picker should only ever show 8 at a time, reshuffled based on
@@ -1310,25 +1310,6 @@ the genre the artist selects (presumably weighted toward that genre's
 best-fit markets, similar in spirit to the existing affinity table),
 and the artist can select at most 3 of *those 8 shown* — not 3 of the
 full 25.
-
-**Current state found while investigating:** `TARGET_COUNTRIES` in
-`src/lib/campaign/geoAffinity.ts` only has **14** countries defined
-right now, not 25 — the pool itself needs 11 more added (with affinity
-scores per existing genre in `GENRE_COUNTRY_AFFINITY`) before the
-8-of-25 shuffle makes sense. `promote/page.tsx` currently shows the
-*entire* pool with no shuffle/subset step at all — `MAX_COUNTRIES_FREE
-= 3` (Task 10) already caps selection count correctly, but it caps
-selection out of the *full* list shown, not out of a shuffled 8. So
-this task is really two parts: (1) grow the pool to 25 countries with
-real affinity scores, and (2) add a selection step — likely using
-`getRecommendedGeographies(genre, ...)` (already ranks by affinity) to
-take the top-weighted candidates and randomly sample/shuffle 8 from
-them per genre selection, then feed only those 8 into the existing
-`GeoTargetingSection` / `atLimit` logic so the "max 3" cap applies
-to the shown 8, not the underlying 25. Needs a decision on whether the
-shuffle re-randomizes every time the genre changes, or is stable once
-picked for a given session/campaign draft — worth confirming with
-product owner before implementing, since "shuffle" could mean either.
 
 **Part 1 done in commit `3d8dd90`.** Grew `TARGET_COUNTRIES` from 14
 to 25 by adding: Côte d'Ivoire, Senegal, Tanzania, Uganda, Egypt (West/
@@ -1342,14 +1323,46 @@ caveat as the rest of this table). Confirmed via grep that no other
 file hardcodes an assumption about pool size; `promote/page.tsx` only
 ever does `TARGET_COUNTRIES.find(...)` lookups by code.
 
-**Part 2 (the actual 8-of-25 shuffle + re-scoping the "max 3" cap to
-the shown 8) is still not done** — deliberately left out of this
-session since it needs the product-owner decision flagged above
-(re-shuffle on every genre change, or stable per draft?) before
-picking an implementation. Whoever picks this up next should start
-from `getRecommendedGeographies()` (already ranks the now-25-country
-pool by genre affinity) and layer the sample/shuffle-to-8 step on top
-of that, then feed the 8 into `GeoTargetingSection`.
+**Part 2 done in commit `e732766`.** Product owner confirmed the
+open question: the shown 8 should re-shuffle every time (not stay
+stable for a session), weighted by the selected genre, so the artist
+never sees a fixed set. Added `getGeoTargetingPool(genre,
+homeCountryCode, poolSize = 8)` to `geoAffinity.ts` — weighted
+sampling without replacement (roulette-wheel selection) over
+`getRecommendedGeographies()`'s full 25-country ranking, so
+higher-affinity markets show up more often but the exact 8 varies
+draw to draw. `GeoTargetingSection` in `promote/page.tsx` now renders
+this 8-country pool (`shown`) instead of the full 25 (`ranked`), via
+a `useMemo` keyed on `[genre, homeCountryCode]` — it reshuffles
+whenever the artist picks a different genre. The existing
+`MAX_COUNTRIES_FREE = 3` cap (Task 10) needed no change: it already
+just counts entries in `selectedCodes` regardless of what's rendered,
+so it now naturally caps at 3 of the shown 8.
+
+Verified with a standalone script: 20 draws for the same genre always
+returned exactly 8 distinct codes with zero duplicates, and all 25
+countries appeared somewhere across those 20 draws. Also verified via
+`npx tsc --noEmit` — clean.
+
+**Left alone on purpose:** the second `getRecommendedGeographies()`
+call further down `promote/page.tsx` (used to find the best-scoring
+match among the artist's *already-selected* countries, for a
+pricing-summary display) still scans the full 25 — correct, since a
+selection made under one shuffled 8 must still resolve after the
+picker reshuffles to a different 8.
+
+**New edge case found, not fixed — needs a product decision:**
+selecting a country, then changing genre so the picker reshuffles to
+a set that no longer includes it, leaves that code still counted in
+`targetCountries` (visible in `SelectedCountriesStack` and the
+"Targeting N markets" line) but no longer visible/togglable in the
+picker itself, until a later reshuffle happens to bring it back. This
+wasn't possible before (all 25 were always shown), so it's newly
+introduced by this task's own ask, not a pre-existing bug. Options for
+a future session: auto-clear selections that fall outside the newly
+shown 8 on genre change, or add a small "also selected (not shown)"
+affordance so the artist can still deselect it. Needs the product
+owner's preference before picking one.
 
 ---
 
