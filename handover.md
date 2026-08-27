@@ -458,8 +458,29 @@ account, not re-implement.
 
 ---
 
-## Task 11 — Admin launch button shows no price [ ] (verify — likely
-already done, may be a data/role issue not a code issue)
+## Task 11 — Admin launch button shows no price [ ] (data confirmed
+correct — still need to know if the button itself now behaves right)
+
+**Update this session:** product owner ran the exact query this task
+asked for — `SELECT email, role FROM users WHERE email = '<their
+email>'` — and it came back with `role = 'admin'` set correctly. So
+the "may be a data issue" hypothesis is now ruled out: the DB side is
+right, and the code (`isAdmin()` checking `user.role === 'admin'`,
+button text branching on it, backend skipping wallet deduction) was
+already re-confirmed correct earlier this same session against a
+fresh `origin/main` pull.
+
+**Still not fully closeable without one more answer:** with the data
+now confirmed correct, does the "Launch Campaign" button actually
+show no price for this account when logged in? If yes, this task is
+done — check the box. If it *still* shows a price despite `role =
+'admin'` being set, that's no longer a data-issue question — it
+would mean something between session/auth state and this specific
+render is off (e.g. a stale cached session not yet reflecting the
+DB row, `AuthProvider`'s merge step not picking up `role` for some
+reason, or a client caching an old profile). Whoever picks this up
+next: confirm the live button behavior first, and only dig into
+those code paths if the answer is "still showing a price."
 
 **Ask:** When an admin launches a campaign, the "Launch Campaign"
 button shouldn't show a price (admins launch for free).
@@ -492,6 +513,12 @@ so `user.role` does reflect the DB column correctly if it's set.
 ---
 
 ## Task 12 — Fix "cannot locate function get_wallet_id" error [ ] BLOCKED — needs more info
+
+**Update this session:** the SQL result received this session
+(`role = 'admin'` confirmed) answers Task 11's diagnostic query, not
+this one — it's a different table/question entirely (`users.role`
+vs. the live `pg_proc` catalog). Still genuinely blocked on this
+task specifically; nothing new to act on yet.
 
 **Ask:** An error "cannot locate function get_wallet_id" is still
 showing somewhere in the app; fix it.
@@ -622,6 +649,97 @@ Verified via `npx tsc --noEmit` — clean. Not verified: an actual live
 Korapay webhook delivery against the migrated DB (no sandbox network
 access to Supabase from this environment) — recommend a real
 end-to-end test payment after applying both migrations.
+
+---
+
+## Task 14 — Admin dashboard: fix wrong hardcoded email + client-side
+RLS blocking real data [x]
+
+**Ask:** Product owner forwarded a third-party document diagnosing
+"admin panel not working" as (1) a hardcoded admin email mismatch and
+(2) environment variables not being injected at build time, with a
+prescribed fix for both plus a suggested RLS workaround.
+
+**Same caution as Task 13 — verify before trusting a handed-in
+document, this repo's third strike on that:**
+
+1. **Hardcoded email mismatch — real, but currently inert.**
+   `src/app/admin/page.tsx` did check `user?.email !== 'admin@mavins.app'`
+   (wrong — the real admin is `bossblingzs@gmail.com`, per
+   `ADMIN_CONFIG` in `AuthProvider.tsx`), **but** the `router.push('/')`
+   that would act on that check was commented out. So this exact bug
+   wasn't actually blocking anyone — the page had no working gate at
+   all, which is its own problem (see #3).
+
+2. **Env vars not injected / hardcoded fallbacks — false.** Checked
+   `src/lib/supabase/client.ts` and `src/lib/supabase/admin.ts`
+   directly: both already read `process.env.NEXT_PUBLIC_SUPABASE_URL`
+   / `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY`
+   correctly, no hardcoded real values anywhere. The document's
+   suggested "correct" `client.ts` would have actually been a
+   **regression** — it creates the Supabase client at module scope
+   with a non-null assertion (`process.env.X!`), which breaks Next.js
+   static generation (this file has an explicit comment already
+   warning against exactly that, for exactly that reason). Not
+   applied.
+
+3. **Client-side admin queries hitting RLS — real, and the actual
+   likely cause of a sparse-looking dashboard.** `admin/page.tsx`
+   queried `users` / `track_campaigns` / `wallet_ledger` directly with
+   the regular anon-key client. `users` and `wallet_ledger`'s RLS
+   policies are `auth.uid() = id` / `auth.uid() = user_id` — own-row
+   only. An admin loading this page client-side would only ever see
+   their *own* single row in each table, not the full picture — which
+   would look like "the admin page is broken/empty" without actually
+   erroring.
+
+**Fixed:**
+- New `src/app/api/admin/dashboard/route.ts` — verifies the caller's
+  own session server-side (`createServerSupabaseClient()` +
+  `auth.getUser()`, then reads that user's own `role` — permitted by
+  the "own row" RLS policy regardless of what it's being checked for),
+  requires `isAdmin()` to be true, **then and only then** uses
+  `createAdminClient()` (service-role, bypasses RLS) to fetch all
+  three tables and return them as JSON. Deliberately **not** the
+  document's example route, which had zero auth check — copying that
+  verbatim would let any authenticated user curl this endpoint and
+  dump every user's data and the full wallet ledger via the
+  service-role key.
+- New `src/lib/auth/isAdmin.ts` — extracted `isAdmin()` /
+  `ADMIN_CONFIG` out of `AuthProvider.tsx` into a plain module with no
+  `'use client'` directive and no React import, so the new
+  server-only API route can use the exact same single source of
+  truth without pulling a client-boundary module into server code
+  (a real risk if imported directly — Next.js doesn't reliably treat
+  a `'use client'` file's plain function exports as safe to import
+  into a route handler). `AuthProvider.tsx` now re-exports both from
+  there; no other importer needed to change.
+- `admin/page.tsx`: replaced the wrong, inert hardcoded email check
+  with a real, working gate using `isAdmin` from `useAuth()` (waits
+  for `authLoading` to resolve first, so a real admin doesn't get
+  bounced on every hard refresh), and switched `loadData()` to fetch
+  from the new API route instead of querying the three tables
+  directly. Added a visible error banner (`loadError` state) so a
+  403/500 from the route surfaces to the admin instead of failing
+  silently.
+
+**Deliberately not touched — flagged instead:** `togglePause()` on
+this same page still writes directly with the client-side anon-key
+`supabase` client. `track_campaigns`'s RLS policy is `"Campaigns
+updatable by owner" USING (auth.uid() = artist_id)` — the identical
+underlying issue, but on the write side. An admin pausing *another*
+artist's campaign would have the `UPDATE` silently affect 0 rows
+under RLS (Supabase doesn't surface this as an error), so it would
+look like it worked and quietly not persist. Worth its own task —
+likely needs a second API route (`POST /api/admin/campaigns/:id/pause`)
+using the same auth-check-then-service-role pattern as the new
+dashboard route, rather than expanding this fix further.
+
+Verified via `npx tsc --noEmit` — clean. Not verified: an actual live
+login as the real admin account and a real `/admin` page load (no
+browser/live Supabase network access in this sandbox, same limitation
+noted on every prior task that needed one) — recommend a real
+end-to-end check after deploying this.
 
 ---
 

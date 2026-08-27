@@ -2,21 +2,13 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
+import { isAdmin, ADMIN_CONFIG } from '@/lib/auth/isAdmin';
 
-/** Hardcoded admin credentials — the single source of truth. */
-export const ADMIN_CONFIG = {
-  email: 'bossblingzs@gmail.com',
-  password: '$Password7492',
-} as const;
-
-/** Check if a user is admin by DB role OR hardcoded email fallback. */
-export function isAdmin(user: any): boolean {
-  if (!user) return false;
-  // DB role takes priority
-  if (user.role === 'admin') return true;
-  // Fallback to hardcoded email for the config admin
-  return user.email?.toLowerCase().trim() === ADMIN_CONFIG.email.toLowerCase().trim();
-}
+// Re-exported for existing importers (e.g. the admin login page) — the
+// actual logic now lives in src/lib/auth/isAdmin.ts so server-only code
+// (API routes) can use the same single source of truth without pulling in
+// this 'use client' module's boundary.
+export { isAdmin, ADMIN_CONFIG };
 
 interface AuthContextType {
   user: any;

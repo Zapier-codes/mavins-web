@@ -22,46 +22,62 @@ interface AdminStats {
 }
 
 export default function AdminPage() {
-  const { user, isAuthenticated } = useAuth();
+  const { isAuthenticated, isAdmin, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [ledger, setLedger] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'users' | 'ledger'>('overview');
 
   useEffect(() => {
-    if (!isAuthenticated) return;
-    // Simple admin check — in production, check users.role = 'admin'
-    if (user?.email !== 'admin@mavins.app') {
-      // router.push('/');
-      // return;
+    // Wait for the session to actually resolve before deciding anything —
+    // redirecting while auth is still loading would kick out real admins
+    // on every hard refresh.
+    if (authLoading) return;
+    if (!isAuthenticated || !isAdmin) {
+      router.push('/');
+      return;
     }
     loadData();
-  }, [isAuthenticated, user]);
+  }, [authLoading, isAuthenticated, isAdmin]);
 
   async function loadData() {
     setIsLoading(true);
-    const [usersRes, campaignsRes, ledgerRes] = await Promise.all([
-      supabase.from('users').select('*').order('created_at', { ascending: false }).limit(50),
-      supabase.from('track_campaigns').select('*, artist:users(artist_name, email)').order('created_at', { ascending: false }).limit(50),
-      supabase.from('wallet_ledger').select('*, user:users(artist_name, email)').order('created_at', { ascending: false }).limit(50),
-    ]);
+    setLoadError(null);
+    // Goes through a server route using the service-role client — the
+    // regular client-side query this used to run directly against
+    // users/track_campaigns/wallet_ledger only ever returns the caller's
+    // own row under RLS ("own row only" policy), which is why this page
+    // could look nearly empty even for a real admin.
+    const res = await fetch('/api/admin/dashboard');
+    const json = await res.json();
 
-    if (usersRes.data) setUsers(usersRes.data);
-    if (campaignsRes.data) setCampaigns(campaignsRes.data);
-    if (ledgerRes.data) setLedger(ledgerRes.data);
+    if (!res.ok) {
+      setLoadError(json?.error || 'Failed to load admin data');
+      setIsLoading(false);
+      return;
+    }
+
+    const usersData = json.users ?? [];
+    const campaignsData = json.campaigns ?? [];
+    const ledgerData = json.ledger ?? [];
+
+    setUsers(usersData);
+    setCampaigns(campaignsData);
+    setLedger(ledgerData);
 
     // Calculate stats
-    const totalStreams = campaignsRes.data?.reduce((sum: number, c: any) => sum + (c.total_streams || 0), 0) || 0;
-    const totalRevenue = campaignsRes.data?.reduce((sum: number, c: any) => sum + (c.spent_cents || 0), 0) || 0;
-    const activeCount = campaignsRes.data?.filter((c: any) => c.is_active && !c.is_paused).length || 0;
-    const walletTotal = ledgerRes.data?.reduce((sum: number, e: any) => sum + (e.amount_cents || 0), 0) || 0;
+    const totalStreams = campaignsData.reduce((sum: number, c: any) => sum + (c.total_streams || 0), 0);
+    const totalRevenue = campaignsData.reduce((sum: number, c: any) => sum + (c.spent_cents || 0), 0);
+    const activeCount = campaignsData.filter((c: any) => c.is_active && !c.is_paused).length;
+    const walletTotal = ledgerData.reduce((sum: number, e: any) => sum + (e.amount_cents || 0), 0);
 
     setStats({
-      totalUsers: usersRes.data?.length || 0,
-      totalCampaigns: campaignsRes.data?.length || 0,
+      totalUsers: usersData.length,
+      totalCampaigns: campaignsData.length,
       activeCampaigns: activeCount,
       totalStreams,
       totalRevenueCents: totalRevenue,
@@ -96,6 +112,13 @@ export default function AdminPage() {
             <p className="text-[var(--muted-foreground)] text-sm">Platform health and management</p>
           </div>
         </div>
+
+        {loadError && (
+          <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>{loadError}</span>
+          </div>
+        )}
 
         {/* Stats Grid */}
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
