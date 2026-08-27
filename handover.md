@@ -23,6 +23,13 @@ since). `npx tsc --noEmit` is the real verification gate; don't run
 as a regression to chase. A real build only needs to be checked
 somewhere with live network access (CI, local machine, deploy target).
 
+**`node_modules` isn't checked in** — run `npm install` once at the
+start of a session before `npx tsc --noEmit` will actually work
+(otherwise every import resolves as "Cannot find module", which looks
+like hundreds of type errors but is really just a missing install).
+The sandbox's allowed domains include the npm registry, so this
+works fine here.
+
 **Patch output — always exactly one `.patch` file per session, never
 two:** a session normally produces two commits (the task fix, then the
 handover.md update) — keep them as two separate commits, but bundle
@@ -1287,6 +1294,39 @@ to Supabase (vs. static/placeholder state), then report back the
 specific list of what's disconnected before fixing anything — this
 task is too vague to safely fix blind in one pass.
 
+**Report-back audit done this session (reading only, per the task's
+own instruction — not fixed, still `[ ]`):**
+- **Profile section — actually wired.** `artistName`, `email`,
+  `location`, `genre`, `whatsapp`, `instagram`, `twitter`, `tiktok`,
+  `spotifyId` all sync from the loaded `user` on mount and
+  `handleSave()` does a real `supabase.from('users').update(...)`
+  keyed on `user.id`. This part works.
+- **Notifications tab — wired, but only as a link.** `href:
+  '/notifications'`, so clicking it navigates away; nothing on
+  `/settings` itself renders notification prefs. Not necessarily a bug
+  (may be intentional — a separate page) but worth confirming that's
+  the intended design vs. an inline panel being expected here.
+- **Security tab — dead.** `href: null`, `active: false`. Clicking it
+  does nothing (`onClick={() => s.href && router.push(s.href)}` is a
+  no-op when `href` is `null`). No security UI exists anywhere on this
+  page (no password change, no 2FA, nothing).
+- **Appearance tab — dead, and the theme toggle is imported but never
+  used.** Same `href: null` no-op as Security. `useTheme()` is
+  destructured for `mode` and `toggleTheme`, but neither is rendered
+  or wired to any control on the page — there's no dark/light switch
+  UI here at all despite the hook being pulled in specifically for
+  that purpose.
+- Not checked yet: whether `/notifications` (the page this tab links
+  to) is itself fully wired — out of scope for this file-level audit,
+  would need its own look.
+
+**Suggested next step, still unconfirmed with product owner:** the
+likely fix is either (a) make Security and Appearance real inline
+panels (password/2FA fields; the existing `toggleTheme` control wired
+to a visible switch), or (b) if they're meant to be separate pages
+like Notifications, give them real `href`s and build those pages —
+needs a decision on which before implementing either.
+
 ---
 
 ## Task 23 — Promote page: shuffle 8-of-25 countries by genre, cap
@@ -1317,6 +1357,127 @@ to the shown 8, not the underlying 25. Needs a decision on whether the
 shuffle re-randomizes every time the genre changes, or is stable once
 picked for a given session/campaign draft — worth confirming with
 product owner before implementing, since "shuffle" could mean either.
+
+---
+
+## Task 24 — Korapay "Endpoint not found" error — fully wire the render
+backend proxy [x]
+
+**Ask:** Product owner is seeing a Korapay "Endpoint not found" error.
+Context given: Korapay requires IP whitelisting, and since this app's
+own hosting has no fixed outbound IP, a separate instance was hosted
+on Render specifically to get a stable outbound IP to whitelist with
+Korapay — that Render instance (`https://b-pay-backend.onrender.com`)
+is supposed to be the *only* thing that talks to Korapay directly;
+this app should only ever call the Render instance.
+
+**Done in commit `20926bd`.** Confirmed the actual bug by fetching the
+Render backend's own root URL — it self-reports its route table:
+```
+GET https://b-pay-backend.onrender.com/
+→ {"name":"B-Pay Backend","version":"1.0.0","status":"running",
+   "endpoints":{"health":"/health","pay":"/api/pay",
+                "verify":"/api/verify","myIp":"/my-ip"}}
+```
+`korapay.service.ts` (written when the render-proxy switch happened,
+commit `115921c`) was calling `POST /initialize` and `GET /verify/:ref`
+— neither of which exist on this backend. Every call 404'd against the
+backend's own catch-all handler before ever reaching Korapay — that
+404 response is almost certainly the literal source of the "Endpoint
+not found" message the product owner is seeing. Fixed to call
+`POST /api/pay` and `GET /api/verify`.
+
+**Second, separate bug found in the same area:**
+`src/app/api/payments/verify/[reference]/route.ts` (the route the
+browser hits landing back from Korapay's checkout page) had **never
+been switched over to the proxy at all** — it called
+`https://api.korapay.com/merchant/api/v1/charges/:reference` directly
+with `KORAPAY_SECRET_KEY`. That's exactly the problem the whole
+render-proxy architecture exists to avoid: this route runs on Vercel
+(or wherever the Next app is hosted), which has no whitelisted IP, so
+Korapay would reject it. Rewired to call `verifyCharge()` from
+`korapay.service.ts` (i.e. go through the Render proxy) instead.
+`KORAPAY_SECRET_KEY` is now unused anywhere in this Next.js app — that
+looks correct given the architecture (the secret key belongs on the
+Render backend, which is the only thing whitelisted to use it), but
+worth a sanity check with the product owner that nothing else still
+expects it set here.
+
+**Third bug, found while fixing the second:** the guest-checkout
+branch in that same verify route checked
+`existing?.metadata?.guest_checkout`, a flag that is **never set
+anywhere** — `/api/payments/initialize` actually stores
+`type: 'wallet_topup_guest'` + `guest_email` in `payments.metadata`
+for guest checkouts. So even once verification itself worked, a guest
+who completed a Korapay payment would never have gotten an account
+created / wallet credited via this route. Fixed the check to match
+what's actually stored, and added a fallback so the guest's email is
+read from that stored `guest_email` if the proxy backend's `/api/verify`
+response doesn't include Korapay's `customer.email` field (see next
+section — that response shape isn't fully confirmed).
+
+**Also corrected while in the file:** `ChargeStatusResponse`'s
+`status` field was typed as `'successful'`, but Korapay's own
+published API docs/samples show the real value is `'success'` — kept
+both as accepted values defensively. Added the optional `customer`
+field Korapay's real charge object includes (used for the guest-email
+fallback above).
+
+**Not fully confirmed — flagged clearly in code comments, needs a
+live test or the backend's own source to close out:**
+- `/api/verify`'s exact request shape. The backend's self-reported
+  route list shows it flat, with no `:reference` placeholder — but so
+  does `/api/pay`, which definitely needs its params in a POST body,
+  not a path segment, so the omission alone doesn't prove `/api/verify`
+  takes a query param instead of `/api/verify/<reference>`.
+  `verifyCharge()` now tries the path-segment form first and falls
+  back to a query param (`?reference=`) on a 404 response, so it
+  self-heals against either convention without a live test — but
+  confirming the real contract (ideally by reading the Render
+  backend's own source, if that's accessible somewhere, or a live
+  end-to-end payment) and simplifying to just the one that's actually
+  right is worth doing next session.
+- Whether `/api/pay`'s response body is a raw pass-through of
+  Korapay's own `{status, message, data: {checkout_url, reference,
+  ...}}` shape, or something the backend reshapes. Left the existing
+  parsing as-is (it already expects Korapay's native shape) since
+  that's the most likely design for a thin proxy, but this is an
+  assumption, not a confirmed fact.
+- Whether `/api/verify`'s response includes Korapay's `customer`
+  object — see the `guest_email` fallback above, added specifically to
+  not depend on this being true.
+
+**Much bigger, separate finding — do NOT attempt to fix blind, needs
+live DB access first:** both this verify route and
+`src/app/api/payments/webhook/route.ts` `SELECT` from a `payments`
+table (`.from('payments')`) to look up `user_id` before crediting a
+wallet. That table does **not appear anywhere in `supabase_schema.sql`**,
+and grepping the whole `src` tree turns up **no `INSERT` into
+`payments` anywhere in this codebase** — nothing ever writes a row for
+either route to find. If that table genuinely doesn't exist live
+either, both the verify-on-redirect flow and the webhook flow would
+silently no-op on the wallet-crediting step for every authenticated
+top-up (the `if (existing?.user_id)` / `if (payment.user_id)` guards
+would never pass), on top of whatever this session fixed. Given this
+repo's confirmed history of the live DB diverging from
+`supabase_schema.sql` (see Tasks 1, 13, 14), it's very possible
+`payments` exists live and just isn't tracked in the schema file —
+but that needs a live `information_schema.columns` check (same method
+Task 13 used) before touching anything, not a guess. If it turns out
+to be real, this is likely the single biggest remaining gap in "fully
+complete the integration" — worth prioritizing next session, and
+worth testing with an actual live payment end-to-end once confirmed,
+since none of this (this task included) has been exercised against a
+real Korapay transaction from this sandbox.
+
+Verified via `npx tsc --noEmit` — clean. **Not verified:** an actual
+live payment end-to-end (initialize → pay on Korapay's checkout →
+land back on `/verify` → wallet credited) — no sandbox network access
+to Render, Korapay, or Supabase from here. Strongly recommend a real
+test transaction after deploying this, specifically checking whether
+the path-segment or query-param form of `/api/verify` is the one that
+actually responds (server logs or a Render dashboard request log
+would show which one 404'd and which one didn't).
 
 ---
 
