@@ -49,10 +49,64 @@ typically land under shared storage after `termux-setup-storage`:
 
 ```
 git am ~/storage/downloads/000X-task<N>-combined.patch
+git push origin main
 ```
 
 (Adjust the filename to match what was actually generated; run from
-inside the repo's working directory.)
+inside the repo's working directory. **The local clone directory for
+this repo is `mavins-web`, lowercase — not `Mavins-web`** — even though
+the GitHub repo name itself is `Zapier-codes/Mavins-web`; `cd
+~/mavins-web` before running the above, not `cd ~/Mavins-web`, or the
+commands will fail with "not a git repository". Correction added this
+session — an earlier session's write-up of this repo's mechanics, both
+here and copied into B-Pay-backend's own `handover.md`, incorrectly
+implied no push step existed and used the GitHub-repo casing for the
+local folder name; both are now fixed.)
+
+---
+
+## This is a 3-repo project — read before picking a task if you got here via another repo
+
+This project spans **three separate GitHub repos**, each with its own
+`handover.md`/task queue/patch log (this file is Mavins-web's own —
+not shared with the others). A task in *any* of the three repos' own
+queue can point at a different repo by name (e.g. B-Pay-backend's
+handover.md has tasks titled "Mavins-web: ..."); when that happens,
+the session doing that work must fully switch context — clone/`cd`
+into the target repo, read *that* repo's own `handover.md` as source
+of truth, and use *that* repo's own commit/patch/hand-off mechanics,
+not whichever repo it started in. See B-Pay-backend's own
+`handover.md` → "This is a 3-repo project" section for the full
+mechanics write-up (kept in one place to avoid drift across three
+copies) — this block is just the pointer + this repo's own specifics.
+
+**This repo's own mechanics, for a session that arrives here from
+another repo:** confirmed this session (via the GitHub API) that
+`Mavins-web` is **not a fork** — unlike B-Pay-backend, which is a fork
+of `Phoenix-Boss/B-PAY-backend` and pushes through a fork→PR flow, this
+repo has no upstream/PR step. Its process is: commit, `git
+format-patch --stdout` (bundled, see above), hand the patch to the
+human, they run `git am` **followed by `git push origin main`** (no PR
+step — this repo isn't a fork, so a direct push to `main` is the whole
+delivery, not just a step toward a PR). **The local clone directory
+for this repo is `mavins-web`, lowercase** (see "To apply it" above) —
+don't assume it matches the GitHub repo's own `Mavins-web` casing.
+
+### Sibling repos
+- **`Mavins-web`** (this repo) —
+  `https://github.com/Zapier-codes/Mavins-web` — not a fork; local
+  clone directory is `mavins-web` (lowercase). Process: `git am` +
+  `git push origin main`, no PR step (see above).
+- **`B-Pay-backend`** — `https://github.com/Zapier-codes/B-Pay-backend`
+  — fork of `https://github.com/Phoenix-Boss/B-PAY-backend`; uses a
+  fork→PR flow (commit → patch → human `git am` + `git push
+  origin main` → auto-joins one open PR against upstream). See that
+  repo's own `handover.md` for full detail.
+- **`Velune`** — `https://github.com/Zapier-codes/Velune` — no
+  `handover.md` exists there yet as of this note (B-Pay-backend's own
+  Task 22 is the investigation task that creates it). Once created, it
+  should carry this same "Sibling repos" block with its own mechanics
+  filled in.
 
 ---
 
