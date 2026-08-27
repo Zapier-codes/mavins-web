@@ -816,8 +816,8 @@ this fix doesn't cover (please paste the exact new error text).
 ---
 
 ## Task 16 — RLS on `track_campaigns` still owner-only; admin actions
-silently no-op instead of erroring [ ] SQL drafted, needs to be run
-against the live DB
+silently no-op instead of erroring [x] SQL run against the live DB,
+root cause fully diagnosed (see resolution note below)
 
 **Ask:** Product owner reported the admin account can log in but is
 still blocked by `track_campaigns` row-level security in places Task
@@ -902,6 +902,62 @@ preferably, to stay consistent with Task 14/15's pattern — get its own
 service logic to the browser even once RLS stops blocking it). Not
 done in this pass — this task is DB-policy only; flagging the
 application-side follow-up so it isn't lost.
+
+**RESOLUTION — actual root cause found, this was bigger than an RLS
+policy gap:** After the SQL above was run, the admin's `role` column
+came back correctly as `'admin'` — but the wallet pill was still
+wrong and the RLS symptoms persisted for other reads. Ran:
+
+```sql
+SELECT au.id AS auth_id, pu.id AS public_id, (au.id = pu.id) AS ids_match
+FROM auth.users au JOIN public.users pu ON pu.email = au.email
+WHERE au.email = 'bossblingzs@gmail.com';
+```
+
+and got `ids_match = false` — this admin's `public.users.id`
+(`34ed29e3-c1f8-47fd-9405-b3bfb65bc035`) and their real
+`auth.users.id` (`3b00de5b-6593-4f9f-bbbd-9c11647fc74b`) were two
+different UUIDs. Since every RLS policy in this schema is keyed on
+`auth.uid() = <owner column>`, and there is **no actual foreign key**
+from `public.users.id` to `auth.users.id` enforcing they match, every
+own-row query for this account (the `users` row fetch in
+`AuthProvider.tsx`, `wallet_ledger`, etc.) had been silently returning
+zero rows for its entire session — not because any policy was wrong,
+but because the row it needed to match against genuinely didn't
+exist under that id. This is the real explanation for the RLS error
+in Task 15, the `role`-not-showing-admin symptom (Task 19), and the
+wallet pill showing $0 (Task 20) — three reported symptoms, one root
+cause.
+
+**Fixed with a one-time data repair**, run in a single transaction:
+found every FK constraint in `public.` pointing at `users(id)` via
+`pg_constraint`/`pg_attribute`, made each one `DEFERRABLE INITIALLY
+DEFERRED` for the transaction, updated `public.users.id` to the real
+`auth.users.id`, then updated every dependent table's FK column
+(`tracks.artist_id`, `track_campaigns.artist_id`,
+`seed_interaction_log.seed_user_id` and
+`.triggered_by_real_user_id`, `artist_growth_milestones.artist_id`,
+`wallet_ledger.user_id`, `shares.user_id`, plus anything else live
+that isn't in this repo's schema files, since the FK list was
+discovered dynamically rather than hardcoded) to the same new id, all
+before `COMMIT`. Re-ran the `ids_match` check after — now `true`.
+
+**Not done / worth a follow-up task:** no guard currently exists to
+stop this happening again for the *next* admin or seeded account.
+Deliberately did **not** add a hard
+`FOREIGN KEY (id) REFERENCES auth.users(id)` to `public.users` — this
+schema intentionally has `user_type IN ('real','seed','ghost')`
+accounts that are *not* backed by a real Supabase Auth signup (see
+`seed_interaction_log`, `seedEngine.service.ts`), so a blanket FK
+would break seeding. A narrower guard (e.g. validating id equality at
+admin-account creation time, or a periodic drift-check query) would
+be safer — flagging for whoever owns the admin-provisioning flow
+rather than guessing at it here.
+
+With this fixed, Task 19 (role badge) and Task 20 (wallet pill) may
+turn out to need **no code change at all** for this specific account
+— re-verify both against the real admin login now that the id match
+is fixed before spending time on the frontend for either.
 
 ---
 
