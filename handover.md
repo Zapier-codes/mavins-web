@@ -391,22 +391,38 @@ display line changed. Verified via `npx tsc --noEmit` — clean.
 
 ---
 
-## Task 8 — Remove "drip" copy, show selected country flags instead [ ]
+## Task 8 — Remove "drip" copy, show selected country flags instead [x]
 
-**Ask:** Remove the "text drip..." (referring to the "We Drip" /
-"Organic delivery over time" step 3 label in the `HOW_IT_WORKS` array
-in `promote/page.tsx`) and use the selected country flags instead.
+**Ask:** Remove the "text drip..." and use the selected country flags
+instead. **Product owner clarified in a follow-up message:** this
+refers to the caption on the **promote page** (not the "We Drip"
+landing-page step, which is a different, deliberately-designed
+animated component left untouched) — specifically the "Based on X
+views/day drip rate"-style caption directly under the duration grid.
+Their exact instruction: "just stack the 3 countries the user chose
+there."
 
-**Current state:** `HOW_IT_WORKS` step 3 already got renamed from
-"We Drip" to "We Deliver" with a `Globe` icon in commit `b400709` —
-partially addresses this. What's still outstanding: displaying the
-*actual selected country flags* somewhere prominent (product owner's
-intent seems to be: instead of generic "delivery" copy, show the
-literal flags of the countries the user picked in
-`GeoTargetingSection`, so the visual itself communicates reach).
-Consider rendering the `targetCountries` flags as a small inline
-strip near the slider or on the pricing card (ties into Task 5's
-"reach" language too — could be one combined change).
+**Done in commit `743ac73`.** Found the literal line: `<p>Based on
+{formatNumber(pricing.dailyDripRate)} views/day delivery rate</p>`,
+directly below `<DurationSlotsGrid />` in `promote/page.tsx` (the
+copy had already drifted from "drip rate" to "delivery rate" in an
+earlier commit, but it's the same caption the product owner means —
+confirmed by position, not exact wording).
+
+Replaced it with a new `SelectedCountriesStack` component: renders
+the flags of whichever countries are in `targetCountries` as an
+overlapping avatar-style stack (`-space-x-2.5`, layered `zIndex`),
+looked up via `TARGET_COUNTRIES` (already imported in this file).
+Capped the *visible* stack at 5 with a "+N" overflow badge — Task 10
+lets admins select unlimited countries, and an unbounded flag wall
+would look broken for that case, though the 3-country cap for regular
+users means they'll almost always see the literal 3 flags requested.
+Falls back to a "🌍 network-wide" message when nothing's selected
+yet (same empty-state condition the old caption never actually
+handled). Verified via `npx tsc --noEmit` — clean. `npm run build`
+still fails in this sandbox on a pre-existing, unrelated issue (no
+network access to Google Fonts for `next/font` — not caused by this
+change).
 
 ---
 

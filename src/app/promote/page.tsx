@@ -190,6 +190,58 @@ const DurationSlotsGrid = memo(function DurationSlotsGrid({ selectedSlotId }: { 
   );
 });
 
+// Replaces the old "Based on X views/day drip rate" caption — instead of a
+// generic delivery-rate figure, shows the actual flags of the countries the
+// user targeted (or a network-wide globe when nothing's selected yet), as
+// an overlapping stack so it reads as one cohesive "your reach" chip rather
+// than a wall of separate flag icons.
+const SelectedCountriesStack = memo(function SelectedCountriesStack({ codes }: { codes: string[] }) {
+  const picked = codes
+    .map((code) => TARGET_COUNTRIES.find((c) => c.code === code))
+    .filter((c): c is NonNullable<typeof c> => !!c);
+
+  if (picked.length === 0) {
+    return (
+      <p className="-mt-3 flex items-center justify-center gap-1.5 text-xs text-[var(--subtle-foreground)]">
+        <span aria-hidden>🌍</span>
+        <span>No markets selected — views distributed network-wide</span>
+      </p>
+    );
+  }
+
+  const MAX_VISIBLE = 5; // admins can select more than 3; keep the stack readable
+  const visible = picked.slice(0, MAX_VISIBLE);
+  const overflow = picked.length - visible.length;
+
+  return (
+    <div className="-mt-3 flex items-center justify-center gap-2">
+      <div className="flex -space-x-2.5">
+        {visible.map((c, i) => (
+          <span
+            key={c.code}
+            title={c.country}
+            className="flex items-center justify-center w-7 h-7 rounded-full bg-[var(--background)] border-2 border-[var(--glass-border)] text-sm shadow-sm"
+            style={{ zIndex: visible.length - i }}
+          >
+            {c.flag}
+          </span>
+        ))}
+        {overflow > 0 && (
+          <span
+            className="flex items-center justify-center w-7 h-7 rounded-full bg-[var(--background)] border-2 border-[var(--glass-border)] text-[10px] font-bold text-[var(--subtle-foreground)]"
+            style={{ zIndex: 0 }}
+          >
+            +{overflow}
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-[var(--subtle-foreground)]">
+        Targeting {picked.length === 1 ? picked[0].country : `${picked.length} markets`}
+      </p>
+    </div>
+  );
+});
+
 const PricingBreakdown = memo(function PricingBreakdown({
   pricing, topGeo, targetedGeo, targetedCountries, localCurrency,
 }: {
@@ -584,7 +636,7 @@ export default function PromotePage() {
             </div>
 
             <DurationSlotsGrid selectedSlotId={pricing.durationSlot.id} />
-            <p className="text-xs text-[var(--subtle-foreground)] -mt-3 text-center">Based on {formatNumber(pricing.dailyDripRate)} views/day delivery rate</p>
+            <SelectedCountriesStack codes={targetCountries} />
 
             <PricingBreakdown pricing={pricing} topGeo={topGeo} targetedGeo={topTargetedGeo} targetedCountries={targetCountries} localCurrency={localCurrency} />
 
