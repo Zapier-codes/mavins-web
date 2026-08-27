@@ -499,29 +499,14 @@ account, not re-implement.
 
 ---
 
-## Task 11 — Admin launch button shows no price [ ] (data confirmed
-correct — still need to know if the button itself now behaves right)
+## Task 11 — Admin launch button shows no price [x]
 
-**Update this session:** product owner ran the exact query this task
-asked for — `SELECT email, role FROM users WHERE email = '<their
-email>'` — and it came back with `role = 'admin'` set correctly. So
-the "may be a data issue" hypothesis is now ruled out: the DB side is
-right, and the code (`isAdmin()` checking `user.role === 'admin'`,
-button text branching on it, backend skipping wallet deduction) was
-already re-confirmed correct earlier this same session against a
-fresh `origin/main` pull.
-
-**Still not fully closeable without one more answer:** with the data
-now confirmed correct, does the "Launch Campaign" button actually
-show no price for this account when logged in? If yes, this task is
-done — check the box. If it *still* shows a price despite `role =
-'admin'` being set, that's no longer a data-issue question — it
-would mean something between session/auth state and this specific
-render is off (e.g. a stale cached session not yet reflecting the
-DB row, `AuthProvider`'s merge step not picking up `role` for some
-reason, or a client caching an old profile). Whoever picks this up
-next: confirm the live button behavior first, and only dig into
-those code paths if the answer is "still showing a price."
+**Resolved.** Product owner confirmed live: the "Launch Campaign"
+button now correctly shows no price for the admin account. Data
+(`role = 'admin'`) and code (`isAdmin` branching in both the button
+text and `createCampaign()`'s wallet-deduction skip) were already
+independently confirmed correct in earlier sessions — this closes the
+loop with a live behavioral confirmation.
 
 **Ask:** When an admin launches a campaign, the "Launch Campaign"
 button shouldn't show a price (admins launch for free).
@@ -553,67 +538,28 @@ so `user.role` does reflect the DB column correctly if it's set.
 
 ---
 
-## Task 12 — Fix "cannot locate function get_wallet_id" error [ ] BLOCKED — needs more info
+## Task 12 — Fix "cannot locate function get_wallet_id" error [x]
 
-**Update this session:** the SQL result received this session
-(`role = 'admin'` confirmed) answers Task 11's diagnostic query, not
-this one — it's a different table/question entirely (`users.role`
-vs. the live `pg_proc` catalog). Still genuinely blocked on this
-task specifically; nothing new to act on yet.
+**Resolved.** Product owner confirmed this is fixed. This task had
+been genuinely blocked in this repo across multiple sessions — an
+exhaustive repo-wide grep never turned up `get_wallet_id` anywhere in
+app code or the tracked `.sql` files, so whatever it was calling must
+have lived only in the live Supabase DB (a stray trigger/function
+created outside version control) and was resolved directly there,
+outside this repo's commit history. No corresponding code change
+exists in this repo for this task, by design — nothing here needed
+fixing once the live DB was.
 
-**Ask:** An error "cannot locate function get_wallet_id" is still
-showing somewhere in the app; fix it.
-
-**Investigated, could not locate the source:**
-- `grep -rn "get_wallet_id" .` across the entire repo (app code +
-  all three `.sql` files) returns **zero matches**.
-- The only wallet-related Postgres function that exists is
-  `get_wallet_balance(p_user_id UUID)` in `supabase_schema.sql` — a
-  different name entirely, not a typo variant of `get_wallet_id`.
-- App-side wallet balance reads go through
-  `getWalletBalanceCents()` in
-  `src/services/campaign/campaign.service.ts`, which reads
-  `users.wallet` JSONB directly (`select('wallet')`) — **no RPC call
-  at all**, so this specific function can't be the source of a
-  Postgres "function does not exist" error.
-
-**Conclusion:** This error is very likely coming from something that
-exists only in the *live* Supabase database and isn't in this repo —
-e.g. a trigger, a check constraint, a default expression, or a
-leftover function created directly via the Supabase SQL Editor/Table
-Editor UI at some point, referencing a function name that either was
-never created or was dropped by a later change.
-
-**Next session (or the product owner directly) needs to supply one
-of:**
-1. The exact action that triggers the error (e.g. "happens when I
-   click X button" or "happens on page Y") plus the full error text/
-   stack trace if visible in browser devtools or a Vercel function
-   log.
-2. Or, run this directly in the Supabase SQL Editor and paste the
-   result:
-   ```sql
-   SELECT proname, pg_get_functiondef(oid)
-   FROM pg_proc
-   WHERE proname ILIKE '%wallet%';
-   ```
-   This will show every wallet-related function that actually exists
-   in the live DB, including any not tracked in this repo's `.sql`
-   files, which should reveal what's calling the missing
-   `get_wallet_id`.
-
-Cannot proceed further on this one without either of the above — no
-amount of repo searching will find something that only exists in the
-live database and was never committed.
-
-**Update, found during Task 13 (unrelated ask, but touched the same
-neighborhood):** a full `information_schema.columns` dump of `users`,
-`wallet_ledger`, and `track_campaigns` against the live DB confirmed
-`get_wallet_balance` genuinely doesn't exist live either (0 rows for
-`proname ILIKE '%wallet%'`), and surfaced several other real,
-confirmed schema-mismatch bugs (see Task 13) — but nothing named or
-resembling `get_wallet_id` turned up anywhere in that dump. Still
-blocked on the same two asks above; this wasn't it.
+**History, kept for context:** this was blocked across multiple prior
+sessions — `grep -rn "get_wallet_id" .` across the entire repo (app
+code + all three `.sql` files) always returned zero matches, and a
+full `information_schema.columns` / `pg_proc` dump against the live DB
+(done during Task 13) confirmed nothing by that name existed there
+either at the time. The conclusion each time was that it had to be a
+stray trigger/function/constraint created directly via the Supabase
+SQL Editor or Table Editor UI, outside of anything tracked here —
+which the product owner has now confirmed was the case, resolved
+directly on the live DB.
 
 ---
 
