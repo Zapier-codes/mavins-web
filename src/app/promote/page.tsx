@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils/cn';
 import {
   Rocket, Link2, TrendingUp, Globe, DollarSign,
   ShieldCheck, Zap, ChevronRight, Play, PauseCircle,
-  BarChart3, Music, CheckCircle2, Sparkles, MapPin, Wand2
+  BarChart3, Music, CheckCircle2, Sparkles, MapPin, Wand2, Map
 } from 'lucide-react';
 
 const PublicAnalyticsShowcase = dynamic(
@@ -173,7 +173,10 @@ const DurationSlotsGrid = memo(function DurationSlotsGrid({ selectedSlotId }: { 
   return (
     <div className="glass-card rounded-xl p-4">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-medium text-[var(--muted-foreground)]">Campaign Duration</span>
+        <span className="flex items-center gap-1.5 text-sm font-medium text-[var(--muted-foreground)]">
+          <Map className="w-3.5 h-3.5" />
+          Campaign Duration
+        </span>
         <span className="text-xs text-[var(--subtle-foreground)]">Auto-calculated</span>
       </div>
       <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-5 gap-1.5 xs:gap-2">
