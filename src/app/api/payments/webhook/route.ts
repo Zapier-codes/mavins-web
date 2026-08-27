@@ -36,43 +36,29 @@ export async function POST(request: NextRequest) {
       metadata: { ...payment.metadata, webhook_data: data },
     }).eq('id', payment.id);
 
-    // Credit wallet via users.wallet JSONB
+    // Credit wallet atomically via credit_wallet_deposit() RPC (see
+    // supabase_migration_004_credit_wallet_deposit.sql) -- replaces the
+    // previous inline read-modify-write, which raced with /verify hitting
+    // the same payment concurrently and wasn't idempotent against a
+    // duplicate webhook delivery.
     if (payment.user_id) {
-      const { data: userData } = await supabase
-        .from('users')
-        .select('wallet')
-        .eq('id', payment.user_id)
-        .single();
-
-      const currentWallet = userData?.wallet ? (typeof userData.wallet === 'string' ? JSON.parse(userData.wallet) : userData.wallet) : {};
-      const currentBalance = currentWallet?.balance || 0;
-      const newBalance = currentBalance + Math.round(amount * 100);
-
-      // Update users.wallet
-      await supabase.from('users').update({
-        wallet: { balance: newBalance, currency: 'USD' },
-        update_time: new Date().toISOString(),
-      }).eq('id', payment.user_id);
-
-      // Log to wallet_ledger
-      await supabase.from('wallet_ledger').insert({
-        id: crypto.randomUUID(),
-        user_id: payment.user_id,
-        changeset: {
-          amount: Math.round(amount * 100),
-          currency: 'USD',
-          type: 'deposit',
-          description: `Wallet top-up via webhook: ${reference}`,
-          previous_balance: currentBalance,
-          new_balance: newBalance,
-        },
-        metadata: { source: 'korapay_webhook', reference },
-        create_time: new Date().toISOString(),
-        update_time: new Date().toISOString(),
+      const { data: creditResult, error: creditError } = await supabase.rpc('credit_wallet_deposit', {
+        p_user_id: payment.user_id,
+        p_amount_cents: Math.round(amount * 100),
+        p_reference: reference,
+        p_source: 'korapay_webhook',
       });
+
+      if (creditError) {
+        console.error('Webhook: credit_wallet_deposit failed', creditError);
+        return NextResponse.json({ received: true, error: creditError.message }, { status: 500 });
+      }
+
+      const credited = Array.isArray(creditResult) ? creditResult[0]?.credited : creditResult?.credited;
+      return NextResponse.json({ received: true, credited: !!credited });
     }
 
-    return NextResponse.json({ received: true, credited: true });
+    return NextResponse.json({ received: true, credited: false });
   } catch (error: any) {
     console.error('Webhook error:', error);
     return NextResponse.json({ received: true, error: error.message }, { status: 500 });

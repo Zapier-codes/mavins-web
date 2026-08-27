@@ -50,41 +50,25 @@ export async function GET(
       metadata: { ...existing?.metadata, korapay_response: verifyData.data },
     }).eq('reference', reference);
 
-    // Credit wallet via users.wallet JSONB + wallet_ledger.changeset
+    // Credit wallet atomically via credit_wallet_deposit() RPC (see
+    // supabase_migration_004_credit_wallet_deposit.sql) -- same function
+    // the webhook route calls, so a webhook delivery and this route
+    // firing for the same payment (this route runs from the browser
+    // landing back on /promote after checkout) can't double-credit --
+    // the second call is a no-op via the reference-based unique index.
     if (existing?.user_id) {
-      // Get current wallet
-      const { data: userData } = await supabase
-        .from('users')
-        .select('wallet')
-        .eq('id', existing.user_id)
-        .single();
-
-      const currentWallet = userData?.wallet ? (typeof userData.wallet === 'string' ? JSON.parse(userData.wallet) : userData.wallet) : {};
-      const currentBalance = currentWallet?.balance || 0;
-      const newBalance = currentBalance + Math.round(amount * 100);
-
-      // Update users.wallet
-      await supabase.from('users').update({
-        wallet: { balance: newBalance, currency: 'USD' },
-        update_time: new Date().toISOString(),
-      }).eq('id', existing.user_id);
-
-      // Log to wallet_ledger
-      await supabase.from('wallet_ledger').insert({
-        id: crypto.randomUUID(),
-        user_id: existing.user_id,
-        changeset: {
-          amount: Math.round(amount * 100),
-          currency: 'USD',
-          type: 'deposit',
-          description: `Wallet top-up via Korapay: ${reference}`,
-          previous_balance: currentBalance,
-          new_balance: newBalance,
-        },
-        metadata: { source: 'korapay_verify', reference },
-        create_time: new Date().toISOString(),
-        update_time: new Date().toISOString(),
+      const { error: creditError } = await supabase.rpc('credit_wallet_deposit', {
+        p_user_id: existing.user_id,
+        p_amount_cents: Math.round(amount * 100),
+        p_reference: reference,
+        p_source: 'korapay_verify',
       });
+      if (creditError) {
+        console.error('Verify: credit_wallet_deposit failed', creditError);
+        return NextResponse.redirect(
+          new URL(`/fund-wallet?error=${encodeURIComponent('Could not credit wallet — contact support with reference ' + reference)}`, request.url)
+        );
+      }
     }
 
     // Guest checkout: create account if needed

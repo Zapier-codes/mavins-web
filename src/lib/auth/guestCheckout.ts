@@ -103,8 +103,15 @@ export async function resolveOrCreateGuestAccount(email: string): Promise<GuestA
   const authUser = created.user;
   if (!authUser) throw new Error('Guest account creation returned no user');
 
+  // users.username is NOT NULL with no default (confirmed via
+  // information_schema.columns against the live DB) -- this INSERT was
+  // missing it entirely, so it was failing on every brand-new guest
+  // checkout before this fix. Derived from the auth user's own UUID
+  // rather than the email, so it's guaranteed unique without needing a
+  // retry-on-collision loop.
   const { error: insertError } = await admin.from('users').insert({
     id: authUser.id,
+    username: `guest_${authUser.id.replace(/-/g, '').slice(0, 12)}`,
     email: normalizedEmail,
     profile_completed: false,
     is_guest_created: true,
@@ -152,12 +159,13 @@ export async function resolveOrCreateGuestAccount(email: string): Promise<GuestA
 }
 
 /**
- * Credits a wallet top-up, idempotent on `reference` appearing in the
- * ledger description (same convention the existing authenticated
- * payment routes already use). Runs through the service-role client
- * since this is called both from the guest verify path (no session
- * yet for a brand-new account within the same request in some code
- * paths) and from the webhook (no browser session at all, ever).
+ * Credits a wallet top-up. Atomic + idempotent on `reference` via the
+ * credit_wallet_deposit() RPC (see
+ * supabase_migration_004_credit_wallet_deposit.sql) — this used to do its
+ * own idempotency check + insert against amount_cents/type/description
+ * columns that don't exist on the live wallet_ledger table (it only has
+ * `changeset`/`metadata` jsonb columns), so every guest top-up through
+ * this path was erroring before this fix.
  */
 export async function creditWalletTopUp(params: {
   userId: string;
@@ -168,24 +176,15 @@ export async function creditWalletTopUp(params: {
   const admin = createAdminClient();
   const { userId, amountCents, reference, channel } = params;
 
-  const { data: existing, error: checkError } = await admin
-    .from('wallet_ledger')
-    .select('id')
-    .eq('user_id', userId)
-    .ilike('description', `%${reference}%`)
-    .gt('amount_cents', 0)
-    .maybeSingle();
-
-  if (checkError) throw checkError;
-  if (existing) return { credited: false };
-
-  const { error: insertError } = await admin.from('wallet_ledger').insert({
-    user_id: userId,
-    amount_cents: amountCents,
-    type: 'bonus',
-    description: `Wallet top-up via ${channel || 'korapay'}: ${reference}`,
+  const { data, error } = await admin.rpc('credit_wallet_deposit', {
+    p_user_id: userId,
+    p_amount_cents: amountCents,
+    p_reference: reference,
+    p_source: channel || 'korapay',
   });
 
-  if (insertError) throw insertError;
-  return { credited: true };
+  if (error) throw error;
+
+  const credited = Array.isArray(data) ? data[0]?.credited : data?.credited;
+  return { credited: !!credited };
 }
