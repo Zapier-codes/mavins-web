@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useMemo, memo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef, memo } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/auth/useAuth';
@@ -9,7 +9,6 @@ import { getPublicSeedStats } from '@/services/stats/publicStats.service';
 import { detectUserGeo } from '@/services/geo/ipGeolocation.service';
 import { calculatePricing, formatCents, formatNumber, DURATION_SLOTS } from '@/lib/campaign/pricing';
 import { getRecommendedGeographies, scoreLabel, TARGET_COUNTRIES } from '@/lib/campaign/geoAffinity';
-import { RangeSlider } from '@/components/ui/RangeSlider';
 import { cn } from '@/lib/utils/cn';
 import {
   Rocket, Link2, TrendingUp, Globe, DollarSign,
@@ -388,10 +387,41 @@ export default function PromotePage() {
     } catch {}
   }, [isAuthenticated]);
 
-  // Slider change — only fires when user releases the thumb
-  const handleSliderChange = useCallback((val: number) => {
-    setViewCount(val);
+  // Slider owns its own DOM state during drag (CSS custom property +
+  // a ref'd text node) so dragging never re-renders the page — that
+  // re-render was the actual cause of the "shakes / black screen while
+  // dragging" bug, not the backdrop-filter blur itself. React state
+  // (and therefore `pricing`, and every card driven by it) only
+  // updates once, on release. See handover.md Task 6 for the full
+  // diagnosis of the regression this reverts.
+  const sliderRef = useRef<HTMLInputElement>(null);
+  const sliderDisplayRef = useRef<HTMLSpanElement>(null);
+  const sliderMin = 1000;
+  const sliderMax = 500000;
+
+  const handleSliderInput = useCallback((e: React.FormEvent<HTMLInputElement>) => {
+    const val = Number((e.target as HTMLInputElement).value);
+    const percent = ((val - sliderMin) / (sliderMax - sliderMin)) * 100;
+    // DOM-only — no React state, no re-render, no effect on any card.
+    sliderRef.current?.style.setProperty('--value-percent', `${percent}%`);
+    if (sliderDisplayRef.current) sliderDisplayRef.current.textContent = formatNumber(val);
   }, []);
+
+  // Only fires once, on release — this is the sole place viewCount
+  // (and therefore pricing/the cards below) actually updates.
+  const handleSliderChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setViewCount(Number(e.target.value));
+  }, []);
+
+  // Keep the ref-driven fill + display in sync whenever viewCount changes
+  // from something other than dragging itself (mount, or restoring a
+  // pending campaign draft after a guest funds their wallet and comes
+  // back to this page).
+  useEffect(() => {
+    const percent = ((viewCount - sliderMin) / (sliderMax - sliderMin)) * 100;
+    sliderRef.current?.style.setProperty('--value-percent', `${percent}%`);
+    if (sliderDisplayRef.current) sliderDisplayRef.current.textContent = formatNumber(viewCount);
+  }, [viewCount]);
 
   const handleGenreSelect = useCallback((genre: string) => { setSelectedGenre(genre); }, []);
 
@@ -518,15 +548,40 @@ export default function PromotePage() {
               isAdmin={isAdmin}
             />
 
-            {/* ── RangeSlider: isolated component, zero parent re-renders on drag ── */}
-            <RangeSlider
-              min={1000}
-              max={500000}
-              step={1000}
-              defaultValue={5000}
-              onChange={handleSliderChange}
-              labels={['1K', '100K', '250K', '500K']}
-            />
+            {/* Target Views slider — native input, DOM-only updates while
+                dragging (see handleSliderInput above). Isolated onto its
+                own stacking context so drag interactions never force the
+                surrounding glass cards to recomposite. */}
+            <div style={{ isolation: 'isolate', contain: 'layout paint style' }}>
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-sm font-medium text-[var(--muted-foreground)]">Target Views</label>
+                <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-[#d4af37]/10 border border-[#d4af37]/25">
+                  <TrendingUp className="w-3.5 h-3.5 text-[#d4af37]" />
+                  <span ref={sliderDisplayRef} className="text-lg font-bold tabular-nums text-[#f4e4bc]">
+                    {formatNumber(viewCount)}
+                  </span>
+                </div>
+              </div>
+              <input
+                ref={sliderRef}
+                type="range"
+                min={sliderMin}
+                max={sliderMax}
+                step={1000}
+                value={viewCount}
+                onInput={handleSliderInput}
+                onChange={handleSliderChange}
+                className="w-full slider-gold"
+                style={{ '--value-percent': `${((viewCount - sliderMin) / (sliderMax - sliderMin)) * 100}%` } as React.CSSProperties}
+                aria-label="Target views"
+              />
+              <div className="flex justify-between text-[10px] font-medium uppercase tracking-wider text-[var(--subtle-foreground)] mt-2">
+                <span>1K</span>
+                <span>100K</span>
+                <span>250K</span>
+                <span>500K</span>
+              </div>
+            </div>
 
             <DurationSlotsGrid selectedSlotId={pricing.durationSlot.id} />
             <p className="text-xs text-[var(--subtle-foreground)] -mt-3 text-center">Based on {formatNumber(pricing.dailyDripRate)} views/day delivery rate</p>

@@ -277,6 +277,10 @@ input[type="range"] {
   background: rgba(var(--accent-rgb), 0.15);
   outline: none;
   backdrop-filter: blur(4px);
+  /* Stops the page itself from scrolling/panning while the thumb is
+     being dragged on touch devices (b76d0e9 / 920e1ec had this; it
+     was quietly lost when the slider was rewritten as a component). */
+  touch-action: none;
 }
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -302,6 +306,40 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
   border: 2px solid rgba(255, 255, 255, 0.25);
   box-shadow: 0 0 16px rgba(var(--accent-rgb), 0.55);
+}
+
+/* Gold/futuristic variant used on the promote page's "Target Views"
+ * slider. The fill is a background-gradient split at --value-percent
+ * (a CSS custom property the slider writes directly via ref on every
+ * drag tick — compositor-only, no layout/reflow) rather than an
+ * animated width on a separate div, which is what caused the
+ * iOS/Android black-flash-while-dragging regression this replaces.
+ */
+.slider-gold {
+  --value-percent: 0%;
+  background: linear-gradient(
+    to right,
+    #d4af37 0%,
+    #f4e4bc var(--value-percent),
+    rgba(212, 175, 55, 0.15) var(--value-percent),
+    rgba(212, 175, 55, 0.15) 100%
+  );
+}
+.slider-gold::-webkit-slider-thumb {
+  background: linear-gradient(135deg, #f4e4bc, #d4af37);
+  box-shadow: 0 0 16px rgba(212, 175, 55, 0.55), 0 0 32px rgba(212, 175, 55, 0.25);
+}
+.slider-gold::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 24px rgba(212, 175, 55, 0.75), 0 0 48px rgba(212, 175, 55, 0.35);
+}
+.slider-gold::-moz-range-thumb {
+  background: linear-gradient(135deg, #f4e4bc, #d4af37);
+  box-shadow: 0 0 16px rgba(212, 175, 55, 0.55);
+}
+.slider-gold::-moz-range-progress {
+  background: linear-gradient(to right, #d4af37, #f4e4bc);
+  height: 5px;
+  border-radius: 9999px;
 }
 
 /* Hide scrollbar utility */
