@@ -132,7 +132,7 @@ const GeoTargetingSection = memo(function GeoTargetingSection({
         {genre ? <span className="flex items-center gap-1 text-[10px] text-[var(--subtle-foreground)]"><Wand2 className="w-3 h-3" />Ranked for {genre}</span>
           : <span className="text-[10px] text-[var(--subtle-foreground)]">Pick a genre for tailored picks</span>}
       </div>
-      <div className="grid grid-cols-2 xs:grid-cols-4 sm:grid-cols-5 gap-2">
+      <div className="flex flex-wrap justify-center gap-2">
         {ranked.map((rec) => {
           const isSelected = selectedCodes.includes(rec.code);
           const isTop = topCodes.has(rec.code);
@@ -146,6 +146,7 @@ const GeoTargetingSection = memo(function GeoTargetingSection({
               disabled={disabled}
               className={cn(
                 'relative text-left px-2.5 py-2 rounded-xl border transition-all active:scale-95',
+                'flex-grow-0 flex-shrink-0 basis-[calc(50%-0.25rem)] xs:basis-[calc(25%-0.375rem)] sm:basis-[calc(20%-0.4rem)]',
                 isSelected ? 'bg-[#1db954]/10 border-[#1db954]/40 text-[#1db954]' : 'chip-card border-white/5 text-[var(--muted-foreground)]',
                 disabled && 'opacity-40 cursor-not-allowed'
               )}
