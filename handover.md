@@ -287,7 +287,21 @@ landed.
 ---
 
 ## Task 6 — Slider: revert to previous commit's design, zero
-re-render, no effect on cards [ ]
+re-render, no effect on cards [x]
+
+**Done in commit `38d6dd0`.** Followed the diagnosis below exactly:
+reverted to the `b76d0e9` ref + CSS-custom-property approach, applied
+natively in `promote/page.tsx` (not as a separate component this
+time — that's what regressed last time). Deleted
+`RangeSlider.tsx` (confirmed zero other importers first). Re-added
+`.slider-gold` to `globals.css` (didn't exist anywhere on `main` —
+gold styling had been silently lost when `RangeSlider` replaced the
+native-track-gradient approach with its own div-based fill). Added
+the missing `touch-action: none` on the base `input[type="range"]`
+rule per step 4 below — confirmed it was in fact absent. Verified via
+`npx tsc --noEmit` — clean. Not verified: actual drag behavior on a
+real iOS Safari device (same sandbox limitation as Tasks 2/3 — no
+headless browser/device access here).
 
 **This is the highest-value diagnostic already done — read before
 touching anything.**
