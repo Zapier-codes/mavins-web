@@ -62,6 +62,14 @@ export async function POST(request: NextRequest) {
         description: `Pending top-up: ${reference}`,
       });
 
+      if (!result.data?.checkout_url) {
+        console.error('Korapay initialize returned no checkout_url (authenticated flow):', result);
+        return NextResponse.json(
+          { error: 'Could not start checkout. Please try again in a moment.' },
+          { status: 502 }
+        );
+      }
+
       return NextResponse.json({
         success: true,
         checkout_url: result.data.checkout_url,
@@ -104,6 +112,14 @@ export async function POST(request: NextRequest) {
         description: 'Mavins Wallet Top-up (guest)',
       },
     });
+
+    if (!result.data?.checkout_url) {
+      console.error('Korapay initialize returned no checkout_url (guest flow):', result);
+      return NextResponse.json(
+        { error: 'Could not start checkout. Please try again in a moment.' },
+        { status: 502 }
+      );
+    }
 
     return NextResponse.json({
       success: true,

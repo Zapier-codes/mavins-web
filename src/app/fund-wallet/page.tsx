@@ -77,8 +77,21 @@ function FundWalletForm() {
         } catch {}
       }
 
+      // data.checkout_url can come back missing/malformed if the
+      // render backend or Korapay itself hiccups upstream — without
+      // this guard, `new URL()` throws the raw, unhelpful
+      // "Failed to construct 'URL': Invalid URL" straight at the user.
+      // Catch that here and surface something actionable instead.
+      let checkoutUrl: URL;
+      try {
+        checkoutUrl = new URL(data.checkout_url);
+      } catch {
+        setError('Could not start checkout — the payment link we received was invalid. Please try again.');
+        setIsSubmitting(false);
+        return;
+      }
+
       const verifyCallback = `${window.location.origin}/fund-wallet/verify?reference=${encodeURIComponent(data.reference)}&${callbackParams.toString()}`;
-      const checkoutUrl = new URL(data.checkout_url);
       // Some Korapay checkout configs read the return URL from a query
       // param; harmless to include even if the render-backend already
       // set one, since ours is what our own verify page expects.

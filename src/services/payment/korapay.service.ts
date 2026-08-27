@@ -1,7 +1,7 @@
 // src/services/payment/korapay.service.ts
 /**
  * Korapay Payment Service — Render Backend Proxy
- * 
+ *
  * Korapay's API requires the caller's IP to be whitelisted on the
  * merchant dashboard (Settings > Security > IP Whitelisting), and a
  * serverless host like Vercel has no stable outbound IP to whitelist.
@@ -10,31 +10,42 @@
  * a fixed outbound IP, already whitelisted on the Korapay dashboard),
  * and that backend proxies through to Korapay.
  *
- * Endpoints — confirmed live 2026-08-27 by fetching the backend's own
- * root URL (it self-reports its route table there):
- *   GET  https://b-pay-backend.onrender.com/
- *     → { "endpoints": { "health": "/health", "pay": "/api/pay",
- *                        "verify": "/api/verify", "myIp": "/my-ip" } }
+ * Confirmed against the b-pay-backend source (routes.js) on
+ * 2026-08-27 — this is a multi-provider proxy, NOT Korapay-only:
  *
- * This previously called POST /initialize and GET /verify/:ref, which
- * do NOT exist on this backend — hence the "Endpoint not found" error
- * (every call 404'd against the backend's own catch-all handler,
- * before it ever got anywhere near Korapay). Fixed below to hit the
- * real routes, /api/pay and /api/verify.
+ *   POST /api/pay   body: { amount, currency, reference, customer,
+ *                           provider? , action? }
+ *     - `provider` picks the provider directly ('korapay', 'paystack',
+ *       'payscribe', 'juicyway').
+ *     - Without `provider`, it falls back to ROUTING_RULES[action],
+ *       and ROUTING_RULES has no entry that maps to Korapay for a
+ *       plain payment collection (only `payout: 'korapay'`).
+ *     - Without EITHER, it silently defaults to `'paystack'`.
+ *     - This is the actual root cause of the
+ *       "Failed to construct 'URL': Invalid URL" bug: this service
+ *       was never sending `provider`, so every "Korapay" top-up was
+ *       silently going through Paystack instead. Paystack's response
+ *       uses `data.authorization_url`, not `checkout_url`, and
+ *       routes.js wraps the provider's raw response under another
+ *       `data` key -- so the real shape was
+ *       `{ data: { data: { authorization_url } } }` with no
+ *       `checkout_url` anywhere in it. That undefined value flowed
+ *       straight through to the browser's `new URL(undefined)`.
+ *     - Response shape: { status, message, provider, reference,
+ *         data: <provider's own raw response> }. For Korapay
+ *         specifically that inner `data` is Korapay's native
+ *         `{ status, message, data: { checkout_url, reference, ... } }`
+ *         -- i.e. `json.data.data.checkout_url`, not `json.data.checkout_url`.
  *
- * /api/verify's exact shape (path segment vs. query param for the
- * reference) isn't confirmed — the backend's self-reported route list
- * shows it flat, with no ":reference" placeholder, but so does
- * "/api/pay" even though that one's POST body clearly carries params,
- * so the omission alone isn't conclusive. verifyCharge() below tries
- * the path-segment form first and falls back to a query param on 404,
- * so it self-heals against either convention. Worth confirming
- * against the backend's own source (or a live test) and simplifying
- * once that's known.
+ *   GET  /api/verify?reference=<ref>&provider=<name>   (query params,
+ *        not a path segment -- confirmed from routes.js; provider is
+ *        REQUIRED, same routing gotcha as above)
+ *     - Response shape: { status, message, provider,
+ *         data: <provider's raw verify response> }, so for Korapay:
+ *         `json.data.data.status` / `json.data.data.reference` / etc.
  *
- * There's also a "/my-ip" route on the backend — handy for confirming
- * exactly which outbound IP is the one that needs to stay whitelisted
- * on Korapay's dashboard if this backend is ever re-hosted elsewhere.
+ * Fixed below to always pass `provider: 'korapay'` explicitly and to
+ * unwrap the double-nested `data.data` shape.
  */
 
 const RENDER_BACKEND_URL = process.env.KORAPAY_RENDER_URL || 'https://b-pay-backend.onrender.com';
@@ -94,17 +105,18 @@ export async function initializeCharge(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
+      // REQUIRED: without this, routes.js's smart routing has no rule
+      // that selects Korapay for a plain payment collection and
+      // silently falls back to Paystack instead. This was the actual
+      // root cause of the "Invalid URL" bug (see file header).
+      provider: 'korapay',
       amount: input.amount,
       currency: input.currency || 'NGN',
       reference: input.reference,
       // Korapay's own API (checkout, mobile money, pool accounts — see
       // developers.korapay.com) always nests the payer's details under
       // a `customer` object, never as flat top-level `email`/`name`
-      // fields. This was sending them flat, so the render backend (or
-      // Korapay itself, if the backend passes the body through
-      // unchanged) never found an email where it expects one — that's
-      // the literal source of the "Email Address is required" error,
-      // even when the user's form field was filled in correctly.
+      // fields.
       customer: {
         email: input.customerEmail,
         name: input.customerName,
@@ -118,39 +130,84 @@ export async function initializeCharge(
     throw new Error(err.message || `Initialize failed: ${res.status}`);
   }
 
-  return res.json();
+  const json = await res.json().catch(() => ({}));
+
+  // routes.js wraps whichever provider actually ran under its own
+  // `data` key, and Korapay's own response is itself
+  // `{status, message, data: {...}}` -- so the real checkout URL sits
+  // at json.data.data.checkout_url, not json.data.checkout_url. Still
+  // guarded defensively (rather than trusting the double-nesting
+  // blindly) since a backend change or an unexpected provider result
+  // shouldn't crash the browser with a raw `new URL(undefined)` again
+  // — fail loudly here instead, with a message that says what's wrong.
+  const inner = json?.data?.data ?? json?.data ?? {};
+  const checkoutUrl = inner.checkout_url;
+
+  if (!checkoutUrl || typeof checkoutUrl !== 'string') {
+    throw new Error(
+      json?.message ||
+        json?.data?.message ||
+        'Korapay did not return a checkout URL. Check the render backend logs — the provider field may not be reaching Korapay.'
+    );
+  }
+
+  return {
+    status: json.status ?? true,
+    message: json.message ?? '',
+    data: {
+      checkout_url: checkoutUrl,
+      reference: inner.reference ?? input.reference ?? '',
+      amount: inner.amount ?? input.amount,
+      currency: inner.currency ?? input.currency ?? 'NGN',
+      status: inner.status ?? 'pending',
+    },
+  };
 }
 
 /**
  * Verify a charge by reference via the render backend.
  *
- * Tries /api/verify/<reference> first (standard REST path-param
- * convention); if the backend 404s that (i.e. it actually expects the
- * reference as a query param instead — see the file header note on
- * why this isn't confirmed), falls back to /api/verify?reference=.
+ * Confirmed from routes.js: GET /api/verify takes `reference` AND
+ * `provider` as query params (not a path segment) -- both are
+ * required, and a missing `provider` hits the same silent-Paystack-
+ * fallback gotcha as initializeCharge above.
  */
 export async function verifyCharge(reference: string): Promise<ChargeStatusResponse> {
   const encodedRef = encodeURIComponent(reference);
-  const headers = { 'Content-Type': 'application/json' };
 
-  let res = await fetch(`${RENDER_BACKEND_URL}/api/verify/${encodedRef}`, {
-    method: 'GET',
-    headers,
-  });
-
-  if (res.status === 404) {
-    res = await fetch(`${RENDER_BACKEND_URL}/api/verify?reference=${encodedRef}`, {
+  const res = await fetch(
+    `${RENDER_BACKEND_URL}/api/verify?reference=${encodedRef}&provider=korapay`,
+    {
       method: 'GET',
-      headers,
-    });
-  }
+      headers: { 'Content-Type': 'application/json' },
+    }
+  );
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || `Verify failed: ${res.status}`);
   }
 
-  return res.json();
+  const json = await res.json().catch(() => ({}));
+
+  // Same double-nesting as initializeCharge: routes.js wraps Korapay's
+  // own {status, message, data: {...}} response under another `data` key.
+  const inner = json?.data?.data ?? json?.data ?? {};
+
+  return {
+    status: json.status ?? true,
+    message: json.message ?? '',
+    data: {
+      status: inner.status,
+      reference: inner.reference ?? reference,
+      amount: inner.amount,
+      currency: inner.currency,
+      paid_at: inner.paid_at ?? null,
+      channel: inner.channel,
+      customer: inner.customer,
+      metadata: inner.metadata ?? {},
+    },
+  };
 }
 
 /**
