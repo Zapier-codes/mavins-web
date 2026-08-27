@@ -67,46 +67,48 @@ async function updateWallet(userId: string, amountCents: number, description: st
   return newBalance;
 }
 
+/**
+ * Creates a campaign via /api/campaigns/create instead of inserting into
+ * track_campaigns directly from this (anon-key, RLS-scoped) client.
+ *
+ * This used to insert straight from the browser with
+ * `artist_id: input.artistId` and rely on `auth.uid() = artist_id`
+ * passing under `track_campaigns`'s RLS policy. In production this was
+ * throwing "new row violates row-level security policy for table
+ * track_campaigns" — reproduced even for the confirmed admin account
+ * (role = 'admin' in the DB, per Task 11) — meaning something about the
+ * browser client's session at insert time wasn't satisfying that check.
+ * Moving the actual write server-side (verified session ->
+ * service-role client, same pattern as Task 14's admin dashboard fix)
+ * sidesteps that entirely rather than guessing at the live-DB specifics
+ * blind, since this sandbox has no network access to Supabase to
+ * inspect them directly.
+ *
+ * The `isAdmin` param is now advisory only — the API route re-derives
+ * it server-side from the verified session so a stale/forged client
+ * value can't skip the wallet check.
+ */
 export async function createCampaign(
   input: CreateCampaignInput,
   isAdmin: boolean = false
 ): Promise<CampaignResult> {
   try {
-    const pricing = calculatePricing(input.viewCount);
-
-    // Admins launch campaigns for free — skip wallet logic entirely
-    if (!isAdmin) {
-      const balanceCents = await getWalletBalanceCents(input.artistId);
-      if (balanceCents < pricing.totalCostCents) {
-        return { success: false, error: 'Insufficient wallet balance. Please add funds.' };
-      }
-      await updateWallet(
-        input.artistId,
-        -pricing.totalCostCents,
-        `Campaign creation: ${input.sourceUrl.slice(0, 50)}`
-      );
+    const res = await fetch('/api/campaigns/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceUrl: input.sourceUrl,
+        viewCount: input.viewCount,
+        genre: input.genre,
+        geographicTier: input.geographicTier,
+        targetCountries: input.targetCountries,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      return { success: false, error: json.error || 'Failed to create campaign' };
     }
-
-    const { data, error } = await supabase
-      .from('track_campaigns')
-      .insert({
-        source_url: input.sourceUrl,
-        artist_id: input.artistId,
-        total_budget_cents: isAdmin ? 0 : pricing.totalCostCents,
-        spent_cents: 0,
-        geographic_tier: input.geographicTier || 'local',
-        target_countries: input.targetCountries || [],
-        target_genres: input.genre ? [input.genre] : [],
-        current_stage: 'planting',
-        is_active: true,
-        is_paused: false,
-        total_streams: 0,
-      })
-      .select('id')
-      .single();
-
-    if (error) throw error;
-    return { success: true, campaignId: data.id };
+    return { success: true, campaignId: json.campaignId };
   } catch (error: any) {
     console.error('Campaign creation error:', error);
     return { success: false, error: error.message || 'Failed to create campaign' };

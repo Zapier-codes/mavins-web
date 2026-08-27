@@ -10,6 +10,12 @@ import { getUnreadCount } from "@/services/notifications/notifications.service";
 
 const UNREAD_POLL_MS = 60_000;
 
+function walletBalanceCents(user: any): number {
+  if (!user?.wallet) return 0;
+  const wallet = typeof user.wallet === 'string' ? JSON.parse(user.wallet) : user.wallet;
+  return wallet?.balance || 0;
+}
+
 export function LayoutContent({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -37,6 +43,7 @@ export function LayoutContent({ children }: { children: React.ReactNode }) {
           onMenuClick={() => setSidebarOpen(true)}
           onNotificationClick={() => router.push('/notifications')}
           notificationCount={unreadCount}
+          points={walletBalanceCents(user)}
         />
         <main className="flex-1">
           {children}
