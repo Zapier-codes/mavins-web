@@ -204,7 +204,7 @@ them before guessing further.
 ---
 
 ## Task 5 — Pricing card redesign: hourly estimate by geography,
-remove cost-per-view, polish + "solar flare" luxury effect [ ]
+remove cost-per-view, polish + "solar flare" luxury effect [x]
 
 **Ask (paraphrased):** Stop showing "cost per view" — users care
 about virality/reach, not a raw per-view number. Instead show an
@@ -213,23 +213,69 @@ targeting (so the user understands *where* and *how fast* their song
 is reaching, not a sterile cost figure). Make the card visually more
 polished/luxury, adding a "solar flare" visual accent.
 
-**Current state:** `PricingBreakdown` (in `promote/page.tsx`) already
-computes `hourlyRate = Math.round(pricing.dailyDripRate / 24)` and
-displays it as "Est. Hourly Pace" / "Delivery Rate" — so the hourly
-estimate already exists. What's outstanding:
-- Confirm there's no remaining "cost per view" / "per 1K views" rate
-  displayed anywhere on this card or nearby (check
-  `src/lib/campaign/pricing.ts` for any `pricePer1K`-style display
-  still surfaced in the UI — the pricing math can keep using
-  cost-per-1K internally, it just shouldn't be shown to the user).
-- The "solar flare" ask is purely visual — needs a new CSS effect
-  (radial gradient burst / animated glow) added to the card,
-  consistent with the existing gold (`#d4af37`) luxury theme already
-  used on the slider (see globals.css `.slider-gold`).
-- Tie the hourly estimate more explicitly to the *selected* geography
-  (currently shows "Primary Market" as a separate stat — consider
-  merging into one combined "reach" statement, e.g. "~4,200/hr to
-  🇳🇬 Nigeria, 🇬🇭 Ghana").
+**Confirmed before touching anything:** no "cost per view" / "per 1K
+views" figure was ever actually rendered anywhere in the UI —
+`grep -n "pricePer1K\|costPerView\|per view" src/app/promote/page.tsx
+src/lib/campaign/pricing.ts` shows those only exist inside the pricing
+*math* (`pricing.ts`), never displayed. Nothing to remove there.
+
+**What changed in `PricingBreakdown`:**
+- Merged the old separate "Delivery Rate" (day/hr numbers) and
+  "Primary Market" (single country) stat blocks into one combined
+  "Estimated Reach" statement: `~4,200/hr to 🇳🇬 🇬🇭 Nigeria, Ghana`
+  style copy — leads with the hourly pace, ties it directly to where
+  it's going.
+- Previously this only ever showed one country (`topTargetedGeo`, the
+  single best-ranked pick among the user's selection). Now it shows
+  **every** country the user actually targeted — added a
+  `targetedCountries: string[]` prop (passes `targetCountries`
+  straight through) and maps all of them to flags/names via
+  `TARGET_COUNTRIES`. Falls back to the single auto-recommended
+  market when nothing's selected yet. Shows full names for 1–2 picks,
+  switches to "N markets" beyond that so the line doesn't wrap
+  awkwardly on mobile.
+- Added the "solar flare": two layered radial-gradient circles
+  (`position: absolute`, top-right corner, `pointer-events-none`,
+  `aria-hidden`) using `rgba(var(--accent-rgb), ...)` — so it's
+  blue in light mode and gold in dark mode automatically, consistent
+  with the theming work done earlier in this project rather than a
+  hardcoded color (the handover's original note pointed at a
+  `.slider-gold` class from an older commit that no longer exists —
+  used the current `--accent-rgb` theme variable instead, which is
+  the modern equivalent). Outer glow uses the existing
+  `animate-ambient-slow` keyframe already in `globals.css` for a
+  slow, subtle pulse rather than a static graphic.
+
+**Also fixed in the same pass:** my own mistake from Task 4 — see the
+correction entry directly below this one.
+
+---
+
+## Correction to Task 4 — geo-grid was based on the wrong country count [x]
+
+While implementing Task 5, discovered Task 4's `GeoTargetingSection`
+grid fix (`grid-cols-2 xs:grid-cols-4 sm:grid-cols-5`) was reasoned
+from `COUNTRY_CURRENCY`'s 20 entries — a separate, unrelated
+currency-conversion table also in this file — instead of
+`TARGET_COUNTRIES`, which is what that grid actually renders and has
+**14** entries. 14 isn't evenly divisible by 4 or 5 either, so the
+original raggedness wasn't actually fixed by that patch.
+
+14 isn't evenly divisible by any reasonable column count (only 2 or
+7), so no grid-column combination fixes this cleanly. Switched to
+`flex flex-wrap justify-center` with fixed-width items
+(`basis-[calc(...)]` reproducing the same 2/3/4-column widths a grid
+would give), so an incomplete last row centers itself instead of
+trailing off with dead space on one side. This fixes the
+ragged/scattered look regardless of item count parity — the standard
+technique for this exact problem, and the same class of fix already
+applied to `GenreChips` in the original Task 4 patch (which was
+correct — 14 genres via flex-wrap was never dependent on a count
+assumption).
+
+Shipped as its own small patch, separate from Task 4's original
+patch, since Task 4 may have already been applied — this corrects it
+in place without needing to rewrite already-applied history.
 
 ---
 

@@ -191,25 +191,62 @@ const DurationSlotsGrid = memo(function DurationSlotsGrid({ selectedSlotId }: { 
 });
 
 const PricingBreakdown = memo(function PricingBreakdown({
-  pricing, topGeo, targetedGeo, localCurrency,
+  pricing, topGeo, targetedGeo, targetedCountries, localCurrency,
 }: {
   pricing: ReturnType<typeof calculatePricing>;
   topGeo: { country: string; flag: string } | null;
   targetedGeo: { country: string; flag: string } | null;
+  targetedCountries: string[];
   localCurrency: { code: string; symbol: string; rate: number } | null;
 }) {
-  const geo = targetedGeo || topGeo;
   const hourlyRate = Math.round(pricing.dailyDripRate / 24);
   const localTotal = localCurrency ? Math.round(pricing.totalCostCents * localCurrency.rate) : null;
-  const selectedFlags = targetedGeo ? targetedGeo.flag : (topGeo ? topGeo.flag : '🌍');
+
+  // Build the reach line: flags for every country the user actually picked,
+  // falling back to the single auto-recommended top market when nothing's
+  // selected yet. Names are shown for 1–2 picks (reads naturally); beyond
+  // that it's flags-only so the line doesn't wrap awkwardly on mobile.
+  const selectedGeos = targetedCountries
+    .map((code) => TARGET_COUNTRIES.find((c) => c.code === code))
+    .filter((c): c is { code: string; country: string; flag: string } => !!c);
+
+  const reachLabel = selectedGeos.length > 0
+    ? (selectedGeos.length <= 2
+        ? selectedGeos.map((g) => g.country).join(', ')
+        : `${selectedGeos.length} markets`)
+    : (topGeo?.country || targetedGeo?.country || 'Global network');
+
+  const reachFlags = selectedGeos.length > 0
+    ? selectedGeos.map((g) => g.flag).join(' ')
+    : (topGeo?.flag || targetedGeo?.flag || '🌍');
+
+  const reachSubtext = selectedGeos.length > 0 ? 'Targeted' : 'Auto-selected';
 
   return (
-    <div className="glass-card rounded-xl p-4 space-y-3">
-      <div className="flex items-center justify-between">
+    <div className="relative glass-card rounded-xl p-4 space-y-3 overflow-hidden">
+      {/* Solar flare — a soft radial accent burst anchored top-right, using
+          the active theme's accent color (blue in light mode, gold in dark) */}
+      <div
+        className="absolute -top-16 -right-16 w-40 h-40 rounded-full pointer-events-none opacity-60 animate-ambient-slow"
+        style={{
+          background: 'radial-gradient(circle, rgba(var(--accent-rgb), 0.35) 0%, rgba(var(--accent-rgb), 0.12) 45%, transparent 70%)',
+        }}
+        aria-hidden
+      />
+      <div
+        className="absolute -top-8 -right-8 w-16 h-16 rounded-full pointer-events-none"
+        style={{
+          background: 'radial-gradient(circle, rgba(var(--accent-rgb), 0.5) 0%, transparent 75%)',
+          filter: 'blur(6px)',
+        }}
+        aria-hidden
+      />
+
+      <div className="relative flex items-center justify-between">
         <span className="text-sm font-medium text-[var(--muted-foreground)]">Pricing Breakdown</span>
         {pricing.savingsPercent > 0 && <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#1db954]/10 text-[#1db954] border border-[#1db954]/20">Save {pricing.savingsPercent}%</span>}
       </div>
-      <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
+      <div className="relative grid grid-cols-1 xs:grid-cols-2 gap-3">
         <div className="p-3 rounded-xl bg-white/5 border border-white/5">
           <p className="text-[10px] uppercase tracking-wider text-[var(--subtle-foreground)] mb-1">Subtotal</p>
           <p className="text-lg font-bold">{formatCents(pricing.subtotalCents)}</p>
@@ -218,18 +255,25 @@ const PricingBreakdown = memo(function PricingBreakdown({
           <p className="text-[10px] uppercase tracking-wider text-[var(--subtle-foreground)] mb-1">Platform Fee ({pricing.platformFeePercent}%)</p>
           <p className="text-lg font-bold">{formatCents(pricing.platformFeesCents)}</p>
         </div>
-        <div className="p-3 rounded-xl bg-white/5 border border-white/5">
-          <p className="text-[10px] uppercase tracking-wider text-[var(--subtle-foreground)] mb-1">Delivery Rate</p>
-          <p className="text-sm font-bold">{formatNumber(pricing.dailyDripRate)}/day</p>
-          <p className="text-[10px] text-[var(--subtle-foreground)]">~{formatNumber(hourlyRate)}/hr</p>
-        </div>
-        <div className="p-3 rounded-xl bg-white/5 border border-white/5">
-          <p className="text-[10px] uppercase tracking-wider text-[var(--subtle-foreground)] mb-1">Primary Market</p>
-          <p className="text-sm font-bold flex items-center gap-1"><span>{selectedFlags}</span><span className="truncate">{geo?.country || 'Global'}</span></p>
-          <p className="text-[10px] text-[var(--subtle-foreground)]">{targetedGeo ? 'Targeted' : 'Auto-selected'}</p>
-        </div>
       </div>
-      <div className="pt-3 border-t border-white/5">
+
+      {/* Combined reach statement — how fast, and where, replacing the old
+          separate "Delivery Rate" / "Primary Market" stat pair. Leads with
+          virality (the hourly pace) rather than a sterile cost figure. */}
+      <div className="relative p-3 rounded-xl bg-[var(--accent)]/[0.06] border border-[var(--accent)]/20">
+        <p className="text-[10px] uppercase tracking-wider text-[var(--subtle-foreground)] mb-1">Estimated Reach</p>
+        <p className="text-sm font-bold flex items-center gap-1.5 flex-wrap">
+          <span>~{formatNumber(hourlyRate)}/hr</span>
+          <span className="text-[var(--subtle-foreground)] font-normal">to</span>
+          <span aria-hidden className="text-base leading-none">{reachFlags}</span>
+          <span className="truncate">{reachLabel}</span>
+        </p>
+        <p className="text-[10px] text-[var(--subtle-foreground)] mt-0.5">
+          {formatNumber(pricing.dailyDripRate)}/day · {reachSubtext}
+        </p>
+      </div>
+
+      <div className="relative pt-3 border-t border-white/5">
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium">Total</span>
           <div className="text-right">
@@ -486,7 +530,7 @@ export default function PromotePage() {
             <DurationSlotsGrid selectedSlotId={pricing.durationSlot.id} />
             <p className="text-xs text-[var(--subtle-foreground)] -mt-3 text-center">Based on {formatNumber(pricing.dailyDripRate)} views/day delivery rate</p>
 
-            <PricingBreakdown pricing={pricing} topGeo={topGeo} targetedGeo={topTargetedGeo} localCurrency={localCurrency} />
+            <PricingBreakdown pricing={pricing} topGeo={topGeo} targetedGeo={topTargetedGeo} targetedCountries={targetCountries} localCurrency={localCurrency} />
 
             <button type="submit" disabled={isSubmitting} className="w-full py-3.5 rounded-xl bg-[#1db954] text-black font-semibold hover:bg-[#1ed760] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-[#1db954]/20 gpu-layer">
               {isSubmitting ? <><div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />Creating campaign...</>
