@@ -815,6 +815,237 @@ this fix doesn't cover (please paste the exact new error text).
 
 ---
 
+## Task 16 — RLS on `track_campaigns` still owner-only; admin actions
+silently no-op instead of erroring [ ] SQL drafted, needs to be run
+against the live DB
+
+**Ask:** Product owner reported the admin account can log in but is
+still blocked by `track_campaigns` row-level security in places Task
+14/15's server-side routes don't cover yet (e.g. `togglePause()` on
+`admin/page.tsx`, flagged but deliberately not touched in Task 14).
+Root cause: `"Campaigns updatable by owner"` / `"Campaigns insertable
+by owner"` policies only ever check `auth.uid() = artist_id` — there
+is no admin bypass at the database level at all, so *any* direct
+client-side write to another artist's campaign row affects 0 rows
+under RLS and fails silently (no thrown error), which reads as "it
+worked" when it didn't.
+
+Also confirmed while writing this: `public.users` in
+`supabase_schema.sql` has **no `role` column** in this repo's schema
+file, even though `isAdmin()` (`src/lib/auth/isAdmin.ts`) reads
+`user.role` as its first check and Task 11/14 both refer to a live
+`role = 'admin'` value. That means the live DB's `users` table has
+drifted from `supabase_schema.sql` (a column was added directly in
+the Supabase dashboard/SQL editor at some point and never committed
+back into the schema file) — worth reconciling separately so the next
+person isn't confused by the same mismatch.
+
+**SQL to run in the Supabase SQL editor** (idempotent — safe even if
+`role` already exists live):
+
+```sql
+-- 1. Make sure `role` exists and defaults sensibly (no-op if already there)
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'artist';
+
+-- 2. Make sure the known admin account is actually flagged admin in the data
+UPDATE public.users
+SET role = 'admin'
+WHERE lower(trim(email)) = 'bossblingzs@gmail.com';
+
+-- 3. SECURITY DEFINER helper — checks role without re-triggering RLS
+--    recursion, and works even though `users` itself is locked to
+--    "own row only" (this function bypasses that for this one check).
+CREATE OR REPLACE FUNCTION public.is_admin(p_uid UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.users WHERE id = p_uid AND role = 'admin'
+  );
+$$;
+GRANT EXECUTE ON FUNCTION public.is_admin(UUID) TO authenticated;
+
+-- 4. Replace the owner-only policies with owner-OR-admin versions.
+--    DROP + CREATE so this is safe to re-run.
+DROP POLICY IF EXISTS "Campaigns updatable by owner" ON public.track_campaigns;
+CREATE POLICY "Campaigns updatable by owner or admin"
+  ON public.track_campaigns
+  FOR UPDATE
+  USING (auth.uid() = artist_id OR public.is_admin(auth.uid()))
+  WITH CHECK (auth.uid() = artist_id OR public.is_admin(auth.uid()));
+
+DROP POLICY IF EXISTS "Campaigns insertable by owner" ON public.track_campaigns;
+CREATE POLICY "Campaigns insertable by owner or admin"
+  ON public.track_campaigns
+  FOR INSERT
+  WITH CHECK (auth.uid() = artist_id OR public.is_admin(auth.uid()));
+
+-- 5. Admin-only delete wasn't possible at all before (no DELETE policy
+--    existed for anyone) — added in case the admin dashboard ever
+--    needs to remove a campaign outright.
+DROP POLICY IF EXISTS "Campaigns deletable by admin" ON public.track_campaigns;
+CREATE POLICY "Campaigns deletable by admin"
+  ON public.track_campaigns
+  FOR DELETE
+  USING (public.is_admin(auth.uid()));
+```
+
+**Still to do in a code session after this SQL is run:** wire
+`togglePause()` in `admin/page.tsx` to actually use this (it can now
+either keep writing client-side and rely on this new bypass, or —
+preferably, to stay consistent with Task 14/15's pattern — get its own
+`POST /api/admin/campaigns/:id/pause` route using
+`createAdminClient()`, since a client-side write still exposes the
+service logic to the browser even once RLS stops blocking it). Not
+done in this pass — this task is DB-policy only; flagging the
+application-side follow-up so it isn't lost.
+
+---
+
+## Task 17 — Complete-profile page exists but isn't wired into the
+real flow [ ]
+
+**Ask:** `/complete-profile` isn't actually reached as part of
+onboarding — it exists as a page but nothing routes a freshly-signed-up
+artist into it, so profile completion is effectively dead code right
+now. Needs: (a) finding every entry point after signup/login and
+confirming whether each one checks for an incomplete profile and
+redirects to `/complete-profile?redirect=...` before continuing, (b)
+deciding what "incomplete" means (which `users` columns are required —
+`artist_name`? `primary_genre`? `country`?), and (c) actually wiring
+that check in, since right now a user can go straight from signup to
+the rest of the app with a blank profile.
+
+---
+
+## Task 18 — Success banner after completing profile shows for every
+artist on every login, not just once [ ]
+
+**Ask:** Product owner reports a banner/modal opens for every artist
+after they successfully get through `/complete-profile`, and it's
+firing more broadly than intended — sounds like it's showing on every
+subsequent login rather than a true one-time "profile completed"
+moment. Needs a persisted flag (e.g. a `profile_completed_at` or
+`has_seen_welcome` column/timestamp on `users`, set once and checked
+before rendering the banner) rather than whatever client-side
+condition is currently gating it — likely something that re-evaluates
+true on every session load instead of only right after the profile
+form's own successful submit.
+
+---
+
+## Task 19 — Admin's role always displays as "Artist" in the UI [ ]
+
+**Confirmed while investigating Task 16:** `Sidebar.tsx`'s user-section
+role line is a **hardcoded literal string**, not derived from the
+actual user at all:
+
+```tsx
+<p className="text-xs text-[var(--muted-foreground)]">Artist</p>
+```
+
+So this shows "Artist" under every signed-in user's name regardless of
+`role`/`isAdmin` — including the real admin account, which is exactly
+what product owner saw ("the current admin is logged in but the role
+is showing artist"). Fix is small: read `isAdmin` from `useAuth()` (already imported/used elsewhere) and render "Admin" vs "Artist" conditionally instead of the fixed string. Worth grepping for
+the same hardcoded pattern anywhere else a role/label might be shown
+(header, profile page, settings) before calling this done.
+
+---
+
+## Task 20 — Header wallet pill doesn't route anywhere; should say
+"Wallet" not the earnings label [ ]
+
+**Confirmed while investigating:** the wallet balance pill in
+`Header.tsx` (the `$X.XX` chip next to notifications) is a plain
+`<div>`, not a `<Link>` or button — it has no `onClick`/`href` at all,
+so tapping it does nothing. Also, the nav-level equivalent
+(`Sidebar.tsx` / `MobileNav.tsx`) currently points at `/earnings` and
+is labeled "Earnings" / "Earn" everywhere, which the product owner
+wants renamed to "Wallet" to match the intended framing (see Task 21 —
+withdrawals are going away, so "Earnings" no longer fits what that
+page does). Needs: (a) wrap the header pill in a `Link href="/earnings"`
+(or whatever the route ends up being renamed to, if `/earnings` itself
+gets renamed to `/wallet` as part of this), and (b) a pass over
+`Sidebar.tsx`, `MobileNav.tsx`, and the page itself to rename the
+user-facing label from "Earnings"/"Earn" to "Wallet" consistently.
+Coordinate with Task 21 so this isn't done twice.
+
+---
+
+## Task 21 — Remove withdrawal ability entirely (comment out, don't
+delete, in case it's needed later) [ ]
+
+**Ask:** No withdrawal functionality should be user-facing at all for
+now — not reduced, fully removed from the UI, with the underlying
+logic commented out rather than deleted so it can be restored later
+without reconstructing it from git history alone. Known surface area
+(found via `grep -rli withdraw src`, not yet fully audited):
+- `src/app/api/withdrawal/request/route.ts`
+- `src/app/api/withdrawal/stats/route.ts`
+- `src/app/earnings/page.tsx` — likely has the actual withdraw
+  button/form and balance-check UI
+- `src/services/notifications/notifications.service.ts` — likely
+  fires a withdrawal-related notification somewhere
+- `src/app/admin/page.tsx` — may surface withdrawal requests for admin
+  review; confirm whether admin-side visibility should also be hidden
+  or just the user-facing request flow
+
+Needs a full read of each file above before touching anything — some
+of this (e.g. admin visibility into past withdrawals) may be worth
+keeping even while new requests are disabled. Comment out rather than
+delete per the ask, with a clear `// WITHDRAWALS DISABLED — see Task
+21` marker at each spot so it's easy to find and reverse later.
+
+---
+
+## Task 22 — Settings page not fully wired [ ]
+
+**Ask:** `/settings` (`src/app/settings/page.tsx`, 258 lines) has UI
+that isn't fully connected to real data/actions yet — exact scope
+not specified by product owner beyond "not fully wired." Next session
+should open this file, list every field/toggle/button on the page,
+and check each one against whether it actually reads from and writes
+to Supabase (vs. static/placeholder state), then report back the
+specific list of what's disconnected before fixing anything — this
+task is too vague to safely fix blind in one pass.
+
+---
+
+## Task 23 — Promote page: shuffle 8-of-25 countries by genre, cap
+selection at 3 of the shown 8 [ ]
+
+**Ask:** The country-targeting pool should be the full 25 countries,
+but the picker should only ever show 8 at a time, reshuffled based on
+the genre the artist selects (presumably weighted toward that genre's
+best-fit markets, similar in spirit to the existing affinity table),
+and the artist can select at most 3 of *those 8 shown* — not 3 of the
+full 25.
+
+**Current state found while investigating:** `TARGET_COUNTRIES` in
+`src/lib/campaign/geoAffinity.ts` only has **14** countries defined
+right now, not 25 — the pool itself needs 11 more added (with affinity
+scores per existing genre in `GENRE_COUNTRY_AFFINITY`) before the
+8-of-25 shuffle makes sense. `promote/page.tsx` currently shows the
+*entire* pool with no shuffle/subset step at all — `MAX_COUNTRIES_FREE
+= 3` (Task 10) already caps selection count correctly, but it caps
+selection out of the *full* list shown, not out of a shuffled 8. So
+this task is really two parts: (1) grow the pool to 25 countries with
+real affinity scores, and (2) add a selection step — likely using
+`getRecommendedGeographies(genre, ...)` (already ranks by affinity) to
+take the top-weighted candidates and randomly sample/shuffle 8 from
+them per genre selection, then feed only those 8 into the existing
+`GeoTargetingSection` / `atLimit` logic so the "max 3" cap applies
+to the shown 8, not the underlying 25. Needs a decision on whether the
+shuffle re-randomizes every time the genre changes, or is stable once
+picked for a given session/campaign draft — worth confirming with
+product owner before implementing, since "shuffle" could mean either.
+
+---
+
 ## Notes for whoever picks up Task 2 next
 
 - Full task list source: product owner's message combining ~12
