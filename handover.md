@@ -98,49 +98,108 @@ this fully closed.
 
 ---
 
-## Task 3 — Bar chart: animated fill-up progression [ ]
+## Task 3 — Bar chart: animated fill-up progression [x] (verify)
 
 **Ask:** "The bar chart should be animated fill up progression."
 
-**Not yet located precisely which chart this refers to** — candidates:
-- `src/components/analytics/*` (check for a bar-chart component)
-- `PublicAnalyticsShowcase` (dynamically imported in promote/page.tsx)
-- Admin dashboard analytics (from commit `c901233`, "full admin
-  dashboard")
+**Located:** `src/components/promote/PublicAnalyticsShowcase.tsx` (the
+"Where Growth Is Happening" platform-distribution chart) is the
+**only** real recharts `<BarChart>`/`<Bar>` in the entire codebase —
+confirmed via `grep -rn "recharts\|BarChart" src` across every
+candidate file (admin dashboard, analytics page, earnings page, home
+page, promote page). Analytics page (`src/app/analytics/page.tsx`)
+only uses `AreaChart`/`PieChart`, no `BarChart`. Earnings page's
+"Campaign Performance" section has a `BarChart3` lucide *icon* next to
+a plain card list — not an actual chart.
 
-**Next session should:** `grep -rn "recharts\|BarChart" src` to find
-every bar chart instance, confirm which one the product owner means
-(likely the most visible one — public stats on promote page or
-analytics page), then add an entrance animation where bars grow from
-0 to their final height/width on mount (recharts supports this via
-`isAnimationActive` + `animationDuration` props on `<Bar>`, or a
-manual CSS `@keyframes` grow-in if it's a custom SVG/div bar, not
-recharts).
+**Already implemented, no code change needed:** the `<Bar>` element
+already has `isAnimationActive`, `animationDuration={1200}`, and
+`animationEasing="ease-out"` (present since the file's original
+commit `e52bb7c`, well before this task was logged) — this is
+recharts' standard entrance animation, which grows each bar from 0 to
+its final height on mount. `recharts` is on `^2.12.0`, a modern
+version with full, reliable support for this. The adjacent
+"Demographics" section also already has an independent CSS width
+fill-up animation (0% → final %, staggered per row via
+`transitionDelay`) for its horizontal bars.
+
+**Not verified:** actual visual playback in a browser — this sandbox
+has no headless browser/screenshot tooling (same limitation noted in
+Task 2). If the product owner still isn't seeing bars grow on load,
+likely culprits to check next, in order: (1) are they looking at a
+stale cached build (see the earlier Chrome caching issue in this
+project's history) rather than a fresh deploy; (2) is the chart
+scrolled into view fast enough that the `IntersectionObserver`
+(`rootMargin: '200px'`) + async `getPublicSeedStats()` fetch both
+resolve before they're looking, making the animation finish before
+they notice it; (3) confirm which page/chart they mean if it's
+genuinely a different one than this — no other candidate exists in
+the current codebase, so if it's not this one, it needs to be built
+from scratch, not fixed.
 
 ---
 
 ## Task 4 — Promote page first section: mobile CSS overlap + black
-screen + category alignment [ ]
+screen + category alignment [x]
 
 **Ask:** "The first side of the promote page the CSS is overlapping
 in mobile view there is some black screen and UI layout needs to be
 changed to accommodate the fields and the alignment of the categories
 should be aligned not scattered."
 
-**Likely same root cause family as Task 6 (slider black-screen)** —
-worth checking whether the black screen here is the same
-backdrop-filter/GPU-layer recompositing issue, or a genuine layout
-overlap (z-index / absolute positioning collision) in the URL input +
-genre chips + geo targeting section.
+**Root cause found for the black screen — a real bug, not GPU-blur
+architecture (that theory from Task 6 didn't hold up here):**
+`className="gpu-layer"` and `className="scroll-smooth-mobile"` are
+used 5 times across `promote/page.tsx` (the New Campaign card, the
+submit button, the "Estimated reach" card) — but neither class was
+ever actually defined anywhere in `globals.css`, `tailwind.config.ts`,
+or any plugin/safelist. Someone added these class names expecting
+them to promote the glassy, backdrop-filter-heavy cards to their own
+GPU compositing layer (the standard fix for the black-flash-near-
+backdrop-filter bug Task 6 diagnosed on the slider), but the CSS rule
+was never written — so it was a silent no-op the whole time, and the
+black screen kept happening. **Fixed:** defined both classes in
+`globals.css` — `.gpu-layer` (`translateZ(0)` + `will-change:
+transform` + `backface-visibility: hidden`) and
+`.scroll-smooth-mobile` (`-webkit-overflow-scrolling: touch` +
+`overscroll-behavior-y: contain`).
 
-**"Categories... aligned not scattered"** most likely refers to
-`GenreChips` (the genre pill grid) and/or `GeoTargetingSection` (the
-country cards) — check their grid classes:
-`grid-cols-3 xs:grid-cols-4 sm:grid-cols-5` for genres — this may not
-divide evenly for the current genre count (14 genres), leaving a
-ragged/scattered-looking last row. Consider `justify-items-stretch`
-or switching to a flex-wrap layout with consistent gap instead of a
-fixed-column grid if the raggedness is the complaint.
+**"Categories... aligned not scattered" — confirmed and fixed:**
+`GenreChips` used a `grid-cols-3 xs:grid-cols-4 sm:grid-cols-5` grid
+for 14 genres — 14 doesn't divide evenly by 3, 4, or 5 at *any* of
+those breakpoints, so every screen size showed a ragged, short
+trailing row. Switched to `flex flex-wrap gap-2` so chips flow and
+align naturally regardless of count — this is the standard pattern
+for a tag/chip selector for exactly this reason.
+
+`GeoTargetingSection`'s country-card grid had the same problem one
+breakpoint over: `grid-cols-2 xs:grid-cols-3 sm:grid-cols-4` against
+20 countries (`getRecommendedGeographies` returns the full
+`TARGET_COUNTRIES` list, unsliced) — 20 isn't divisible by 3, so the
+`xs` breakpoint alone had a ragged 2-item trailing row (2 and 4
+already divided evenly). Kept this one as a grid (variable-width flex
+items would look inconsistent for these card-style entries with a
+flag+name+score, unlike simple text pills) and changed the ragged
+breakpoint to `grid-cols-2 xs:grid-cols-4 sm:grid-cols-5` — 20 divides
+evenly into 10/5/4 rows at all three now.
+
+**Overlap found and fixed:** the "Top" badge on ranked country cards
+was positioned with a negative overhang (`-top-1.5 -right-1.5`,
+overhanging outside the card's own box into the grid gap). With only
+an 8px (`gap-2`) gutter between cards, two adjacent top-ranked
+countries' badges could visually collide on the narrow 2-column
+mobile layout. Pulled the badge inside the card's own bounds
+(`top-1 right-1`, plus `z-10`) so it can never overlap a neighboring
+card regardless of grid position.
+
+**Not fully investigated — "UI layout needs to be changed to
+accommodate the fields" is vague and may mean something beyond the
+above:** if the product owner still sees layout problems after this,
+the 20-entry country grid (unsliced, so it always renders all 20
+cards) is a plausible next suspect — that's a lot of vertical space
+for a compact campaign form, and slicing to top N with a "show more"
+toggle might be the actual ask, not a pure CSS fix. Flag this back to
+them before guessing further.
 
 ---
 

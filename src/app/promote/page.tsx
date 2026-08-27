@@ -104,10 +104,10 @@ const GenreChips = memo(function GenreChips({ selectedGenre, onSelect }: {
   selectedGenre: string; onSelect: (genre: string) => void;
 }) {
   return (
-    <div className="grid grid-cols-3 xs:grid-cols-4 sm:grid-cols-5 gap-2">
+    <div className="flex flex-wrap gap-2">
       {GENRES.map((genre) => (
         <button key={genre} type="button" onClick={() => onSelect(genre)} className={cn(
-          'w-full px-2 py-1.5 rounded-full text-xs font-medium text-center truncate transition-all active:scale-95',
+          'px-3 py-1.5 rounded-full text-xs font-medium text-center whitespace-nowrap transition-all active:scale-95',
           selectedGenre === genre ? 'bg-[#1db954] text-black shadow-lg shadow-[#1db954]/20' : 'chip-card text-[var(--muted-foreground)]'
         )}>{genre}</button>
       ))}
@@ -132,7 +132,7 @@ const GeoTargetingSection = memo(function GeoTargetingSection({
         {genre ? <span className="flex items-center gap-1 text-[10px] text-[var(--subtle-foreground)]"><Wand2 className="w-3 h-3" />Ranked for {genre}</span>
           : <span className="text-[10px] text-[var(--subtle-foreground)]">Pick a genre for tailored picks</span>}
       </div>
-      <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 xs:grid-cols-4 sm:grid-cols-5 gap-2">
         {ranked.map((rec) => {
           const isSelected = selectedCodes.includes(rec.code);
           const isTop = topCodes.has(rec.code);
@@ -150,7 +150,7 @@ const GeoTargetingSection = memo(function GeoTargetingSection({
                 disabled && 'opacity-40 cursor-not-allowed'
               )}
             >
-              {isTop && <span className="absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase bg-[#1db954] text-black shadow">Top</span>}
+              {isTop && <span className="absolute top-1 right-1 px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase bg-[#1db954] text-black shadow z-10">Top</span>}
               <div className="flex items-center gap-1.5"><span aria-hidden className="text-base">{rec.flag}</span><span className="text-xs font-semibold truncate">{rec.country}</span></div>
               <div className="flex items-center gap-1 mt-1">
                 <span className={cn('text-[9px] font-medium', fit.tone === 'strong' && 'text-[#1db954]', fit.tone === 'good' && 'text-[#3d91f4]', fit.tone === 'moderate' && 'text-amber-400', fit.tone === 'light' && 'text-[var(--subtle-foreground)]')}>{fit.label}</span>

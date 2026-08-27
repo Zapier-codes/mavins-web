@@ -113,6 +113,32 @@ body {
   animation: ambient-float 8s ease-in-out infinite;
 }
 
+/* Promotes an element to its own GPU compositing layer. Referenced across
+   promote/page.tsx but never actually defined — meaning the black-screen
+   fix it implies was never applied. Backdrop-filter ancestors (.glass-strong
+   / .glass-card) combined with animated fixed-position blurred backgrounds
+   are a known trigger for a black-flash/blank-paint bug on mobile Chrome and
+   iOS Safari when the browser has to recomposite the blur on every scroll or
+   animation frame. Forcing a dedicated layer via `translateZ(0)` (with
+   `will-change` as a hint and `backface-visibility: hidden` to avoid a
+   related flicker on the layer's own edges) keeps that recompositing
+   contained to the element instead of forcing a full-page repaint. */
+.gpu-layer {
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Smoother momentum scrolling on mobile Safari, and stops iOS from letting
+   scroll gestures bubble past the page (a contributor to the same
+   black-flash class of bug — the page repainting mid-overscroll-bounce). */
+.scroll-smooth-mobile {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
 /* Glass morphism — THE CORE EFFECT. Blue glass in light mode, gilded glass in dark mode. */
 .glass {
   backdrop-filter: blur(26px) saturate(1.6);
