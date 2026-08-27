@@ -53,7 +53,13 @@ function CompleteProfileForm() {
       return;
     }
 
-    router.replace(redirectTo);
+    // Task 18: only the actual "successfully completed" path gets the
+    // one-time welcome banner -- append `welcome=1` so the destination
+    // page can show it exactly once and strip the param immediately
+    // (see src/app/page.tsx), rather than it re-showing on every future
+    // visit/login the way the old unconditional page header did.
+    const separator = redirectTo.includes('?') ? '&' : '?';
+    router.replace(`${redirectTo}${separator}welcome=1`);
   };
 
   const handleSkip = () => {

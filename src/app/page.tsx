@@ -1,24 +1,45 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/auth/useAuth';
 import { useAppStore } from '@/store/useAppStore';
 import { cn } from '@/lib/utils/cn';
 import { 
   Rocket, BarChart3, Trophy, Zap, TrendingUp,
-  Music, ArrowRight, Play, Users, Globe, Sparkles
+  Music, ArrowRight, Play, Users, Globe, Sparkles, X
 } from 'lucide-react';
 import { EarningsMarquee } from '@/components/landing/EarningsMarquee';
 import { PartnersMarquee } from '@/components/landing/PartnersMarquee';
 import { HowItWorksAnimated } from '@/components/landing/HowItWorksAnimated';
 
-export default function HomePage() {
+// Task 18 fix: this used to be a plain "Welcome back" heading that
+// rendered unconditionally on every visit to '/' -- which is what
+// product owner was seeing as a banner "opening for every artist on
+// every login." The heading itself staying persistent is fine/normal;
+// what's new here is a SEPARATE, genuinely one-time success banner
+// gated on a `?welcome=1` param that complete-profile/page.tsx only
+// appends right after a successful (not skipped) submit. It's read
+// once, shown, and the param is stripped from the URL immediately via
+// router.replace so a refresh, back-button, or re-sharing the link
+// can't replay it.
+function HomePageContent() {
   const { user, isAuthenticated } = useAuth();
   const { points } = useAppStore();
   const [mounted, setMounted] = useState(false);
+  const [showWelcomeBanner, setShowWelcomeBanner] = useState(false);
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   useEffect(() => { setMounted(true); }, []);
+
+  useEffect(() => {
+    if (searchParams.get('welcome') === '1') {
+      setShowWelcomeBanner(true);
+      router.replace('/', { scroll: false });
+    }
+  }, [searchParams, router]);
 
   if (!mounted) return null;
 
@@ -120,6 +141,25 @@ export default function HomePage() {
       </div>
 
       <div className="relative max-w-5xl mx-auto px-4 sm:px-6 pt-20 pb-24 md:pb-8 space-y-5">
+        {/* One-time welcome banner — see Task 18 note above. Only
+            renders right after a fresh, successful complete-profile
+            submit; gone for good after that page load. */}
+        {showWelcomeBanner && (
+          <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl glass-card border-[var(--accent)]/25 bg-[var(--accent)]/[0.06]">
+            <div className="flex items-center gap-2 text-sm font-medium text-[var(--accent-light)]">
+              <Sparkles className="w-4 h-4 flex-shrink-0" />
+              Profile complete — welcome to Mavins! 🎉
+            </div>
+            <button
+              onClick={() => setShowWelcomeBanner(false)}
+              className="p-1 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors flex-shrink-0"
+              aria-label="Dismiss"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* Welcome */}
         <div>
           <h1 className="font-display text-2xl sm:text-3xl font-semibold tracking-tight">
@@ -188,5 +228,13 @@ function QuickAction({ icon: Icon, label, href, color }: { icon: any; label: str
       </div>
       <span className="text-xs font-medium">{label}</span>
     </Link>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={null}>
+      <HomePageContent />
+    </Suspense>
   );
 }

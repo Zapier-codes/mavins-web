@@ -1039,7 +1039,7 @@ same.
 ---
 
 ## Task 18 — Success banner after completing profile shows for every
-artist on every login, not just once [ ]
+artist on every login, not just once [x]
 
 **Ask:** Product owner reports a banner/modal opens for every artist
 after they successfully get through `/complete-profile`, and it's
@@ -1051,6 +1051,47 @@ before rendering the banner) rather than whatever client-side
 condition is currently gating it — likely something that re-evaluates
 true on every session load instead of only right after the profile
 form's own successful submit.
+
+**Investigated first, before touching anything:** grepped the whole
+`src` tree for any Toast/Snackbar/Alert/Modal/Dialog/"banner" pattern
+tied to onboarding — found nothing. There is no dedicated
+banner/modal component for this at all. The actual match for what
+product owner is describing is the plain `<h1>Welcome back,
+{artistName}</h1>` heading in `src/app/page.tsx`'s authenticated
+view — it renders **unconditionally on every visit to `/`**, with no
+gating logic whatsoever. Once Task 17 wired every login/signup to
+route through `/complete-profile` first, this heading became the very
+next thing rendered afterward every single time — which reads exactly
+like "a banner opens after completing profile" even though it was
+never actually tied to that event; it was just always there.
+
+**Fixed without a schema change** — a DB column felt like more
+persistent state than this needs, since the ask is really "show this
+once, at the moment it actually happened," not "remember forever
+whether this user has ever seen a welcome message":
+- `complete-profile/page.tsx`'s **submit** path (not skip — skipping
+  isn't "successfully completing" it) now appends `?welcome=1` onto
+  the redirect target after a successful save.
+- `src/app/page.tsx` now has a real, separate one-time banner
+  (dismissible, with a ✕ button) that only renders when it sees
+  `welcome=1` in the URL on mount — and immediately strips that param
+  via `router.replace('/', { scroll: false })` in the same effect, so
+  a refresh, back-button press, or someone re-sharing the URL can't
+  replay it. The original "Welcome back" heading is untouched and
+  still shows every visit, which is normal/expected persistent UI, not
+  the bug — only the new banner above it is one-time.
+- Both `page.tsx` and `complete-profile`'s redirect needed
+  `useSearchParams()`; `page.tsx` didn't have it before, so it's now
+  split into `HomePageContent` wrapped in `<Suspense>` in the default
+  export, matching the same pattern already used in `login/page.tsx`
+  (Task 17) and `complete-profile/page.tsx`.
+
+Verified via `npx tsc --noEmit` — clean. `npm run build` fails only on
+the same pre-existing Google Fonts network issue noted since Task 8.
+**Not verified:** an actual live run through signup →
+complete-profile → seeing the banner exactly once and not again on a
+subsequent login (no sandbox network access to the live Supabase
+project) — recommend a real end-to-end check after deploying.
 
 ---
 
