@@ -42,6 +42,20 @@ export const TARGET_COUNTRIES: TargetCountry[] = [
   { code: 'CA', country: 'Canada', flag: '🇨🇦' },
   { code: 'AE', country: 'United Arab Emirates', flag: '🇦🇪' },
   { code: 'NL', country: 'Netherlands', flag: '🇳🇱' },
+  // --- Added to grow the pool from 14 to 25 (Task 23 prerequisite) ---
+  // West/East African Afrobeats-adjacent markets:
+  { code: 'CI', country: "Côte d'Ivoire", flag: '🇨🇮' },
+  { code: 'SN', country: 'Senegal', flag: '🇸🇳' },
+  { code: 'TZ', country: 'Tanzania', flag: '🇹🇿' },
+  { code: 'UG', country: 'Uganda', flag: '🇺🇬' },
+  { code: 'EG', country: 'Egypt', flag: '🇪🇬' },
+  // Top global/IFPI-tracked streaming markets not yet covered:
+  { code: 'MX', country: 'Mexico', flag: '🇲🇽' },
+  { code: 'ES', country: 'Spain', flag: '🇪🇸' },
+  { code: 'IT', country: 'Italy', flag: '🇮🇹' },
+  { code: 'AU', country: 'Australia', flag: '🇦🇺' },
+  { code: 'SE', country: 'Sweden', flag: '🇸🇪' },
+  { code: 'KR', country: 'South Korea', flag: '🇰🇷' },
 ];
 
 const COUNTRY_CODES = TARGET_COUNTRIES.map((c) => c.code);
@@ -49,20 +63,20 @@ const COUNTRY_CODES = TARGET_COUNTRIES.map((c) => c.code);
 // Score 0-100: how strongly a genre typically resonates in that market.
 // Deliberately conservative and roughly-banded (not falsely precise).
 export const GENRE_COUNTRY_AFFINITY: Record<string, Record<string, number>> = {
-  Afrobeats:    { NG: 98, GH: 88, GB: 72, US: 60, ZA: 55, KE: 50, FR: 40, CA: 42, AE: 38, NL: 35, BR: 25, IN: 15, DE: 30, JM: 45 },
-  Amapiano:     { ZA: 97, NG: 70, GH: 45, GB: 50, US: 38, KE: 40, NL: 30, FR: 25, CA: 28, AE: 30, BR: 15, IN: 10, DE: 22, JM: 20 },
-  'Hip-Hop':    { US: 95, GB: 70, CA: 68, FR: 55, DE: 45, NG: 60, ZA: 45, JM: 40, AE: 35, NL: 40, BR: 42, IN: 30, GH: 40, KE: 32 },
-  'R&B':        { US: 92, GB: 65, CA: 60, NG: 55, GH: 40, ZA: 42, FR: 35, DE: 30, JM: 38, AE: 25, NL: 30, BR: 25, IN: 18, KE: 28 },
-  Pop:          { US: 90, GB: 80, DE: 55, FR: 55, CA: 60, NL: 50, BR: 50, IN: 45, AE: 40, NG: 42, ZA: 40, KE: 30, GH: 30, JM: 25 },
-  Electronic:   { DE: 92, NL: 85, GB: 65, US: 55, FR: 55, AE: 45, CA: 40, ZA: 35, BR: 40, IN: 25, NG: 22, GH: 15, KE: 15, JM: 15 },
-  Reggae:       { JM: 98, GB: 55, US: 45, ZA: 30, NG: 35, GH: 30, KE: 25, DE: 20, FR: 20, NL: 25, CA: 30, AE: 15, IN: 10, BR: 20 },
-  Gospel:       { NG: 90, US: 70, KE: 65, GH: 60, ZA: 55, GB: 35, CA: 30, DE: 12, FR: 12, NL: 15, AE: 20, BR: 25, IN: 20, JM: 30 },
-  Highlife:     { GH: 95, NG: 75, GB: 30, US: 20, ZA: 15, KE: 15, CA: 18, DE: 10, FR: 10, NL: 12, AE: 10, BR: 8, IN: 5, JM: 15 },
-  Jazz:         { US: 80, FR: 70, NL: 60, GB: 55, DE: 55, ZA: 40, NG: 25, GH: 20, CA: 45, AE: 25, BR: 45, IN: 20, KE: 18, JM: 20 },
-  Rock:         { US: 78, GB: 78, DE: 65, FR: 50, CA: 60, NL: 45, BR: 50, IN: 30, ZA: 35, NG: 20, GH: 15, KE: 18, AE: 20, JM: 15 },
-  'Afro-fusion':{ NG: 92, GB: 65, US: 55, GH: 60, ZA: 48, KE: 42, CA: 35, FR: 30, DE: 25, NL: 28, AE: 30, BR: 20, IN: 15, JM: 30 },
-  Drill:        { GB: 85, US: 78, NG: 55, FR: 45, CA: 40, DE: 25, ZA: 25, GH: 30, NL: 25, AE: 15, BR: 15, IN: 10, KE: 15, JM: 20 },
-  Dancehall:    { JM: 96, GB: 50, US: 45, NG: 40, GH: 35, ZA: 25, CA: 35, DE: 15, FR: 18, NL: 20, AE: 15, BR: 22, IN: 10, KE: 20 },
+  Afrobeats:    { NG: 98, GH: 88, GB: 72, US: 60, ZA: 55, KE: 50, FR: 40, CA: 42, AE: 38, NL: 35, BR: 25, IN: 15, DE: 30, JM: 45, CI: 55, SN: 50, TZ: 35, UG: 38, EG: 20, MX: 20, ES: 22, IT: 20, AU: 30, SE: 18, KR: 12 },
+  Amapiano:     { ZA: 97, NG: 70, GH: 45, GB: 50, US: 38, KE: 40, NL: 30, FR: 25, CA: 28, AE: 30, BR: 15, IN: 10, DE: 22, JM: 20, CI: 30, SN: 25, TZ: 45, UG: 40, EG: 15, MX: 12, ES: 15, IT: 12, AU: 22, SE: 15, KR: 8 },
+  'Hip-Hop':    { US: 95, GB: 70, CA: 68, FR: 55, DE: 45, NG: 60, ZA: 45, JM: 40, AE: 35, NL: 40, BR: 42, IN: 30, GH: 40, KE: 32, CI: 35, SN: 30, TZ: 30, UG: 28, EG: 25, MX: 45, ES: 40, IT: 42, AU: 55, SE: 40, KR: 50 },
+  'R&B':        { US: 92, GB: 65, CA: 60, NG: 55, GH: 40, ZA: 42, FR: 35, DE: 30, JM: 38, AE: 25, NL: 30, BR: 25, IN: 18, KE: 28, CI: 25, SN: 22, TZ: 22, UG: 20, EG: 20, MX: 30, ES: 28, IT: 25, AU: 45, SE: 35, KR: 40 },
+  Pop:          { US: 90, GB: 80, DE: 55, FR: 55, CA: 60, NL: 50, BR: 50, IN: 45, AE: 40, NG: 42, ZA: 40, KE: 30, GH: 30, JM: 25, CI: 30, SN: 28, TZ: 25, UG: 22, EG: 35, MX: 55, ES: 60, IT: 58, AU: 65, SE: 62, KR: 55 },
+  Electronic:   { DE: 92, NL: 85, GB: 65, US: 55, FR: 55, AE: 45, CA: 40, ZA: 35, BR: 40, IN: 25, NG: 22, GH: 15, KE: 15, JM: 15, CI: 18, SN: 15, TZ: 12, UG: 12, EG: 25, MX: 35, ES: 50, IT: 45, AU: 42, SE: 70, KR: 35 },
+  Reggae:       { JM: 98, GB: 55, US: 45, ZA: 30, NG: 35, GH: 30, KE: 25, DE: 20, FR: 20, NL: 25, CA: 30, AE: 15, IN: 10, BR: 20, CI: 20, SN: 18, TZ: 15, UG: 12, EG: 10, MX: 25, ES: 22, IT: 20, AU: 25, SE: 15, KR: 8 },
+  Gospel:       { NG: 90, US: 70, KE: 65, GH: 60, ZA: 55, GB: 35, CA: 30, DE: 12, FR: 12, NL: 15, AE: 20, BR: 25, IN: 20, JM: 30, CI: 30, SN: 20, TZ: 40, UG: 45, EG: 15, MX: 20, ES: 10, IT: 10, AU: 20, SE: 10, KR: 15 },
+  Highlife:     { GH: 95, NG: 75, GB: 30, US: 20, ZA: 15, KE: 15, CA: 18, DE: 10, FR: 10, NL: 12, AE: 10, BR: 8, IN: 5, JM: 15, CI: 25, SN: 15, TZ: 10, UG: 10, EG: 5, MX: 5, ES: 5, IT: 5, AU: 8, SE: 5, KR: 3 },
+  Jazz:         { US: 80, FR: 70, NL: 60, GB: 55, DE: 55, ZA: 40, NG: 25, GH: 20, CA: 45, AE: 25, BR: 45, IN: 20, KE: 18, JM: 20, CI: 20, SN: 25, TZ: 15, UG: 12, EG: 20, MX: 25, ES: 30, IT: 35, AU: 35, SE: 30, KR: 20 },
+  Rock:         { US: 78, GB: 78, DE: 65, FR: 50, CA: 60, NL: 45, BR: 50, IN: 30, ZA: 35, NG: 20, GH: 15, KE: 18, AE: 20, JM: 15, CI: 12, SN: 10, TZ: 10, UG: 10, EG: 15, MX: 40, ES: 35, IT: 40, AU: 55, SE: 45, KR: 30 },
+  'Afro-fusion':{ NG: 92, GB: 65, US: 55, GH: 60, ZA: 48, KE: 42, CA: 35, FR: 30, DE: 25, NL: 28, AE: 30, BR: 20, IN: 15, JM: 30, CI: 40, SN: 35, TZ: 30, UG: 32, EG: 18, MX: 20, ES: 22, IT: 20, AU: 28, SE: 18, KR: 12 },
+  Drill:        { GB: 85, US: 78, NG: 55, FR: 45, CA: 40, DE: 25, ZA: 25, GH: 30, NL: 25, AE: 15, BR: 15, IN: 10, KE: 15, JM: 20, CI: 15, SN: 12, TZ: 10, UG: 10, EG: 10, MX: 20, ES: 25, IT: 22, AU: 30, SE: 25, KR: 20 },
+  Dancehall:    { JM: 96, GB: 50, US: 45, NG: 40, GH: 35, ZA: 25, CA: 35, DE: 15, FR: 18, NL: 20, AE: 15, BR: 22, IN: 10, KE: 20, CI: 18, SN: 15, TZ: 12, UG: 10, EG: 8, MX: 22, ES: 20, IT: 18, AU: 25, SE: 15, KR: 10 },
 };
 
 export interface GeoRecommendation extends TargetCountry {
