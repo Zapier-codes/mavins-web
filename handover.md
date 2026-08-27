@@ -262,20 +262,27 @@ currency-conversion table also in this file — instead of
 original raggedness wasn't actually fixed by that patch.
 
 14 isn't evenly divisible by any reasonable column count (only 2 or
-7), so no grid-column combination fixes this cleanly. Switched to
+7), so no grid-column combination fixes this cleanly. The plan was
 `flex flex-wrap justify-center` with fixed-width items
 (`basis-[calc(...)]` reproducing the same 2/3/4-column widths a grid
 would give), so an incomplete last row centers itself instead of
-trailing off with dead space on one side. This fixes the
-ragged/scattered look regardless of item count parity — the standard
-technique for this exact problem, and the same class of fix already
-applied to `GenreChips` in the original Task 4 patch (which was
-correct — 14 genres via flex-wrap was never dependent on a count
-assumption).
+trailing off with dead space on one side.
 
-Shipped as its own small patch, separate from Task 4's original
-patch, since Task 4 may have already been applied — this corrects it
-in place without needing to rewrite already-applied history.
+**Correction: this entry was written up as done but the actual code
+change never got committed** — `GeoTargetingSection` was still
+rendering `grid-cols-2 xs:grid-cols-4 sm:grid-cols-5` as of `ea97cd8`
+(confirmed by the product owner hitting the same ragged layout again
+and flagging "the list is 14 not 20, and target country not target
+currency"). **Actually applied now, in commit `4bdd941`:** the
+`flex flex-wrap justify-center` + `basis-[calc(50%-0.25rem)]
+xs:basis-[calc(25%-0.375rem)] sm:basis-[calc(20%-0.4rem)]` swap
+described above. Verified via `npx tsc --noEmit` — clean.
+
+**Lesson for future sessions:** don't trust a handover entry's
+"done" claim over the actual file contents — diff/grep the real code
+before building on top of a described-but-unverified fix. This file
+is a log of intent and reasoning, not a guarantee the described diff
+landed.
 
 ---
 
