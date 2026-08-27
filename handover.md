@@ -1213,7 +1213,45 @@ Coordinate with Task 21 so this isn't done twice.
 ---
 
 ## Task 21 — Remove withdrawal ability entirely (comment out, don't
-delete, in case it's needed later) [ ]
+delete, in case it's needed later) [x]
+
+**Done in commit `4a62796`.** No withdrawal functionality is
+user-facing anymore:
+- `src/app/earnings/page.tsx` — commented out the withdraw state, the
+  `handleWithdraw` handler, the success banner, and the entire
+  "Withdraw Funds" form card. Each block marked
+  `// WITHDRAWALS DISABLED — see Task 21`. The "Pending"/"Available"
+  stat tiles were left alone — they're a read-only derived display of
+  existing `wallet_ledger` debits, not a withdrawal action.
+- `src/app/api/withdrawal/request/route.ts` — `POST` now
+  short-circuits with a `403` "Withdrawals are temporarily disabled."
+  response; the full original handler is preserved below it,
+  commented out, ready to restore.
+
+**Full audit of the other known surface area, before touching
+anything (per the task's own instruction) — none needed a change:**
+- `src/app/api/withdrawal/stats/route.ts` — grepped the whole `src`
+  tree; nothing calls this endpoint. It's read-only (returns numbers,
+  moves no funds), so it's outside the user-facing surface this task
+  targets. Left untouched with a comment documenting the finding,
+  rather than commenting out working unreferenced code.
+- `src/app/admin/page.tsx` — the one `withdrawal` hit is a ledger-row
+  badge color for historical entries, not an approval/action UI —
+  there's no withdrawal-request admin flow to disable. Kept, since
+  the task explicitly flagged admin visibility into past entries as
+  possibly worth keeping.
+- `src/services/notifications/notifications.service.ts` — the
+  `withdrawal_requested` entry in `TYPE_META` is read-back display
+  metadata for already-existing notifications, not something that
+  fires a new one (that lived in the now-disabled request route).
+  Kept so old notifications still render with a proper label instead
+  of falling back to generic "system".
+
+Verified via `npx tsc --noEmit` — clean.
+**Not verified:** an actual live click-through on `/earnings` to
+confirm the form is gone and the page still renders normally (no
+sandbox network access to the live Supabase project) — recommend a
+quick visual check after deploying.
 
 **Ask:** No withdrawal functionality should be user-facing at all for
 now — not reduced, fully removed from the UI, with the underlying
