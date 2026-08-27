@@ -743,6 +743,78 @@ end-to-end check after deploying this.
 
 ---
 
+## Task 15 — Admin campaign launch throws RLS error; header wallet
+balance always shows $0.00 [x] (verify)
+
+**Ask:** Product owner, logged in as the confirmed admin account
+(role = 'admin' per Task 11's query), tried to launch a campaign and
+got a browser alert: `new row violates row-level security policy for
+table "track_campaigns"`. Screenshot also showed the header wallet
+badge reading $0.00 despite the DB having real funds — "if admin is
+facing this error imagine a normal user['s] error."
+
+**Done in commit `0e4529f`.**
+
+**Part 1 — RLS error on campaign creation:**
+`createCampaign()` in `campaign.service.ts` inserted into
+`track_campaigns` directly from the browser's anon-key client, relying
+on `auth.uid() = artist_id` passing `track_campaigns`'s `WITH CHECK`
+insert policy. Could not determine the exact live-DB reason this was
+failing for a confirmed-admin account (no sandbox network access to
+the live Supabase project to inspect it directly — same limitation as
+every RLS-adjacent task before this one, e.g. Task 12, Task 14).
+Rather than guess at the live specifics blind, applied the same fix
+already proven for the structurally identical read-side problem in
+Task 14 (admin dashboard hitting RLS on `users`/`wallet_ledger`): moved
+the write server-side.
+
+New `src/app/api/campaigns/create/route.ts` — verifies the caller's
+own session (`auth.getUser()`), re-derives `isAdmin` server-side via
+the same `isAdmin()` used everywhere else (so a stale/forged
+client-side admin flag can't skip the wallet check), then does the
+wallet balance check/deduction and the `track_campaigns` insert with
+`createAdminClient()` (service-role, bypasses RLS entirely).
+`artist_id` is always the verified session's own id now — never a
+client-supplied value, closing off a spoofing angle the old code had
+too. If the insert fails after a non-admin's wallet was already
+debited, the debit is refunded rather than left charged with nothing
+created. `campaign.service.ts`'s `createCampaign()` is now a thin
+`fetch()` wrapper around this route, same exported signature, so
+`promote/page.tsx` needed no changes.
+
+**Part 2 — wallet balance always $0.00 in the header:**
+Root cause was much simpler than it looked: `Header.tsx`'s balance
+line is `${(points / 100).toFixed(2)}` where `points` is a prop
+**defaulting to 0** — and `LayoutContent.tsx`, the only place `<Header>`
+is ever rendered, never passed a `points` prop at all. So the header
+showed $0.00 unconditionally for every user regardless of actual
+wallet state — not a data-fetch bug, the value was simply never wired
+up. Added a `walletBalanceCents()` helper in `LayoutContent.tsx`
+reading `user.wallet.balance` (the same `users.wallet` JSONB shape
+`campaign.service.ts` already reads/writes) off the already-available
+merged `user` object from `AuthProvider`, and passed it as `points`.
+
+**Note if this still shows $0.00 after deploying:** that would now
+point specifically at `AuthProvider`'s profile join
+(`users` row fetched by `.eq('id', session.user.id)`) not finding a
+matching row for this account — worth a direct check of whether this
+admin's `public.users.id` actually equals their `auth.users` id, since
+a mismatch there would silently null out `user.wallet` (and would
+also explain a stale/absent `auth.uid()` context feeding into the RLS
+error in Part 1, if it turns out this account's public profile row was
+seeded independently of a real Supabase Auth signup).
+
+Verified via `npx tsc --noEmit` — clean. `npm run build` still fails
+in this sandbox on the same pre-existing, unrelated Google Fonts
+network issue noted since Task 8. **Not verified:** an actual live
+campaign launch and wallet-balance render against the live DB (no
+sandbox network access to Supabase) — recommend a real end-to-end
+check after deploying, and if the RLS error somehow still occurs after
+this change, that means something more specific is happening live that
+this fix doesn't cover (please paste the exact new error text).
+
+---
+
 ## Notes for whoever picks up Task 2 next
 
 - Full task list source: product owner's message combining ~12
