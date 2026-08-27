@@ -3,8 +3,8 @@
 Running task list from the product owner's requests. Each session should:
 1. Read this file first.
 2. Pick the next `[ ]` unchecked task, in order, unless told otherwise.
-3. Implement it, verify with `npx tsc --noEmit` (and `npm run build` if
-   feasible), commit, and generate a `git am`-compatible patch.
+3. Implement it, verify with `npx tsc --noEmit`, commit, and generate a
+   `git am`-compatible patch.
 4. Check the box, add a one-line "Done in commit `<hash>`" note, and
    commit the updated handover.md itself.
 5. Leave later tasks alone — one task per session unless explicitly
@@ -12,6 +12,40 @@ Running task list from the product owner's requests. Each session should:
 
 Do not delete completed entries — the history is useful context for
 later tasks that build on earlier ones.
+
+**Known sandbox limitation — do not waste a session on this:**
+`npm run build` fails in this sandbox on `next/font` trying to fetch
+Inter and Playfair Display from `fonts.googleapis.com` — the sandbox
+has no network access to that domain. This is environmental, not a
+code bug (confirmed present since Task 8, re-confirmed every session
+since). `npx tsc --noEmit` is the real verification gate; don't run
+`npm run build` expecting it to pass here, and don't treat its failure
+as a regression to chase. A real build only needs to be checked
+somewhere with live network access (CI, local machine, deploy target).
+
+**Patch output — always exactly one `.patch` file per session, never
+two:** a session normally produces two commits (the task fix, then the
+handover.md update) — keep them as two separate commits, but bundle
+them into a **single** patch file for delivery, using `--stdout`
+instead of the default one-file-per-commit behavior:
+
+```
+git format-patch -2 --stdout > /path/to/output/000X-task<N>-combined.patch
+```
+
+(`-2` covers the two commits from this session — adjust the count if a
+session produces more.) A multi-commit mbox file like this applies
+fine with `git am`, in commit order, from one file.
+
+To apply it — including from Termux on mobile, where downloaded files
+typically land under shared storage after `termux-setup-storage`:
+
+```
+git am ~/storage/downloads/000X-task<N>-combined.patch
+```
+
+(Adjust the filename to match what was actually generated; run from
+inside the repo's working directory.)
 
 ---
 
