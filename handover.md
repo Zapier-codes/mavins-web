@@ -1095,7 +1095,14 @@ project) — recommend a real end-to-end check after deploying.
 
 ---
 
-## Task 19 — Admin's role always displays as "Artist" in the UI [ ]
+## Task 19 — Admin's role always displays as "Artist" in the UI [x]
+
+**Done in commit `b0367f9`.** `Sidebar.tsx`'s user-section role line
+was a hardcoded literal string, always showing "Artist" regardless of
+the signed-in user's actual role. Now destructures `isAdmin` from
+`useAuth()` (backed by `src/lib/auth/isAdmin.ts`, the same source of
+truth used server-side) and renders `{isAdmin ? 'Admin' : 'Artist'}`
+instead of the fixed string.
 
 **Confirmed while investigating Task 16:** `Sidebar.tsx`'s user-section
 role line is a **hardcoded literal string**, not derived from the
@@ -1108,9 +1115,22 @@ actual user at all:
 So this shows "Artist" under every signed-in user's name regardless of
 `role`/`isAdmin` — including the real admin account, which is exactly
 what product owner saw ("the current admin is logged in but the role
-is showing artist"). Fix is small: read `isAdmin` from `useAuth()` (already imported/used elsewhere) and render "Admin" vs "Artist" conditionally instead of the fixed string. Worth grepping for
-the same hardcoded pattern anywhere else a role/label might be shown
-(header, profile page, settings) before calling this done.
+is showing artist").
+
+**Grepped for the same hardcoded pattern elsewhere** (Header.tsx,
+MobileNav.tsx, settings page, complete-profile page, admin table
+headers) — no other role-display occurrence found. The other `Artist`
+hits in the codebase are unrelated: `admin/page.tsx`'s two hits are
+table column headers, `page.tsx`'s hit is a `user?.artistName || 'Artist'`
+greeting fallback (not a role label), and the `settings`/`complete-profile`
+hits are "Artist Name" / "Spotify Artist ID" form field labels.
+
+Verified via `npx tsc --noEmit` — clean. `npm run build` fails only on
+the same pre-existing Google Fonts network issue noted since Task 8.
+**Not verified:** an actual live login as the real admin account to
+visually confirm "Admin" renders (no sandbox network access to the
+live Supabase project) — recommend a quick visual check after
+deploying.
 
 ---
 
