@@ -1169,7 +1169,31 @@ deploying.
 ---
 
 ## Task 20 — Header wallet pill doesn't route anywhere; should say
-"Wallet" not the earnings label [ ]
+"Wallet" not the earnings label [x]
+
+**Done in commit `e8c8b44`.** Header.tsx's wallet pill was a plain
+`<div>` — wrapped it in a `Link href="/earnings"` (with a hover state
+so it visibly reads as tappable). Renamed the user-facing label from
+"Earnings"/"Earn" to "Wallet" everywhere it appears alongside that
+route: `Sidebar.tsx` nav item, `MobileNav.tsx` tab, the home page
+"Quick Actions" tile, and both `<h1>` headings on the earnings page
+itself (signed-out and signed-in states).
+
+**Deliberately kept the `/earnings` route path itself unchanged** —
+renaming the URL/directory would also mean touching
+`middleware.ts`'s route matcher and unrelated internal names
+(`earningsTicker.service.ts`, `EarningsMarquee.tsx`, the `campaignEarnings`
+state, etc.) that aren't part of this ask and aren't user-facing. Also
+left the "Total Earned" stat label and "Track your campaign revenue and
+wallet" subtitle alone — those describe the data, not the page/section
+identity, so didn't need the same treatment as the page title itself.
+
+Grepped `src` for every remaining `'Earnings'`/`'Earn'` string after
+the change — zero user-facing occurrences left.
+
+Verified via `npx tsc --noEmit` — clean (see the updated protocol
+above — `npm run build` is a known sandbox-only failure now, not part
+of the gate).
 
 **Confirmed while investigating:** the wallet balance pill in
 `Header.tsx` (the `$X.XX` chip next to notifications) is a plain
