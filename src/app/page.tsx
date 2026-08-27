@@ -192,7 +192,7 @@ function HomePageContent() {
           />
           <QuickAction 
             icon={Zap} 
-            label="Earnings" 
+            label="Wallet" 
             href="/earnings" 
             color="bg-[var(--accent-dark)]/12 text-[var(--accent)] border-[var(--accent-dark)]/30" 
           />

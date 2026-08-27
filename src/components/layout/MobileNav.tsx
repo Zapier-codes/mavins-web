@@ -11,7 +11,7 @@ const tabs = [
   { id: 'promote', icon: Rocket, label: 'Promote', href: '/promote' },
   { id: 'analytics', icon: BarChart3, label: 'Stats', href: '/analytics' },
   { id: 'leaderboard', icon: Trophy, label: 'Rank', href: '/leaderboard' },
-  { id: 'earnings', icon: Wallet, label: 'Earn', href: '/earnings' },
+  { id: 'earnings', icon: Wallet, label: 'Wallet', href: '/earnings' },
 ];
 
 export const MobileNav = () => {

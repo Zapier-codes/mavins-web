@@ -20,7 +20,7 @@ const navItems = [
   { icon: Rocket, label: 'Promote', href: '/promote' },
   { icon: BarChart3, label: 'Analytics', href: '/analytics' },
   { icon: Trophy, label: 'Leaderboard', href: '/leaderboard' },
-  { icon: Wallet, label: 'Earnings', href: '/earnings' },
+  { icon: Wallet, label: 'Wallet', href: '/earnings' },
   { icon: Bell, label: 'Notifications', href: '/notifications' },
   { icon: Settings, label: 'Settings', href: '/settings' },
 ];

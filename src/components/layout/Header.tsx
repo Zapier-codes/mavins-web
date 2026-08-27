@@ -76,12 +76,15 @@ export const Header = ({
           <div className="flex items-center gap-1.5 sm:gap-2">
             {/* Wallet */}
             {isAuthenticated && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass-card border-[var(--accent)]/25">
+              <Link
+                href="/earnings"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass-card border-[var(--accent)]/25 hover:brightness-110 transition-all"
+              >
                 <Wallet className="w-3.5 h-3.5 text-[var(--accent)]" />
                 <span className="text-sm font-semibold text-[var(--accent-light)]">
                   ${(points / 100).toFixed(2)}
                 </span>
-              </div>
+              </Link>
             )}
 
             {/* Notifications */}

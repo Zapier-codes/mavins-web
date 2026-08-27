@@ -158,7 +158,7 @@ export default function EarningsPage() {
       <div className="min-h-screen bg-[var(--background)] flex items-center justify-center px-4">
         <div className="text-center space-y-4">
           <Wallet className="w-12 h-12 text-[var(--accent)] mx-auto" />
-          <h1 className="text-2xl font-bold">Earnings</h1>
+          <h1 className="text-2xl font-bold">Wallet</h1>
           <p className="text-[var(--muted-foreground)]">Sign in to view your earnings and wallet balance.</p>
           <a href="/login" className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#1db954] text-black font-semibold hover:bg-[#1ed760] transition-all">
             Sign In
@@ -179,7 +179,7 @@ export default function EarningsPage() {
         <div className="flex items-center gap-3">
           <Wallet className="w-6 h-6 text-[var(--accent)]" />
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Earnings</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Wallet</h1>
             <p className="text-[var(--muted-foreground)] text-sm">Track your campaign revenue and wallet</p>
           </div>
         </div>
