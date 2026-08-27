@@ -962,7 +962,7 @@ is fixed before spending time on the frontend for either.
 ---
 
 ## Task 17 — Complete-profile page exists but isn't wired into the
-real flow [ ]
+real flow [x]
 
 **Ask:** `/complete-profile` isn't actually reached as part of
 onboarding — it exists as a page but nothing routes a freshly-signed-up
@@ -974,6 +974,67 @@ deciding what "incomplete" means (which `users` columns are required —
 `artist_name`? `primary_genre`? `country`?), and (c) actually wiring
 that check in, since right now a user can go straight from signup to
 the rest of the app with a blank profile.
+
+**Done.** Part (b) turned out to already be answered by the codebase:
+`complete-profile/page.tsx` already writes a real `profile_completed`
+boolean on the `users` row (added in migrations 002 and 005), and
+`guestCheckout.ts` already reads it too — there's a single existing
+flag, no need to invent new "incomplete" criteria.
+
+Part (a): the only *live* signup/sign-in entry point is
+`src/app/login/page.tsx` (grepped for other candidates —
+`api/auth/create-user/route.ts` and `api/auth/activate/route.ts` exist
+but have zero callers anywhere in `src`, so they're dead code, not a
+real second entry point; left untouched). That page had two gaps:
+- **Sign-up branch:** inserted the new `users` row, then always
+  `router.push('/')` — never routed to `/complete-profile` at all,
+  regardless of the fact that a brand-new row's `profile_completed`
+  is `false` by definition.
+- **Sign-in branch:** just `router.push('/')` unconditionally — an
+  existing user who'd skipped profile completion last time was never
+  nudged back toward it on a later login either.
+
+**Fixed in `src/app/login/page.tsx`:**
+- Sign-up: after the profile row insert succeeds, routes to
+  `/complete-profile?redirect=<intendedDestination>` instead of `/`.
+  (If there's no active session yet — e.g. email confirmation is
+  required — falls back to the prior `/` behavior, since there's no
+  one to route into complete-profile until they're actually signed
+  in.)
+- Sign-in: now fetches the signed-in user's `profile_completed` flag
+  right after a successful `signInWithPassword` call; routes to
+  `/complete-profile?redirect=...` only if it's still `false`,
+  otherwise goes straight to the intended destination as before.
+- Added `useSearchParams()` to read an incoming `?redirect=` (the same
+  param `middleware.ts` already sets when bouncing an unauthenticated
+  user away from `/admin`), and threads it through to
+  `/complete-profile` so the user still lands where they were actually
+  headed once they finish (or skip) the form — `complete-profile`
+  already supported reading `redirect` back out, it just never
+  received one before.
+- Split the page into a `LoginForm` component wrapped in `<Suspense>`
+  in the default export, matching the exact pattern
+  `complete-profile/page.tsx` already uses — required because
+  `useSearchParams()` opts a page out of static rendering unless it's
+  wrapped in a Suspense boundary.
+
+**Deliberately not touched:** `middleware.ts` — its own comment
+explains the app is intentionally public/ungated outside `/admin`, so
+gating on `profile_completed` belongs at the point where a session is
+established (login/signup), not as a blanket middleware redirect that
+would also catch already-authenticated users just browsing around.
+Also left `api/auth/create-user` and `api/auth/activate` alone since
+they're unused — flag for cleanup separately if confirmed dead.
+
+Verified via `npx tsc --noEmit` — clean. `npm run build` fails on the
+same pre-existing Google Fonts network issue noted since Task 8, 14,
+15 — unrelated to this change. **Not verified:** an actual live
+signup/sign-in against the real Supabase project and a real redirect
+into `/complete-profile` (no sandbox network access) — recommend a
+real end-to-end check after deploying: sign up a fresh test account
+and confirm it lands on `/complete-profile`, then sign in as an
+existing account with `profile_completed = false` and confirm the
+same.
 
 ---
 

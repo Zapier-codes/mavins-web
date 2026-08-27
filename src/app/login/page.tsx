@@ -1,13 +1,25 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils/cn';
 import { Mail, Lock, ArrowRight, Zap, Eye, EyeOff } from 'lucide-react';
 
-export default function LoginPage() {
+// Task 17 fix: complete-profile existed but nothing ever routed a user
+// into it. Both branches below now check/route through it:
+//   - Sign up -> brand new row, profile_completed is always false by
+//     default -> straight to /complete-profile.
+//   - Sign in -> existing account may have skipped it last time, so we
+//     look up profile_completed and only send them through it if it's
+//     still false; otherwise go straight to the intended destination.
+// Either way `redirect` is threaded through so complete-profile lands
+// the user where they were actually headed (matches the ?redirect=
+// pattern middleware.ts already uses for /admin).
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get('redirect') || '/';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -36,16 +48,40 @@ export default function LoginPage() {
             email,
             artist_name: email.split('@')[0],
           });
+          // Brand-new row -> profile_completed defaults to false ->
+          // always send a fresh signup through complete-profile.
+          router.push(`/complete-profile?redirect=${encodeURIComponent(redirectTo)}`);
+        } else {
+          // No active session yet (e.g. email confirmation required) —
+          // nothing to route into complete-profile until they're
+          // actually signed in, so fall back to prior behavior.
+          router.push('/');
         }
-        router.push('/');
       }
     } else {
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
-      if (signInError) setError(signInError.message);
-      else router.push('/');
+      if (signInError) {
+        setError(signInError.message);
+      } else {
+        const { data: { user } } = await supabase.auth.getUser();
+        let profileCompleted = true;
+        if (user) {
+          const { data: profile } = await supabase
+            .from('users')
+            .select('profile_completed')
+            .eq('id', user.id)
+            .single();
+          profileCompleted = !!profile?.profile_completed;
+        }
+        if (!profileCompleted) {
+          router.push(`/complete-profile?redirect=${encodeURIComponent(redirectTo)}`);
+        } else {
+          router.push(redirectTo);
+        }
+      }
     }
 
     setLoading(false);
@@ -142,5 +178,13 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   );
 }
