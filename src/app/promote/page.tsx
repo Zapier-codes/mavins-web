@@ -252,8 +252,8 @@ const PricingBreakdown = memo(function PricingBreakdown({
           <p className="text-lg font-bold">{formatCents(pricing.subtotalCents)}</p>
         </div>
         <div className="p-3 rounded-xl bg-white/5 border border-white/5">
-          <p className="text-[10px] uppercase tracking-wider text-[var(--subtle-foreground)] mb-1">Platform Fee ({pricing.platformFeePercent}%)</p>
-          <p className="text-lg font-bold">{formatCents(pricing.platformFeesCents)}</p>
+          <p className="text-[10px] uppercase tracking-wider text-[var(--subtle-foreground)] mb-1">Platform Fee</p>
+          <p className="text-lg font-bold">{pricing.platformFeePercent}%</p>
         </div>
       </div>
 
