@@ -8,7 +8,7 @@ import { createCampaign, getArtistCampaigns } from '@/services/campaign/campaign
 import { getPublicSeedStats } from '@/services/stats/publicStats.service';
 import { detectUserGeo } from '@/services/geo/ipGeolocation.service';
 import { calculatePricing, formatCents, formatNumber, DURATION_SLOTS } from '@/lib/campaign/pricing';
-import { getRecommendedGeographies, scoreLabel, TARGET_COUNTRIES } from '@/lib/campaign/geoAffinity';
+import { getRecommendedGeographies, getGeoTargetingPool, scoreLabel, TARGET_COUNTRIES } from '@/lib/campaign/geoAffinity';
 import { cn } from '@/lib/utils/cn';
 import {
   Rocket, Link2, TrendingUp, Globe, DollarSign,
@@ -120,8 +120,11 @@ const GeoTargetingSection = memo(function GeoTargetingSection({
   genre: string; homeCountryCode: string | null; selectedCodes: string[];
   onToggle: (code: string) => void; isAdmin: boolean;
 }) {
-  const ranked = useMemo(() => getRecommendedGeographies(genre || null, homeCountryCode), [genre, homeCountryCode]);
-  const topCodes = useMemo(() => new Set(ranked.slice(0, 3).map((r) => r.code)), [ranked]);
+  // Shown pool is 8-of-25, genre-weighted-random — re-shuffles whenever
+  // genre (or home market) changes, so the artist never sees a fixed,
+  // static set of countries every time they land here.
+  const shown = useMemo(() => getGeoTargetingPool(genre || null, homeCountryCode), [genre, homeCountryCode]);
+  const topCodes = useMemo(() => new Set(shown.slice(0, 3).map((r) => r.code)), [shown]);
   const atLimit = !isAdmin && selectedCodes.length >= MAX_COUNTRIES_FREE;
 
   return (
@@ -132,7 +135,7 @@ const GeoTargetingSection = memo(function GeoTargetingSection({
           : <span className="text-[10px] text-[var(--subtle-foreground)]">Pick a genre for tailored picks</span>}
       </div>
       <div className="flex flex-wrap justify-center gap-2">
-        {ranked.map((rec) => {
+        {shown.map((rec) => {
           const isSelected = selectedCodes.includes(rec.code);
           const isTop = topCodes.has(rec.code);
           const fit = scoreLabel(rec.score);

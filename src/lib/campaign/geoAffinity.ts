@@ -104,6 +104,43 @@ export function getRecommendedGeographies(
   }).sort((a, b) => b.score - a.score);
 }
 
+/**
+ * Returns a random, genre-weighted subset of `poolSize` countries out of
+ * the full pool, weighted so higher-affinity markets are more likely to
+ * appear — but never a fixed/deterministic set. Weighted sampling without
+ * replacement (roulette-wheel selection): repeatedly pick a country at
+ * random, weighted by its affinity score, remove it from the remaining
+ * candidates, and repeat until `poolSize` distinct countries are chosen.
+ * Intended to be re-called (via a `useMemo` keyed on genre) whenever the
+ * artist changes genre, so they never see the exact same set twice.
+ */
+export function getGeoTargetingPool(
+  genre: string | null,
+  homeCountryCode?: string | null,
+  poolSize: number = 8
+): GeoRecommendation[] {
+  const ranked = getRecommendedGeographies(genre, homeCountryCode);
+  if (ranked.length <= poolSize) return ranked;
+
+  const candidates = [...ranked];
+  const chosen: GeoRecommendation[] = [];
+
+  while (chosen.length < poolSize && candidates.length > 0) {
+    const weights = candidates.map((r) => r.score + 1); // +1 so a 0 score can still be picked
+    const total = weights.reduce((sum, w) => sum + w, 0);
+    let roll = Math.random() * total;
+    let idx = 0;
+    for (; idx < weights.length - 1; idx++) {
+      roll -= weights[idx];
+      if (roll <= 0) break;
+    }
+    const [picked] = candidates.splice(idx, 1);
+    chosen.push(picked);
+  }
+
+  return chosen.sort((a, b) => b.score - a.score);
+}
+
 export function scoreLabel(score: number): { label: string; tone: 'strong' | 'good' | 'moderate' | 'light' } {
   if (score >= 75) return { label: 'Strong fit', tone: 'strong' };
   if (score >= 50) return { label: 'Good fit', tone: 'good' };
