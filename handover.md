@@ -1384,6 +1384,27 @@ shuffle re-randomizes every time the genre changes, or is stable once
 picked for a given session/campaign draft — worth confirming with
 product owner before implementing, since "shuffle" could mean either.
 
+**Part 1 done in commit `3d8dd90`.** Grew `TARGET_COUNTRIES` from 14
+to 25 by adding: Côte d'Ivoire, Senegal, Tanzania, Uganda, Egypt (West/
+East African Afrobeats-adjacent markets), plus Mexico, Spain, Italy,
+Australia, Sweden, South Korea (major global/IFPI-tracked streaming
+markets not previously covered). Filled in affinity scores for all 11
+new countries across all 14 existing genre rows in
+`GENRE_COUNTRY_AFFINITY`, following the same conservative hand-tuned
+banding as the existing entries (not empirically measured — same
+caveat as the rest of this table). Confirmed via grep that no other
+file hardcodes an assumption about pool size; `promote/page.tsx` only
+ever does `TARGET_COUNTRIES.find(...)` lookups by code.
+
+**Part 2 (the actual 8-of-25 shuffle + re-scoping the "max 3" cap to
+the shown 8) is still not done** — deliberately left out of this
+session since it needs the product-owner decision flagged above
+(re-shuffle on every genre change, or stable per draft?) before
+picking an implementation. Whoever picks this up next should start
+from `getRecommendedGeographies()` (already ranks the now-25-country
+pool by genre affinity) and layer the sample/shuffle-to-8 step on top
+of that, then feed the 8 into `GeoTargetingSection`.
+
 ---
 
 ## Task 24 — Korapay "Endpoint not found" error — fully wire the render
@@ -1504,6 +1525,47 @@ test transaction after deploying this, specifically checking whether
 the path-segment or query-param form of `/api/verify` is the one that
 actually responds (server logs or a Render dashboard request log
 would show which one 404'd and which one didn't).
+
+---
+
+## Task 25 — URGENT: fund-wallet page rejects a correctly-entered
+email with "Email Address is required" [x]
+
+**Ask:** Product owner reported that on `/fund-wallet`, entering an
+email and pressing "Continue to payment" fails with `API request
+failed: Email Address is required`, even though the email field was
+filled in correctly.
+
+**Root cause found:** `initializeCharge()` in
+`src/services/payment/korapay.service.ts` was sending the payer's
+email/name as flat top-level `email` / `name` fields in the POST body
+to the render backend's `/api/pay`. Korapay's own API — confirmed
+across their published docs for checkout (both redirect and standard),
+mobile money, and pool accounts — always expects these nested under a
+`customer: { name, email }` object instead. Since the render backend
+is a thin proxy that most likely passes the body through close to
+unchanged, the flat `email` field was never being found where the
+backend/Korapay looks for it — regardless of what the user typed into
+the form, it was never reaching the right key. Neither the React form
+(`src/app/fund-wallet/page.tsx`) nor the `/api/payments/initialize`
+route needed any changes; both were already correctly forwarding the
+user's email down to `initializeCharge()`. The bug was isolated to
+this one payload shape.
+
+**Fix applied in commit `2c00401`.** Nested `email`/`name` under a
+`customer` object in the request body sent to `/api/pay`.
+
+**Not fully confirmed — same caveat as Task 24:** whether the render
+backend re-shapes the body before forwarding to Korapay, or passes it
+through as-is. If it reshapes it, this fix assumes the *proxy's own*
+field naming matches Korapay's native convention — reasonable for a
+thin proxy, but not verified against the backend's own source. Worth
+a live top-up test after deploying to confirm the checkout URL now
+returns successfully instead of erroring.
+
+Verified via `npx tsc --noEmit` — clean. **Not verified:** an actual
+live payment (no sandbox network access to the Render backend or
+Korapay from here) — same limitation noted throughout Task 24.
 
 ---
 
