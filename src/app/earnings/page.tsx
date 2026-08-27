@@ -41,9 +41,11 @@ export default function EarningsPage() {
   const [campaignEarnings, setCampaignEarnings] = useState<CampaignEarning[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [withdrawAmount, setWithdrawAmount] = useState('');
-  const [isWithdrawing, setIsWithdrawing] = useState(false);
-  const [withdrawSuccess, setWithdrawSuccess] = useState(false);
+  // WITHDRAWALS DISABLED — see Task 21. State kept commented, not
+  // deleted, so the feature can be restored without reconstructing it.
+  // const [withdrawAmount, setWithdrawAmount] = useState('');
+  // const [isWithdrawing, setIsWithdrawing] = useState(false);
+  // const [withdrawSuccess, setWithdrawSuccess] = useState(false);
 
   /** Read balance from users.wallet JSONB */
   const loadBalance = useCallback(async () => {
@@ -123,35 +125,38 @@ export default function EarningsPage() {
     return () => clearInterval(interval);
   }, [isAuthenticated, user?.id, loadBalance, loadEarnings]);
 
-  const handleWithdraw = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user?.id || !withdrawAmount) return;
-    const amount = Math.round(parseFloat(withdrawAmount) * 100);
-    if (amount <= 0 || amount > balanceCents) { alert('Invalid amount'); return; }
-
-    setIsWithdrawing(true);
-    try {
-      const res = await fetch('/api/withdrawal/request', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, amountCents: amount }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setWithdrawSuccess(true);
-        setWithdrawAmount('');
-        loadBalance();
-        loadEarnings();
-        setTimeout(() => setWithdrawSuccess(false), 3000);
-      } else {
-        alert(data.error || 'Withdrawal failed');
-      }
-    } catch (error) {
-      alert('Network error');
-    } finally {
-      setIsWithdrawing(false);
-    }
-  };
+  // WITHDRAWALS DISABLED — see Task 21. Handler kept commented, not
+  // deleted, so the feature can be restored without reconstructing it
+  // from git history alone.
+  // const handleWithdraw = async (e: React.FormEvent) => {
+  //   e.preventDefault();
+  //   if (!user?.id || !withdrawAmount) return;
+  //   const amount = Math.round(parseFloat(withdrawAmount) * 100);
+  //   if (amount <= 0 || amount > balanceCents) { alert('Invalid amount'); return; }
+  //
+  //   setIsWithdrawing(true);
+  //   try {
+  //     const res = await fetch('/api/withdrawal/request', {
+  //       method: 'POST',
+  //       headers: { 'Content-Type': 'application/json' },
+  //       body: JSON.stringify({ userId: user.id, amountCents: amount }),
+  //     });
+  //     const data = await res.json();
+  //     if (data.success) {
+  //       setWithdrawSuccess(true);
+  //       setWithdrawAmount('');
+  //       loadBalance();
+  //       loadEarnings();
+  //       setTimeout(() => setWithdrawSuccess(false), 3000);
+  //     } else {
+  //       alert(data.error || 'Withdrawal failed');
+  //     }
+  //   } catch (error) {
+  //     alert('Network error');
+  //   } finally {
+  //     setIsWithdrawing(false);
+  //   }
+  // };
 
   if (!isAuthenticated) {
     return (
@@ -184,12 +189,15 @@ export default function EarningsPage() {
           </div>
         </div>
 
-        {withdrawSuccess && (
+        {/* WITHDRAWALS DISABLED — see Task 21. Banner kept commented,
+            not deleted, so it can be restored without reconstructing
+            it from git history alone. */}
+        {/* {withdrawSuccess && (
           <div className="glass-strong border-[#1db954]/30 px-5 py-3 rounded-xl shadow-2xl flex items-center gap-2 slide-in-from-right">
             <CheckCircle2 className="w-5 h-5 text-[#1db954]" />
             <span className="font-semibold text-sm">Withdrawal request submitted!</span>
           </div>
-        )}
+        )} */}
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[
@@ -212,7 +220,10 @@ export default function EarningsPage() {
           ))}
         </div>
 
-        <div className="glass-strong rounded-2xl p-5 sm:p-6">
+        {/* WITHDRAWALS DISABLED — see Task 21. Form kept commented,
+            not deleted, so it can be restored without reconstructing
+            it from git history alone. */}
+        {/* <div className="glass-strong rounded-2xl p-5 sm:p-6">
           <h3 className="font-bold mb-4 flex items-center gap-2"><DollarSign className="w-5 h-5 text-[var(--accent)]" />Withdraw Funds</h3>
           <form onSubmit={handleWithdraw} className="flex gap-3">
             <div className="relative flex-1">
@@ -224,7 +235,7 @@ export default function EarningsPage() {
             </button>
           </form>
           <p className="text-xs text-[var(--subtle-foreground)] mt-2">Min: $1.00 · Available: {formatCents(balanceCents)}</p>
-        </div>
+        </div> */}
 
         <div className="space-y-4">
           <h2 className="text-lg font-bold flex items-center gap-2"><BarChart3 className="w-5 h-5 text-[var(--accent)]" />Campaign Performance</h2>

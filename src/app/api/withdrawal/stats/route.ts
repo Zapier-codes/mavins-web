@@ -1,4 +1,13 @@
 // src/app/api/withdrawal/stats/route.ts
+//
+// TASK 21 AUDIT NOTE: grepped the entire `src` tree for any call to
+// this endpoint (`withdrawal/stats`) — none found. It's not wired
+// into any page or component today, so it isn't part of the
+// user-facing withdrawal surface Task 21 asks to disable, and it's
+// read-only (returns numbers, doesn't move funds or create a
+// withdrawal), so leaving it live poses no withdrawal-action risk.
+// Left untouched rather than commented out to avoid churning working,
+// unreferenced code — revisit if/when something starts calling it.
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
