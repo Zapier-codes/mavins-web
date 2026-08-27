@@ -538,6 +538,91 @@ Cannot proceed further on this one without either of the above — no
 amount of repo searching will find something that only exists in the
 live database and was never committed.
 
+**Update, found during Task 13 (unrelated ask, but touched the same
+neighborhood):** a full `information_schema.columns` dump of `users`,
+`wallet_ledger`, and `track_campaigns` against the live DB confirmed
+`get_wallet_balance` genuinely doesn't exist live either (0 rows for
+`proname ILIKE '%wallet%'`), and surfaced several other real,
+confirmed schema-mismatch bugs (see Task 13) — but nothing named or
+resembling `get_wallet_id` turned up anywhere in that dump. Still
+blocked on the same two asks above; this wasn't it.
+
+---
+
+## Task 13 — RPC: auto-credit wallet balance when a deposit webhook
+is received [x]
+
+**Ask:** Create an RPC function that updates the user's wallet
+balance automatically when the payment webhook fires for a deposit,
+and wire the codebase to use it correctly.
+
+**Done in commit `7432cef`.** Given a third-party "audit" document
+first, which turned out to contradict this repo's own
+`supabase_schema.sql` on where the balance actually lives (audit:
+sum `wallet_ledger`; reality, confirmed by reading the actual
+webhook/verify route code: `users.wallet` jsonb is what's read and
+displayed everywhere). Rather than implement either document
+verbatim, got an `information_schema.columns` dump of the live
+`users`/`wallet_ledger`/`track_campaigns` tables and wrote the fix
+against that ground truth instead. See the full back-and-forth in
+this session's chat history for the specific contradictions found in
+both documents — worth reading before trusting *any* handed-in audit
+or schema doc at face value again, this repo's live DB has now
+diverged from a tracked schema file, a third-party audit, AND (until
+this fix) its own application code, three separate times.
+
+**migration 004** (`supabase_migration_004_credit_wallet_deposit.sql`):
+`credit_wallet_deposit(p_user_id, p_amount_cents, p_reference,
+p_source, p_currency)`. Atomic (single `UPDATE` row-locks the
+`users` row for the transaction — no more lost-update race between
+the webhook and `/verify` landing for the same payment within
+milliseconds of each other) and idempotent (partial unique index on
+`wallet_ledger(user_id, metadata->>'reference')` — a duplicate
+webhook delivery becomes a no-op, not a double credit).
+`SECURITY DEFINER`, execute revoked from `anon`/`authenticated`,
+granted only to `service_role`.
+
+Rewired all three places that were each hand-rolling their own
+version of this: `webhook/route.ts`, `verify/[reference]/route.ts`,
+and `guestCheckout.ts`'s `creditWalletTopUp()`. That last one was
+**actually broken in production** — it queried/inserted
+`amount_cents`/`type`/`description` columns that don't exist on the
+live `wallet_ledger` table at all (confirmed via the schema dump;
+live columns are `id`/`user_id`/`changeset`/`metadata`/
+`create_time`/`update_time` only) — every guest wallet top-up was
+erroring before this fix.
+
+**migration 005** (`supabase_migration_005_guest_account_columns.sql`):
+found while fixing the above — `resolveOrCreateGuestAccount()` reads/
+writes `users.profile_completed` and `users.is_guest_created`, and
+`complete-profile/page.tsx` depends on `profile_completed` too —
+neither column exists live. Added both (additive, `NOT NULL DEFAULT
+FALSE`, safe on a table with existing rows). Also fixed in the same
+function: the `INSERT` was missing `users.username`, which is
+`NOT NULL` with no default on the live table — every brand-new guest
+signup was failing at account creation, before ever reaching wallet
+crediting at all. Derived from the new auth user's own UUID so it's
+unique without a collision-retry loop.
+
+**Deliberately not touched:** `campaign.service.ts`'s `updateWallet()`
+(the campaign-spend/debit side) has the same non-atomic
+read-modify-write pattern as the three deposit call sites did, but
+that's a different code path from "credit on deposit webhook," which
+is what was actually asked this session. Flagged here rather than
+silently expanded into — worth its own task if the product owner
+wants the debit side made atomic too.
+
+**Action required before this does anything live:** both `.sql`
+files need to be run in the Supabase SQL Editor (004 then 005, order
+doesn't actually matter between them) — the RPC call sites will
+throw "function does not exist" until migration 004 is applied, same
+situation as Task 12's `get_wallet_balance`/`get_wallet_id` mystery.
+
+Verified via `npx tsc --noEmit` — clean. Not verified: an actual live
+Korapay webhook delivery against the migrated DB (no sandbox network
+access to Supabase from this environment) — recommend a real
+end-to-end test payment after applying both migrations.
+
 ---
 
 ## Notes for whoever picks up Task 2 next
