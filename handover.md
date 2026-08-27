@@ -377,21 +377,17 @@ recompositing-near-backdrop-filter black-flash bug.
 
 ---
 
-## Task 7 — Platform fee: show percentage only, not a dollar figure [ ]
+## Task 7 — Platform fee: show percentage only, not a dollar figure [x]
 
-**Ask:** The platform fee line on the pricing card should show as a
-percentage, not a computed dollar amount.
-
-**Current state:** `PricingBreakdown` shows
-`Platform Fee ({pricing.platformFeePercent}%)` as a *label*, but
-still shows `{formatCents(pricing.platformFeesCents)}` as the actual
-displayed value underneath. `pricing.platformFeePercent` already
-exists on the pricing object (`src/lib/campaign/pricing.ts`) — this
-is a pure UI change: swap the displayed value to
-`` `${pricing.platformFeePercent}%` `` instead of
-`formatCents(pricing.platformFeesCents)`, keep the cents-based
-`platformFeesCents` for the actual `totalCostCents` math (it must
-still be included in the total charged — only the *display* changes).
+**Done in commit `cf9aada`.** The label already showed the percent
+(`Platform Fee ({pricing.platformFeePercent}%)`), but the value line
+underneath was still `formatCents(pricing.platformFeesCents)` — the
+percent was right, the displayed value wasn't. Swapped the value line
+to `{pricing.platformFeePercent}%` and simplified the label back to
+just "Platform Fee" (repeating the percent in both places was
+redundant once the value line shows it). `platformFeesCents` itself
+is untouched and still feeds into `totalCostCents` — only this
+display line changed. Verified via `npx tsc --noEmit` — clean.
 
 ---
 
