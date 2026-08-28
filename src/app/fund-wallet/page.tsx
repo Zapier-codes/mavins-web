@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils/cn';
 import { Wallet, ArrowRight, ShieldCheck, Loader2 } from 'lucide-react';
 import { useGeo } from '@/components/providers/GeoProvider';
 import { getKorapayDccCurrency } from '@/lib/currency/korapayDccCurrency';
+import { initializeCheckout } from '@/lib/payments/checkout';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -58,80 +59,28 @@ function FundWalletForm() {
     }
 
     setIsSubmitting(true);
-    try {
-      // The verify callback needs to know where to send the guest
-      // back to (and, on success, the redirect target survives the
-      // Korapay round-trip via the querystring on our own /fund-wallet/verify
-      // page, not via Korapay itself).
-      const callbackParams = new URLSearchParams({ redirect: redirectTo });
-
-      // Korapay's charges/initialize wants the amount in the base
-      // currency unit, NOT subunits -- confirmed directly against
-      // developers.korapay.com (see B-Pay-backend's handover.md, Task
-      // 7). `amount` here is already whole USD dollars (see the
-      // comment above `amount` state), so it's sent as-is. Do NOT
-      // multiply by 100 or convert it into another currency here --
-      // this app's own accounting currency is USD, always. A non-US
-      // payer's local-currency checkout display is handled entirely by
-      // Korapay's own Dynamic Currency Conversion, driven by
-      // `paymentCurrency` below -- Korapay converts at its live rate on
-      // its side; we never compute or guess an exchange rate
-      // ourselves. See src/lib/currency/korapayDccCurrency.ts.
-      const res = await fetch('/api/payments/initialize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          amount: Math.round(amount),
-          currency: 'USD',
-          ...(dccCurrency ? { paymentCurrency: dccCurrency } : {}),
-          ...(isAuthenticated ? {} : { guestEmail: email }),
-        }),
-      });
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
-        setError(data.error || 'Could not start checkout. Please try again.');
-        setIsSubmitting(false);
-        return;
-      }
-
-      if (!isAuthenticated) {
-        // Stash the redirect target + reference locally too, as a
-        // fallback in case Korapay's own success_url handling drops
-        // our query params on the way back.
-        try {
-          sessionStorage.setItem('mavins_pending_verify', JSON.stringify({
-            reference: data.reference,
-            redirect: redirectTo,
-          }));
-        } catch {}
-      }
-
-      // data.checkout_url can come back missing/malformed if the
-      // render backend or Korapay itself hiccups upstream — without
-      // this guard, `new URL()` throws the raw, unhelpful
-      // "Failed to construct 'URL': Invalid URL" straight at the user.
-      // Catch that here and surface something actionable instead.
-      let checkoutUrl: URL;
-      try {
-        checkoutUrl = new URL(data.checkout_url);
-      } catch {
-        setError('Could not start checkout — the payment link we received was invalid. Please try again.');
-        setIsSubmitting(false);
-        return;
-      }
-
-      const verifyCallback = `${window.location.origin}/fund-wallet/verify?reference=${encodeURIComponent(data.reference)}&${callbackParams.toString()}`;
-      // Some Korapay checkout configs read the return URL from a query
-      // param; harmless to include even if the render-backend already
-      // set one, since ours is what our own verify page expects.
-      checkoutUrl.searchParams.set('redirect_url', verifyCallback);
-
-      window.location.href = checkoutUrl.toString();
-    } catch (err: any) {
-      setError(err.message || 'Something went wrong. Please try again.');
+    // Korapay's charges/initialize wants the amount in the base
+    // currency unit, NOT subunits -- confirmed directly against
+    // developers.korapay.com (see B-Pay-backend's handover.md, Task
+    // 7). `amount` here is already whole USD dollars (see the comment
+    // above `amount` state). This app's own accounting currency is
+    // USD, always -- a non-US payer's local-currency checkout display
+    // is handled entirely by Korapay's own Dynamic Currency
+    // Conversion, driven by `paymentCurrency` below. See
+    // src/lib/payments/checkout.ts for the full round-trip this now
+    // shares with promote/page.tsx's direct-to-checkout path.
+    const error = await initializeCheckout({
+      amountUsd: Math.round(amount),
+      redirectTo,
+      dccCurrency,
+      ...(isAuthenticated ? {} : { guestEmail: email }),
+    });
+    if (error) {
+      setError(error);
       setIsSubmitting(false);
     }
+    // No `else` -- success navigates the browser away inside
+    // initializeCheckout; there's nothing left to do here.
   };
 
   return (

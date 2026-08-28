@@ -9,6 +9,9 @@ import { getPublicSeedStats } from '@/services/stats/publicStats.service';
 import { useGeo } from '@/components/providers/GeoProvider';
 import { calculatePricing, formatCents, formatNumber, DURATION_SLOTS } from '@/lib/campaign/pricing';
 import { getRecommendedGeographies, getGeoTargetingPool, scoreLabel, TARGET_COUNTRIES } from '@/lib/campaign/geoAffinity';
+import { getKorapayDccCurrency } from '@/lib/currency/korapayDccCurrency';
+import { initializeCheckout } from '@/lib/payments/checkout';
+import { getWalletBalanceCents } from '@/lib/payments/wallet';
 import { cn } from '@/lib/utils/cn';
 import {
   Rocket, Link2, TrendingUp, Globe, DollarSign,
@@ -405,6 +408,15 @@ export default function PromotePage() {
     setHomeCountryCode(geo.countryCode);
   }, [geo]);
 
+  // Korapay Dynamic Currency Conversion hint for the direct-to-checkout
+  // path below (Task 28) — same lookup fund-wallet/page.tsx uses, kept
+  // here too since an authenticated user with insufficient/zero
+  // balance now goes straight to checkout from this page without ever
+  // visiting fund-wallet. Purely a checkout-display hint; never used
+  // to convert the USD amount itself. `null` means "no DCC, charge in
+  // USD" — correct for a US-based payer or while geo hasn't resolved.
+  const dccCurrency = useMemo(() => getKorapayDccCurrency(geo?.countryCode), [geo]);
+
   useEffect(() => {
     let cancelled = false;
     getPublicSeedStats().then((stats) => {
@@ -498,27 +510,76 @@ export default function PromotePage() {
     return 'global';
   }, [targetCountries]);
 
-  const goFundWallet = useCallback((reason: string) => {
-    // totalCostCents is USD cents; this is USD dollars, NOT naira --
-    // was misleadingly named `amountNaira` (it was always just cents/100
-    // regardless of currency). Renamed rather than left to cause the
-    // same confusion this caused in fund-wallet/page.tsx this session.
-    const amountUsd = Math.ceil(pricing.totalCostCents / 100);
+  const stashPendingCampaign = useCallback(() => {
     try {
       sessionStorage.setItem(PENDING_CAMPAIGN_KEY, JSON.stringify({
         sourceUrl: sourceUrl.trim(), viewCount, selectedGenre, targetCountries,
       }));
     } catch {}
+  }, [sourceUrl, viewCount, selectedGenre, targetCountries]);
+
+  // Guests only — a genuine guest has no account yet and needs to
+  // supply an email so we know where to send the receipt/create the
+  // account after payment. Still routes through the fund-wallet page's
+  // form for that reason. Never used for an authenticated user — see
+  // goStraightToCheckout below.
+  const goFundWalletGuest = useCallback((reason: string) => {
+    // totalCostCents is USD cents; this is USD dollars, NOT naira --
+    // was misleadingly named `amountNaira` (it was always just cents/100
+    // regardless of currency). Renamed rather than left to cause the
+    // same confusion this caused in fund-wallet/page.tsx this session.
+    const amountUsd = Math.ceil(pricing.totalCostCents / 100);
+    stashPendingCampaign();
     router.push(`/fund-wallet?amount=${amountUsd}&redirect=${encodeURIComponent('/promote')}&reason=${reason}`);
-  }, [pricing.totalCostCents, sourceUrl, viewCount, selectedGenre, targetCountries, router]);
+  }, [pricing.totalCostCents, stashPendingCampaign, router]);
+
+  // Authenticated users only (Task 28) — their email is already known
+  // from the session, so there's nothing for them to fill in on the
+  // fund-wallet page. Skips that page/form entirely and calls checkout
+  // initialization directly. Used both for a zero-balance user
+  // (functionally "new" for payment purposes, even if their account
+  // itself isn't brand new — see the wallet-balance check in
+  // handleSubmit below) and for a returning user whose createCampaign
+  // attempt came back insufficient.
+  const goStraightToCheckout = useCallback(async (reason: string) => {
+    const amountUsd = Math.ceil(pricing.totalCostCents / 100);
+    stashPendingCampaign();
+    setIsSubmitting(true);
+    const error = await initializeCheckout({
+      amountUsd,
+      redirectTo: '/promote',
+      dccCurrency,
+    });
+    if (error) {
+      // Only reached on failure — success navigates the browser away
+      // inside initializeCheckout.
+      setIsSubmitting(false);
+      alert(error);
+    }
+  }, [pricing.totalCostCents, stashPendingCampaign, dccCurrency]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!sourceUrl.trim()) { alert('Please enter a YouTube URL'); return; }
 
-    // Guests always hit insufficient funds
+    // Guests genuinely have no account/wallet — collect email via the
+    // fund-wallet form so we know where to send the receipt.
     if (!isAuthenticated || !user?.id) {
-      await goFundWallet('launch_campaign');
+      await goFundWalletGuest('launch_campaign');
+      return;
+    }
+
+    // An authenticated user with a wallet balance of exactly 0 has
+    // provably never funded anything -- functionally "new" for payment
+    // purposes, whether or not their account itself is old. Attempting
+    // createCampaign here would just fail (and, per this session's
+    // correction, that failure path isn't reliable for a zero/no-wallet
+    // account either) -- skip straight to checkout instead of running
+    // that doomed attempt first. A *returning* user with a real (if
+    // insufficient) balance keeps going through createCampaign below,
+    // since they may well already have enough.
+    if (getWalletBalanceCents(user) === 0) {
+      await goStraightToCheckout('new_authenticated_user');
       return;
     }
 
@@ -535,7 +596,7 @@ export default function PromotePage() {
       setCampaigns(updated);
       setTimeout(() => setShowSuccess(false), 4000);
     } else if (/insufficient/i.test(result.error || '')) {
-      await goFundWallet('insufficient_funds');
+      await goStraightToCheckout('insufficient_funds');
     } else {
       alert(result.error || 'Failed to create campaign');
     }
