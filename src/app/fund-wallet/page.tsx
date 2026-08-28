@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/auth/useAuth';
 import { cn } from '@/lib/utils/cn';
 import { Wallet, ArrowRight, ShieldCheck, Loader2 } from 'lucide-react';
-import { detectUserGeo } from '@/services/geo/ipGeolocation.service';
+import { useGeo } from '@/components/providers/GeoProvider';
 import { getKorapayDccCurrency } from '@/lib/currency/korapayDccCurrency';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -33,18 +33,16 @@ function FundWalletForm() {
   // charge/display directly in USD" (also the correct behavior for a
   // US/UK/etc. payer, or if geo detection fails).
   const [dccCurrency, setDccCurrency] = useState<string | null>(null);
+  const { geo, loading: geoLoading } = useGeo();
 
   useEffect(() => {
     if (prefillAmount > 0) setAmount(prefillAmount);
   }, [prefillAmount]);
 
   useEffect(() => {
-    let cancelled = false;
-    detectUserGeo().then((geo) => {
-      if (!cancelled) setDccCurrency(getKorapayDccCurrency(geo?.countryCode));
-    });
-    return () => { cancelled = true; };
-  }, []);
+    if (geoLoading) return;
+    setDccCurrency(getKorapayDccCurrency(geo?.countryCode));
+  }, [geo, geoLoading]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

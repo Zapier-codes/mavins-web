@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/auth/useAuth';
 import { createCampaign, getArtistCampaigns } from '@/services/campaign/campaign.service';
 import { getPublicSeedStats } from '@/services/stats/publicStats.service';
-import { detectUserGeo } from '@/services/geo/ipGeolocation.service';
+import { useGeo } from '@/components/providers/GeoProvider';
 import { calculatePricing, formatCents, formatNumber, DURATION_SLOTS } from '@/lib/campaign/pricing';
 import { getRecommendedGeographies, getGeoTargetingPool, scoreLabel, TARGET_COUNTRIES } from '@/lib/campaign/geoAffinity';
 import { cn } from '@/lib/utils/cn';
@@ -394,17 +394,16 @@ export default function PromotePage() {
   const [targetCountries, setTargetCountries] = useState<string[]>([]);
   const [localCurrency, setLocalCurrency] = useState<{ code: string; symbol: string; rate: number } | null>(null);
 
-  // Detect local currency ONCE on mount
+  // Local currency, derived from the app-wide geo context (fetched once
+  // at app initialization by GeoProvider — see providers.tsx) rather
+  // than a page-local detectUserGeo() call.
+  const { geo } = useGeo();
   useEffect(() => {
-    let cancelled = false;
-    detectUserGeo().then((geo) => {
-      if (cancelled || !geo) return;
-      const currency = COUNTRY_CURRENCY[geo.countryCode];
-      if (currency) setLocalCurrency(currency);
-      setHomeCountryCode(geo.countryCode);
-    });
-    return () => { cancelled = true; };
-  }, []);
+    if (!geo) return;
+    const currency = COUNTRY_CURRENCY[geo.countryCode];
+    if (currency) setLocalCurrency(currency);
+    setHomeCountryCode(geo.countryCode);
+  }, [geo]);
 
   useEffect(() => {
     let cancelled = false;

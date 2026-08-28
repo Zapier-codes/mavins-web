@@ -1686,7 +1686,98 @@ this sandbox first).
 
 ---
 
-## Notes for whoever picks up Task 2 next
+## Task 27 — GeoProvider: ipapi.co geo-detection at app initialization, global + login-persistent (cross-repo, originated as B-Pay-backend's own Task 25) [x]
+
+**Origin:** B-Pay-backend's handover.md Task 25 ("Mavins-web: ipapi.co
+geo-detection at app initialization, global + persistent-through-login,
+NOT stored in Supabase") — see that repo's own file for the pointer
+back to here; this entry is the actual work record, per this project's
+cross-repo continuation convention.
+
+**What was already true before this session, confirmed by reading the
+code rather than assuming:** `detectUserGeo()`
+(`src/services/geo/ipGeolocation.service.ts`) already did almost
+everything the task asked of the underlying *fetch* — module-level
+in-memory cache (dedupes concurrent calls across the whole app already,
+even before this session's changes), `sessionStorage` (not
+`localStorage`), graceful `null` on any failure (ad blockers, rate
+limits, offline), and an explicit doc-comment already stating the "no
+Supabase, no raw IP persisted" principle. **What was missing was
+architectural, not the fetch itself:** it was only ever called ad hoc,
+independently, from two page components (`promote/page.tsx`,
+`fund-wallet/page.tsx`), each running its own `useEffect` +
+`detectUserGeo().then(...)` + local `useState` boilerplate. That means
+detection only ever triggered on first visiting one of those two
+specific pages — not "at initialization of the webapp... on user visit"
+as the task required — and there was no single shared loading state.
+
+**What was implemented:**
+- `src/components/providers/GeoProvider.tsx` (new) — a
+  `createContext`/`useContext` provider exposing `useGeo() → { geo,
+  loading }`, matching `ThemeProvider`/`useTheme()`'s exact existing
+  pattern in this codebase (same file structure, same hook-export
+  convention) rather than inventing a new one. Fetches via the existing
+  `detectUserGeo()` once, in a `useEffect` with an empty dependency
+  array, on mount.
+- `src/app/providers.tsx` — `GeoProvider` now wraps `AuthProvider`
+  (which wraps `ThemeProvider`) as the **outermost** provider in the
+  tree — not a sibling nested at the same level, but structurally
+  further out than `AuthProvider` entirely. This is what makes "persists
+  through login" true as an architectural guarantee rather than an
+  incidental behavior: `GeoProvider` never reads `useAuth()` or any
+  session state, and sits outside the subtree `AuthProvider` controls,
+  so there is no code path — today or after a future refactor inside
+  `AuthProvider` — by which a login/logout event could cause it to reset
+  or remount.
+- `src/app/promote/page.tsx` and `src/app/fund-wallet/page.tsx` — both
+  migrated off their own `detectUserGeo()` calls to `useGeo()` from the
+  new provider. Behavior preserved exactly: `promote/page.tsx` still
+  derives `localCurrency`/`homeCountryCode` the same way, just from the
+  shared `geo` value via a `useEffect` keyed on `[geo]` instead of its
+  own fetch; `fund-wallet/page.tsx` still computes `dccCurrency` via
+  `getKorapayDccCurrency(geo?.countryCode)` the same way, gated on the
+  shared `loading` flag (renamed `geoLoading` locally to avoid shadowing)
+  so it only runs once detection has actually settled, matching the
+  original code's "wait for the promise to resolve, then compute" timing
+  exactly (whether that resolution already happened before this
+  component mounted, or happens while it's mounted — both cases verified
+  to fire the effect correctly, since React always runs a `useEffect` at
+  least once after mount regardless of whether its dependencies
+  "changed" from a prior render).
+- Confirmed via `grep` that no other file in `src/` calls
+  `detectUserGeo()` directly anymore — `currency.service.ts`'s only
+  reference to it is a doc-comment, not a call — so there is now exactly
+  one fetch path into this data for the whole app, satisfying the "no
+  other part of the codebase makes its own separate call" check the
+  originating task specifically flagged as a risk.
+
+**Deliberately not changed:** `ipGeolocation.service.ts` itself —
+already correct as described above, no reason to touch a working,
+already-industry-standard implementation (sessionStorage over
+localStorage, module-level dedupe, graceful-null contract every caller
+already respects). Did not add a manual currency-override UI or touch
+Task 26's DCC currency logic — `getKorapayDccCurrency` is unchanged,
+only *how* `fund-wallet/page.tsx` obtains the `geo` it feeds into that
+function changed.
+
+**Not verified — no way to check this from a sandbox:** actual
+first-visit timing in a real browser (does the fetch genuinely fire
+before/independent of any auth hydration in production, not just "the
+code has no dependency that would prevent it") — this sandbox has no
+browser. If a future session or the product owner notices the fetch
+still isn't firing until a specific page is visited, the first thing to
+check is whether `src/app/layout.tsx` actually renders `<Providers>`
+unconditionally at the true root (expected, but not directly re-verified
+this session beyond confirming `providers.tsx`'s own export shape).
+
+Verified via `npx tsc --noEmit` — clean, no errors, across all three
+touched files plus the new one. `node --check`-equivalent for this repo
+is `tsc`, no separate check needed. ESLint could not be run in this
+sandbox (pre-existing `ERR_PACKAGE_PATH_NOT_EXPORTED` toolchain mismatch,
+noted already in Task 26 — not re-attempted, not something to "fix" as
+a side effect of this task).
+
+---
 
 - Full task list source: product owner's message combining ~12
   distinct asks in one go. This file exists specifically so each one
