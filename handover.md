@@ -3,11 +3,11 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Next task: Task 28, in THIS repo (mavins-web).** Jump to
-> `## Task 28` further down.
+> **Next task: Task 29, in THIS repo (mavins-web).** Jump to
+> `## Task 29` further down.
 >
 > **Full cross-repo status, as of this note:**
-> - **mavins-web** (this repo) — next: **Task 28**
+> - **mavins-web** (this repo) — next: **Task 29**
 > - **B-Pay-backend** — next: **none currently unblocked.** "Korapay
 >   only" focus is active (waiting on API keys for the other three
 >   providers); everything Korapay-eligible is done. Remaining open
@@ -1871,25 +1871,41 @@ a side effect of this task).
 
 ---
 
-## Task 28 — Skip fund-wallet/email step for already-authenticated users [ ]
+## Task 28 — Skip fund-wallet/email step for already-authenticated users [x]
 
-**Migrated from B-Pay-backend's own `handover.md` (that repo's Task
-17) — that repo's copy is now historical only; this is the real,
-active copy.** The guest-checkout flow (guest pays without an account
-→ account auto-created → session issued) is for people who don't have
-an account yet, so it collects email as part of payment. For a user
-who's **already logged in**, hitting insufficient funds should skip
-straight to the payment provider's checkout using the account's
-already-known email — not re-show the "fund your wallet, enter your
-email" guest flow. Find where the insufficient-funds → fund-wallet
-routing decision is made, branch it on auth state, and route logged-in
-users directly to checkout initialization instead.
+**Done in commit `a5cfd52`.** Migrated from B-Pay-backend's own
+`handover.md` (that repo's Task 17) — that repo's copy is now
+historical only.
 
-Not yet verified whether `fund-wallet/page.tsx`'s current
-`isAuthenticated` check (added incidentally across Tasks 25–27) already
-covers this, or whether it still shows the full guest-flow UI to a
-logged-in user, just without requiring the email field. Check before
-assuming this needs new code — it may be a smaller fix than it looks.
+**Corrected mid-session, per explicit product-owner clarification —
+the original framing above ("branch on auth state") was slightly
+wrong:** the axis that actually matters isn't authenticated-vs-guest,
+it's whether the account has ever held funds at all. A brand-new
+authenticated user has a wallet balance of exactly 0 (covers both "no
+wallet row yet" and "wallet exists but empty") — provably has nothing,
+so there's no point attempting `createCampaign` and parsing its error
+string; go straight to checkout. A *returning* user with a real (if
+possibly insufficient) balance keeps the original attempt-then-catch-
+insufficient-funds flow, since they may already have enough.
+
+Implementation: `getWalletBalanceCents(user)` (new, `src/lib/payments/
+wallet.ts` — reads the already-loaded `user.wallet`, zero extra
+fetch, deduped out of `LayoutContent.tsx`'s private copy of the same
+logic) checked in `promote/page.tsx`'s `handleSubmit` **before**
+attempting campaign creation for an authenticated user. Balance `=== 0`
+→ `goStraightToCheckout()` (new — calls the extracted
+`initializeCheckout()` helper in `src/lib/payments/checkout.ts`
+directly, no `/fund-wallet` page visit at all). Balance `> 0` →
+attempt `createCampaign` as before; an insufficient-funds error now
+also routes to `goStraightToCheckout()` instead of the old
+`/fund-wallet` page redirect. Guests (no session) are unaffected —
+they still go through `goFundWalletGuest()` → the `/fund-wallet` page,
+since a genuine guest has no known email to skip collecting.
+
+`fund-wallet/page.tsx` itself now calls the same shared
+`initializeCheckout()` helper instead of duplicating the fetch/
+URL-validation/redirect logic inline — pure dedup, guest-facing
+behavior unchanged. Verified via `npx tsc --noEmit` → clean.
 
 ---
 
