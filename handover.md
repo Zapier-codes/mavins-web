@@ -3,6 +3,20 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
+> **Fee rate flip-flopped twice — read this before touching any fee
+> code:** original code/Task 35 text: 10% campaign. A session then
+> "corrected" it to 15% (Task 40), citing a product-owner confirmation.
+> **The product owner has now directly re-confirmed, a second time,
+> that 10% is correct — not 15%.** `PLATFORM_FEE_PERCENT` in
+> `src/lib/campaign/pricing.ts` is back to `10` as of this session, with
+> an inline comment pointing here. **Confirmed, current: 10% on
+> campaigns, 5% on deposits — two separate rates, only summing to 15%
+> when added together, never one flat 15%.** See Task 35's "Second
+> correction" note and Task 40's added note (both near their own task
+> headers below) for the full paper trail — do not change this constant
+> again without a fresh confirmation that explicitly references this
+> exact box.
+>
 > **Next task: hold — Task 33 Part 1b (webhook receipt, new
 > `korapay-webhook` Edge Function) is done in code but NOT YET
 > DEPLOYED, and Korapay's dashboard webhook URL has NOT YET been
@@ -29,14 +43,14 @@
 > replacing `campaign.service.ts`'s removed `updateWallet()` direct
 > write, and `create/route.ts`'s compensating refund now goes through
 > the new RPC too — see Task 34's own done-note below for the full
-> list. **`PLATFORM_FEE_PERCENT` staying at `15` was correct all
-> along — do NOT change it to 10.** Task 35's original text (below)
-> said the live `15` needed correcting down to `10`; the product owner
-> then directly confirmed **15% is right** (Task 40) — Task 35's own
-> text has a correction note at its top now, left in place rather than
-> silently rewritten, per this file's own convention. **Task 40 also
+> list. **`PLATFORM_FEE_PERCENT` is `10` again as of this session — see
+> the fee-rate box at the very top of this file for the full
+> back-and-forth; don't trust this paragraph's older framing below.**
+> Task 40 also
 > resolves where the fee math lives**: the Edge Function computes and
-> deducts the fee (15% campaign / 5% deposit) and hands the RPC an
+> deducts the fee (10% campaign / 5% deposit — see fee-rate box above,
+> this paragraph originally said 15/5 before the second correction) and
+> hands the RPC an
 > already-net number to persist — the RPC never computes anything
 > itself. This directly informs Task 35's remaining real work (the 5%
 > deposit deduction, which still doesn't exist in code anywhere) and
@@ -2430,7 +2444,24 @@ against the real Supabase instance has been made yet.
 ## Task 35 — Fee structure: **15%** platform fee on campaigns, 5%
 gateway fee on deposits [ ]
 
-**Correction, from the product owner directly (see Task 40 below for
+**Second correction, from the product owner directly, this session
+(supersedes the "Correction" note immediately below — don't act on
+that one anymore):** the platform fee on campaigns is **10%, not
+15%** — Task 40's "15% is correct all along" was itself wrong; this
+task's *original* text (further below, unedited) had it right from the
+start. `PLATFORM_FEE_PERCENT` in `src/lib/campaign/pricing.ts` has been
+changed back to `10` this session, with a comment on that line pointing
+future sessions at this note so it doesn't flip a third time without a
+fresh, explicit confirmation. **Confirmed rates, as of this note: 10%
+on campaigns, 5% on deposits — two separate rates, only summing to 15%
+when you add both together, never one flat 15% rate applied to
+everything.** Task 40's own fee-arithmetic rule (Edge Function
+computes and deducts, RPC never does math) still stands unchanged by
+this correction — only the campaign rate's number (15 → 10) is
+affected, not where the computation happens.
+
+**Correction (superseded — see "Second correction" above), from the
+product owner directly (see Task 40 below for
 the full architectural context this came with):** the platform fee on
 campaigns is **15%, not 10%** — this task's original text below had it
 backwards; `PLATFORM_FEE_PERCENT` already being `15` in
@@ -2715,6 +2746,20 @@ for Task 38's debit rewiring, not this).
 
 ## Task 40 — Fee arithmetic lives ONLY in the Edge Function; the RPC
 never computes, it only persists [ ]
+
+**Note added this session — Task 40's 15%-campaign figure below has
+since been superseded again; see Task 35's "Second correction" note
+above for the full detail.** The product owner directly re-confirmed
+**10% on campaigns, 5% on deposits** — this task's own "15% if it's a
+campaign placement" language two paragraphs below, and its "the
+10%-vs-15% ... confirmed by the product owner ... it's 15%" resolution
+further down, are both now stale. Everything in this task about
+**where** the fee math happens (Edge Function computes and deducts,
+RPC only persists, never computes) is still correct and unaffected —
+only the specific campaign-side percentage (15 → 10) changed. Left the
+rest of this task's text unedited below per this file's "don't delete
+completed entries" convention; read every "15%" reference below as
+meaning 10% now.
 
 **Ask, from the product owner directly, verbatim intent:** the RPC
 does no arithmetic at all — that's the Edge Function's job. For every

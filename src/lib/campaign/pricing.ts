@@ -71,7 +71,14 @@ export interface CampaignPricing {
  */
 export type PricingResult = CampaignPricing;
 
-const PLATFORM_FEE_PERCENT = 15; // 15% platform fee
+const PLATFORM_FEE_PERCENT = 10; // 10% platform fee on campaigns (NOT 15 — see
+// handover.md Task 35's "second correction" note: an earlier session
+// wrongly "corrected" this from 10 back up to 15, citing a product-owner
+// confirmation that turned out to be stale/incorrect. The product owner
+// re-confirmed directly, a second time, that 10% campaign / 5% deposit
+// (15% only when summed across both, never one flat rate) is correct.
+// Don't change this back to 15 without a fresh, explicit product-owner
+// confirmation referencing this exact comment.
 
 export function calculatePricing(viewCount: number): CampaignPricing {
   const clampedViews = Math.max(1000, Math.min(viewCount, 5000000));
