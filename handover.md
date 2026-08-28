@@ -3,12 +3,17 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Next task: Task 30, in THIS repo (mavins-web).** Jump to
-> `## Task 30` further down. (Task 29 is done — the reconciliation it
-> was blocked on is committed in `81aa036`.)
+> **Next task: Task 33, in THIS repo (mavins-web).** Jump to
+> `## Task 33` further down. (Task 31 is done, commit `5617244`. Task
+> 30 is still blocked — checked this session: B-Pay-backend's Task 10
+> is still exactly at its "Korapay-only partial pass" state, not
+> further along, so Task 30's own blocking condition still holds; skip
+> it again next time too until that changes. Task 32 is also blocked,
+> on Task 33 below.)
 >
 > **Full cross-repo status, as of this note:**
-> - **mavins-web** (this repo) — next: **Task 30**
+> - **mavins-web** (this repo) — next: **Task 33** (Task 30/32 still
+>   blocked, see above)
 > - **B-Pay-backend** — next: **Task 9b is now unblocked** (Task 29's
 >   reconciled `src/lib/currency/countryCurrency.ts` in this repo is
 >   the real currency list that task needed to pull into
@@ -1958,7 +1963,7 @@ starting.
 
 ---
 
-## Task 31 — No redundant "≈ local currency" display for USD-default users [ ]
+## Task 31 — No redundant "≈ local currency" display for USD-default users [x]
 
 **Migrated from B-Pay-backend's own `handover.md` (that repo's Task
 20) — that repo's copy is now historical only; this is the real,
@@ -1969,6 +1974,29 @@ these users). Audit wherever a "≈ local currency" display exists
 (e.g. `promote/page.tsx`'s `localCurrency`, now sourced from
 `useGeo()` per Task 27) and make sure it's conditionally skipped for
 USD, not showing a redundant "≈ $X USD" next to the primary total.
+
+**Done in commit `5617244`.** Grepped the whole `src/` tree for
+`COUNTRY_CURRENCY`/`localCurrency`/`localTotal` first to confirm scope
+— `promote/page.tsx`'s `PricingBreakdown` component is the **only**
+place this display pattern exists in the codebase, so no other file
+needed touching. Confirmed the actual bug before fixing: the primary
+total there always renders via `formatCents()` (hardcoded `$`, this
+app's base currency since Task 26), and `COUNTRY_CURRENCY`'s own `US`
+entry (`{ code: 'USD', symbol: '$', rate: 0.00065 }`, from Task 29) is
+exactly what a US-based artist's `localCurrency` resolves to via
+`useGeo()` — so the old unconditional render showed the identical
+dollar figure twice (e.g. "$32.00" then "≈ $32 USD" right under it).
+Added `showLocalEstimate = !!localCurrency && localCurrency.code !==
+'USD'`, gating both the `localTotal` computation and the rendered line
+on it — non-USD users see the exact same estimate as before, USD-
+default users see nothing extra. Verified: `npx tsc --noEmit` passes
+clean. Not yet visually spot-checked in a running dev server (no
+network access to fonts.googleapis.com in this sandbox breaks `npm run
+dev`'s full render the same way it breaks `npm run build`, per this
+file's own "Known sandbox limitation" note) — worth a quick visual
+check from wherever this deploys, but the logic itself is
+straightforward enough (a boolean gate on an existing conditional) that
+this isn't blocking.
 
 ---
 
