@@ -3,20 +3,22 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Next task: hold — Task 33 Part 1 is done in code (commit
-> `37e1eea`) but NOT YET DEPLOYED/TESTED.** The project owner is
-> deploying it via Supabase CLI from Termux and will report back what
-> happens. **The next session should check what that report says
-> before doing anything else in this repo** — if it worked, move on to
-> Task 33 Part 2 (wallet-crediting logic) or Part 3 (success screen);
-> if it failed, fix the actual reported error first rather than
-> re-guessing at the code blind. Don't re-attempt the deploy yourself
-> from a sandbox session — no Supabase CLI/project credentials exist
-> here, that's why this is a hold, not a normal "next task" pointer.
+> **Next task: Task 33 Part 2 (wallet-crediting logic) — Part 1's
+> deploy is confirmed successful (2026-08-28).** The project owner ran
+> the full deploy from a `proot-distro` Ubuntu container (see "Supabase
+> CLI workflow" below for exactly how — reuse that path for any future
+> Supabase CLI task, don't reinvent it): `initialize-payment` Edge
+> Function deployed clean, `BPAY_BACKEND_URL` secret set, and the
+> `payment_sessions` migration applied ("Finished supabase db push").
+> No errors in the log. Part 1 is now fully done — code (commit
+> `37e1eea`) **and** deploy, not just code. Next: **Part 2**,
+> wallet-balance crediting on confirmed webhook (full amount minus
+> platform fee, returning-users-only) — see Task 33 below for the full
+> three-part breakdown and what Part 2 still needs. Part 3 (the success
+> screen) is also still open and can go either before or after Part 2.
 >
 > **Full cross-repo status, as of this note:**
-> - **mavins-web** (this repo) — next: **hold, awaiting deploy
->   feedback on Task 33 Part 1** (see above)
+> - **mavins-web** (this repo) — next: **Task 33 Part 2** (see above)
 > - **B-Pay-backend** — next: **Task 9b is now unblocked** (Task 29's
 >   reconciled `src/lib/currency/countryCurrency.ts` in this repo is
 >   the real currency list that task needed to pull into
@@ -35,7 +37,10 @@
 > subject is a different repo (this file has several, e.g. Task 33
 > below), just clone it and go. This project spans three GitHub repos
 > total: `Zapier-codes/Mavins-web` (this one, lowercase `mavins-web`
-> locally), `Zapier-codes/B-Pay-backend` (fork of
+> locally in Termux — **but see "Supabase CLI workflow" below: a
+> *separate* clone also exists at `/root/mavins-web` inside a
+> `proot-distro` Ubuntu container, used only for Supabase CLI
+> commands**), `Zapier-codes/B-Pay-backend` (fork of
 > `Phoenix-Boss/B-PAY-backend`), and `Zapier-codes/Velune` (Android app;
 > the Mavins-relevant part lives in that repo's `HANDOVER_CAMPAIGN.md`,
 > not its `HANDOVER.md`, which is an unrelated EQ/DSP subsystem in the
@@ -81,6 +86,67 @@ start of a session before `npx tsc --noEmit` will actually work
 like hundreds of type errors but is really just a missing install).
 The sandbox's allowed domains include the npm registry, so this
 works fine here.
+
+**Supabase CLI workflow (confirmed working, 2026-08-28 — use this exact
+path for any future task needing `supabase db push`, `supabase
+functions deploy`, or `supabase secrets set`):** no sandbox session can
+do this itself — no Supabase CLI, no project credentials, and (per the
+deploy log this was confirmed against) the CLI's function bundler needs
+`jsr.io`/`deno.land` network access this sandbox doesn't have either.
+This is always a **hand-off to the project owner**, run from their own
+device, not something to attempt here. What their environment actually
+looks like, confirmed from a real deploy run (Task 33 Part 1):
+- The CLI does not run directly in Termux's own Android userland —
+  the project owner runs it inside a `proot-distro` Ubuntu container
+  (`proot-distro login ubuntu`, then a `root@localhost:~#` prompt).
+  Termux itself is only used to get into that container; don't write
+  hand-off commands assuming `supabase` is on Termux's own `$PATH`.
+- **The repo lives at `/root/mavins-web` *inside* that Ubuntu
+  container** — a separate clone from whatever this repo's Termux-side
+  location is (the "Unified hand-off command format" section below
+  still governs where `git am`/`git push` happen, in Termux, for
+  regular code patches). Supabase CLI commands specifically need to run
+  from `/root/mavins-web` inside the container, not from Termux's own
+  copy — the two are separate working directories on the same device,
+  and a patch applied in one doesn't appear in the other without the
+  project owner syncing them (e.g. re-cloning or pulling inside the
+  container too).
+- The project's Supabase project ref is `atojskxrxfsbpeefigtm` — reuse
+  this in any future hand-off command rather than a placeholder,
+  e.g.:
+  ```
+  proot-distro login ubuntu
+  cd /root/mavins-web
+  supabase link --project-ref atojskxrxfsbpeefigtm   # only needed once per container setup; already done as of this note
+  supabase db push
+  supabase functions deploy <function-name> --project-ref atojskxrxfsbpeefigtm
+  supabase secrets set KEY=value --project-ref atojskxrxfsbpeefigtm
+  ```
+- Migrations specifically need the SQL file placed under
+  `supabase/migrations/` with a timestamp-prefixed filename before
+  `supabase db push` will pick it up — confirmed working pattern:
+  ```
+  mkdir -p supabase/migrations
+  cp <source-migration-file>.sql "supabase/migrations/$(date +%Y%m%d%H%M%S)_<description>.sql"
+  supabase db push
+  ```
+  (this repo's own migration files, e.g.
+  `supabase_migration_006_payment_sessions.sql`, are checked in at the
+  repo root as the source of truth — the timestamped copy under
+  `supabase/migrations/` is what the CLI actually consumes, generated
+  fresh each time rather than checked in itself).
+- The CLI install itself (`curl -fsSL
+  https://raw.githubusercontent.com/supabase/cli/main/install | bash`)
+  and `supabase login` are one-time-per-container steps, already done
+  as of this note — a future hand-off only needs the `cd
+  /root/mavins-web` + the specific command, not the full install/login
+  dance, unless the project owner reports the container itself was
+  wiped/recreated.
+- **Docker is not running in that container** (`WARNING: Docker is not
+  running` appeared in the deploy log) and the deploy/push still
+  succeeded anyway — Supabase CLI falls back to remote-only operation
+  without it. Don't treat that warning as a failure signal or something
+  to fix; it's expected in this environment.
 
 **Patch output — always exactly one `.patch` file per session, never
 two:** a session normally produces two commits (the task fix, then the
@@ -146,8 +212,14 @@ don't assume it matches the GitHub repo's own `Mavins-web` casing.
 ### Sibling repos
 - **`Mavins-web`** (this repo) —
   `https://github.com/Zapier-codes/Mavins-web` — not a fork; local
-  clone directory is `mavins-web` (lowercase). Process: `git am` +
-  `git push origin main`, no PR step (see above).
+  clone directory is `mavins-web` (lowercase) in Termux — regular code
+  patches (`git am` / `git push origin main`) happen there. **A
+  second, separate clone exists at `/root/mavins-web` inside a
+  `proot-distro` Ubuntu container on the same device** — used only for
+  Supabase CLI commands (`supabase db push`, `functions deploy`,
+  `secrets set`), which don't run correctly in Termux's own userland.
+  See "Supabase CLI workflow" near the top of this file for the full
+  pattern; don't assume the two clones are in sync with each other.
 - **`B-Pay-backend`** — `https://github.com/Zapier-codes/B-Pay-backend`
   — fork of `https://github.com/Phoenix-Boss/B-PAY-backend`; uses a
   fork→PR flow (commit → patch → human `git am` + `git push
@@ -2074,23 +2146,34 @@ session, same one-task-per-session rule as the rest of this file:
    live table — removed as dead/broken code, `payment_sessions` now
    covers that job anyway.
 
-   **Not yet deployed or tested end-to-end** — this sandbox has no
-   Supabase CLI/project credentials and no network access to
-   jsr.io/deno.land to type-check the Edge Function itself. The
-   project owner is deploying via Supabase CLI from Termux and will
-   report back what happens; deploy commands:
+   **Deployed and pushed successfully, 2026-08-28 — confirmed via the
+   project owner's own terminal log, no errors.** Ran from a
+   `proot-distro` Ubuntu container (see "Supabase CLI workflow" near
+   the top of this file for the full, reusable pattern — including why
+   `/root/mavins-web` inside that container, not Termux's own copy, is
+   where these commands actually ran):
    ```
-   cd ~/mavins-web
-   supabase functions deploy initialize-payment --project-ref <ref>
-   supabase secrets set BPAY_BACKEND_URL=https://b-pay-backend.onrender.com --project-ref <ref>
+   proot-distro login ubuntu
+   cd /root/mavins-web
+   supabase login                      # one-time; already done
+   supabase link --project-ref atojskxrxfsbpeefigtm
+   supabase db push
+   supabase functions deploy initialize-payment --project-ref atojskxrxfsbpeefigtm
+   supabase secrets set BPAY_BACKEND_URL=https://b-pay-backend.onrender.com --project-ref atojskxrxfsbpeefigtm
    ```
-   and the migration needs running too (Supabase SQL Editor, or
-   `supabase db push`) — `supabase_migration_006_payment_sessions.sql`,
-   same as migrations 002/004/005 before it.
-   **The next session should check back here for what came of that
-   deploy before touching this area again** — a failure report should
-   get its own follow-up note in this section, not a silent re-attempt
-   assuming the code above was already correct.
+   Confirmed from the log: `supabase link` reported "Remote database is
+   up to date"; the function upload reported "Deployed Functions on
+   project atojskxrxfsbpeefigtm: initialize-payment"; the secret set
+   finished clean; the migration (copied into
+   `supabase/migrations/20260828024711_payment_sessions.sql` before
+   `supabase db push`, per the timestamped-copy pattern in "Supabase CLI
+   workflow") applied with "Finished supabase db push." Docker was not
+   running in that container and the deploy succeeded anyway — expected,
+   not a problem (see that same section). **Not yet end-to-end tested
+   with a real payment** (deploying clean isn't the same as a live
+   `initialize-payment` invocation actually working against a real
+   Korapay checkout) — that's still open, and would be a good first
+   check whenever Part 2/3 work below touches this flow.
 
 2. **Wallet-balance computation on confirmed webhook** — full amount
    minus platform fee, credited **only for returning users doing a
