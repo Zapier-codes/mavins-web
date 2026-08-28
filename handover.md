@@ -116,6 +116,24 @@
 > `supabase db push` hand-off migrations 004/005/007 already went
 > through (see Task 38's note for the exact recovery-step command if
 > the same "Remote migration versions not found" error recurs).
+>
+> **Update, later session — Task 35's "remaining real work" flagged
+> above already exists now.** `korapay-webhook/index.ts` (Task 33 Part
+> 2b) computes and deducts the 5% deposit fee itself
+> (`DEPOSIT_FEE_RATE = 0.05`, `creditDeposit()`), consistent with Task
+> 40's rule — nothing further needed there. **Task 36 (guest direct-pay
+> campaigns), Part 1 of 4, done this session:** new
+> `api/payments/initialize-campaign/route.ts` — guest-only campaign-
+> payment initiation, symmetric to Task 33 Part 1's wallet-topup
+> initiation. Parts 2-4 (webhook-side campaign creation,
+> `create/route.ts`'s 401 becoming a redirect, frontend wiring) not
+> started — see Task 36's own section for the full 4-part breakdown.
+> **New Task 44 added, spec only, not implemented:** migrate the
+> static/hardcoded pricing tiers, duration slots, supported countries,
+> genre list, and genre-country affinity table (currently split across
+> `pricing.ts`, `geoAffinity.ts`, and two separate arrays inside
+> `promote/page.tsx` itself) into real Supabase tables, so the promote
+> page has no static data driving what it shows or what it charges.
 > and 007 are now all confirmed applied to the live DB** (2026-08-28,
 > project owner's own terminal log via `supabase db push` from
 > `/root/mavins-web` — 004/005 had been sitting unapplied since Task
@@ -2830,6 +2848,46 @@ owner call before touching it — don't assume either way.
 
 ## Task 36 — Direct-pay campaigns for guests/first-timers; wallet-funded campaigns for returning users only [ ]
 
+**Split into 4 parts this session, per the one-task-per-session
+convention (this task was flagged "not startable in any partial form"
+by an earlier session's assessment — that was accurate for building
+the whole thing at once, but the dependencies below split cleanly once
+Task 33 Part 2b/2c landed code-complete). Only Part 1 done this
+session.**
+
+1. **[x] Part 1 — guest-only campaign-payment initiation route.**
+   Symmetric to Task 33 Part 1's wallet-topup initiation: writes a
+   `payment_sessions` row carrying full campaign intent (source URL,
+   view count, genre, geographic tier, target countries, and a
+   snapshotted `calculatePricing()` breakdown) under
+   `metadata.type = 'campaign_direct'`, then starts a Korapay checkout
+   for exactly that campaign's cost. Does not touch the webhook or
+   actually create any campaign — that's Part 2.
+2. **[ ] Part 2 — webhook-side campaign creation on confirmed
+   payment.** `korapay-webhook/index.ts` needs to recognize
+   `metadata.type === 'campaign_direct'` (already explicitly excluded
+   from `TOP_UP_TYPES`, so a payment of this type today would succeed
+   at Korapay but do nothing further — safe, just incomplete) and, on
+   success, create the `users` row (Task 37) + `track_campaigns` row
+   directly, reading the snapshotted campaign/pricing data back out of
+   `session.metadata.campaign` rather than trusting anything
+   client-supplied at webhook time. No wallet touched at all — that's
+   this whole task's point.
+3. **[ ] Part 3 — enforce the two-way rule in `create/route.ts`.**
+   That route's unconditional `401` for an unauthenticated caller
+   should become a clear redirect/instruction toward Part 1's route
+   instead of a bare rejection. (The other direction — a returning
+   user must never direct-pay — is already enforced by Part 1 itself,
+   for free, since that route rejects any authenticated caller
+   outright.)
+4. **[ ] Part 4 — frontend wiring.** `promote/page.tsx`'s "Place
+   Campaign" action branches on auth state: logged-in → existing
+   `create/route.ts` wallet-debit call, unchanged; guest → Part 1's
+   route, redirect to the returned `checkout_url`, then land somewhere
+   sensible once Part 2's webhook confirms (a dedicated
+   `/campaign-payment/verify` page mirroring `fund-wallet/verify`,
+   most likely — not designed yet).
+
 **Ask, restated precisely:** a **direct campaign** (pay for this one
 campaign right now, no wallet involved) is how every guest/first-time
 user must place their first campaign — this is what creates their
@@ -2886,6 +2944,21 @@ HERE box). Don't build a speculative version of this ahead of that —
 Task 40's own note already flagged that Part 2 needs a
 `payments`-vs-`payment_sessions` reconciliation first, and guessing at
 that shape now risks getting rebuilt once Part 2 actually lands.
+
+**Update, later session — this was accurate at the time, no longer the
+full picture:** Task 33 Part 2a/2b/2c have since landed code-complete
+(only deploy, 2d, is still outstanding), and `korapay-webhook/index.ts`
+now has an explicit `TOP_UP_TYPES` set with its own comment naming
+"a future direct-campaign-payment session type, Tasks 36/37" as the
+intended extension point — meaning the reconciliation this note
+worried about guessing at is now a real, stable target, not a moving
+one. That's what unblocked splitting this task into 4 parts (see the
+list at the top of this section) and building Part 1 as a **parallel
+route** (`api/payments/initialize-campaign/route.ts`) rather than
+extending the wallet-topup route in place — avoids exactly the
+"speculative version that gets rebuilt" risk this note warned about,
+since nothing about the existing wallet-topup flow needed touching at
+all.
 
 ---
 
@@ -3465,3 +3538,123 @@ after a real payment post-deploy, re-check this fix against
 assuming this note settled it.
 
 Verified via `npx tsc --noEmit` — clean.
+
+---
+
+## Task 44 — Migrate static/hardcoded campaign data into Supabase; promote page fetches dynamically, no static logic [ ]
+
+**Ask, from the product owner directly:** the promote page (and the
+pricing engine behind it) currently runs entirely off hardcoded arrays
+baked into the frontend/lib code. Move that data into real Supabase
+tables — pricing tiers/"products," duration options, and supported
+countries at minimum — and have the promote page fetch it dynamically
+at read time instead of importing static TypeScript constants. No
+static logic left driving what the user actually sees or what pricing
+gets computed from.
+
+**Full inventory of what's actually static today, found via this
+session's own audit (grounded in real file/line references, not a
+guess at scope):**
+
+- **`src/lib/campaign/pricing.ts`** — the actual pricing engine every
+  dollar amount on this site derives from:
+  - `PRICING_TIERS` (line ~20): 6 rows, each `{ minViews, maxViews,
+    pricePer1K (cents), label, description }` — this is the closest
+    thing this app has to a "products" table; each tier is effectively
+    a purchasable package.
+  - `DURATION_SLOTS` (line ~45): 5 rows, each `{ id, label, weeks,
+    days, maxDailyDrip, maxViews, description, badge }` — auto-assigned
+    based on view count, not user-selectable directly.
+  - `calculatePricing()` reads both arrays directly via `.find()` —
+    whatever replaces these needs to preserve that exact tier-lookup
+    behavior (clamped view count, first tier whose min/max range
+    contains it, fallback to the last tier if none match), not just
+    swap the data source and hope the logic still works.
+- **`src/lib/campaign/geoAffinity.ts`** — the "countries supported"
+  data plus genre-targeting logic:
+  - `TARGET_COUNTRIES` (line ~30): 25 rows, each `{ code, country,
+    flag }` — this is the actual supported-countries list the promote
+    page's country picker renders from.
+  - `GENRE_COUNTRY_AFFINITY` (line ~65): a genre → country → score
+    (0-100) lookup table used to rank/recommend target countries once
+    an artist picks a genre. This is denser, hand-tuned data (see that
+    file's own header comment on what it is and isn't — a curated
+    heuristic table, not a real content-analysis system) and migrating
+    it needs to preserve that same nothing-changes-in-meaning
+    property, not just move the numbers.
+- **`src/app/promote/page.tsx`** — two *more* static arrays living
+  directly in the page component, not even in a shared lib file:
+  - `GENRES` (line ~41): a flat list of 14 genre strings, the options
+    the genre picker renders.
+  - `TIERS` (line ~47): **a second, separate hardcoded tier list** —
+    `{ min, max, label, color }` — used for this page's own UI display
+    (gradient colors per tier), duplicating `PRICING_TIERS`'
+    min/max/label fields with no shared source. **Audit finding worth
+    flagging on its own:** these two lists can already drift out of
+    sync today (e.g. if `PRICING_TIERS`'s view-count bands ever change
+    without a matching edit here) — migrating both into one shared
+    Supabase-backed source fixes this class of bug structurally, not
+    just relocates the data.
+
+**Scope, not yet built — this is a fresh task, no code written for it
+this session, per what was actually asked (add the task, not implement
+it):**
+1. **Schema.** At minimum: a `pricing_tiers` table (the
+  `PRICING_TIERS` shape, plus whatever `TIERS`' `color` field needs —
+  either folded into the same table or confirmed as a separate
+  display-only concern), a `duration_slots` table (`DURATION_SLOTS`'
+  shape), a `countries` table (`TARGET_COUNTRIES`' shape — `code`,
+  `country`, `flag`), a `genres` table (currently just a flat string
+  list — decide whether it needs to be more than `{ id, label }`), and
+  a `genre_country_affinity` table (`GENRE_COUNTRY_AFFINITY`'s
+  genre/country/score triples — likely the one place a proper
+  relational table beats a hardcoded object literal, since today's
+  structure is genre-keyed nested objects rather than rows).
+2. **Backend read path.** Decide whether the promote page reads these
+  tables directly via a Supabase client (RLS permitting — these are
+  all public, non-sensitive reference data, so a public-read RLS
+  policy is likely correct, unlike every money-adjacent table this
+  file's other tasks deal with) or via a small API route that shapes
+  the response the same way `calculatePricing()`'s current return
+  value looks, so downstream consumers of `calculatePricing()`
+  (`create/route.ts`, the new `initialize-campaign/route.ts` from Task
+  36 Part 1, `promote/page.tsx` itself) don't all need to be rewritten
+  at once — worth deciding before writing any code, since it changes
+  how big this task's own "Part 1" would be.
+3. **`calculatePricing()` itself.** Currently a synchronous, pure
+  function called from both server routes and client components. Once
+  its data source is Supabase, it either becomes async everywhere
+  (touches every call site) or gets split into "fetch the tiers/slots
+  once, cache them, keep `calculatePricing()` itself synchronous over
+  the cached data" — the second avoids a much larger refactor blast
+  radius but needs a real caching/invalidation story (server-side:
+  fine to refetch per-request or cache briefly; client-side
+  (`promote/page.tsx` computes pricing live as the user drags the view-
+  count slider): needs the tiers loaded once on page mount, not
+  re-fetched per keystroke).
+4. **Frontend wiring.** `promote/page.tsx`'s own local `GENRES` and
+  `TIERS` arrays get deleted entirely once genres/pricing tiers are
+  fetched from the same backend source `calculatePricing()` uses — no
+  page-local duplicate data left anywhere.
+5. **Seed data.** The initial rows for every new table are exactly
+  today's hardcoded arrays, verbatim — this is a data migration, not a
+  chance to also redesign the actual pricing/country/genre values
+  themselves. Any changes to the actual numbers/labels while migrating
+  would conflate "move this to Supabase" with "also change what it
+  says," which isn't what was asked.
+
+**Not decided yet, worth a product-owner confirmation before Part 1
+starts:** whether an admin-facing UI for editing these tables is
+wanted as part of this task or a separate follow-up — "migrate to
+Supabase" on its own doesn't imply an editing UI exists yet, just that
+the data lives in a table a human (or a future admin page) *could*
+edit directly via the Supabase dashboard in the meantime.
+
+**Recommended split, once a session picks this up (same one-task-per-
+session convention as everything else in this file — this is very
+likely 3-4 parts on its own, mirroring Task 36's split immediately
+above):** schema + seed migration first (no app code changes, pure
+data layer), then the backend read path + `calculatePricing()`
+refactor (Part 2), then frontend wiring to delete the static arrays
+(Part 3), with the admin-editing-UI question (if confirmed wanted) as
+a distinct Part 4 rather than folded into Part 3.
