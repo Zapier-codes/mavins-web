@@ -63,35 +63,30 @@
 > reminder of what to re-check if this ever regresses (a future
 > `git push` to that function without a matching redeploy).
 >
-> **Next task: hold — Task 33 Part 2b (wallet-crediting call itself)
-> is done in code (2026-08-28, this session) but NOT YET DEPLOYED.**
-> Needs `supabase functions deploy korapay-webhook --project-ref
-> atojskxrxfsbpeefigtm` from `/root/mavins-web` in the `proot-distro`
-> container — same mechanics as every deploy before it, no new secret
-> this time. **Wallet crediting only EVER happens inside the
-> `charge.success` branch of this webhook — i.e. only after Korapay has
-> already confirmed the payment.** A prior version of this note
-> described an internal reordering (crediting before this function's
-> OWN `payment_sessions.status = 'success'` write, for retry-safety —
-> see Task 33 Part 2b's own note) in a way the product owner initially
-> (and reasonably) read as "credits before confirmation" — it isn't;
-> both the credit call and that internal status write happen after,
-> and only after, Korapay's webhook has already fired. Worth being
-> precise about this distinction in any future explanation of this
-> code, since it caused a real (understandable) moment of alarm.
-> **Also this session:** a `payment_failed` notification now fires on
-> a failed payment (see Task 33 Part 2b's note) — a "pending" one does
-> NOT exist yet and needs a product-owner decision first (no webhook
-> event corresponds to "still pending"; a real one would need a new
-> scheduled/timeout mechanism — see that same note for why this wasn't
-> guessed at).
-> **The next session should check what the project owner reports
-> before doing anything else here** — if it deployed clean, move on to
-> **Part 2c** (gate crediting on `metadata.type` actually being a
-> top-up — small, since 2b already did the hard part; see Task 33's
-> own 2c note for exactly what's left); if it failed, fix the actual
-> reported error. Don't re-attempt the deploy yourself from
-> a sandbox session — no Supabase CLI/project credentials exist here.
+> **Next task: hold — Task 33 Part 2c (metadata.type crediting gate)
+> is done in code (2026-08-28, this session), same as 2b before it,
+> and also NOT YET DEPLOYED — Part 2d (deploy + end-to-end
+> verification) is what's next once the project owner confirms.**
+> Needs the same `supabase functions deploy korapay-webhook
+> --project-ref atojskxrxfsbpeefigtm` command as every prior
+> `korapay-webhook` change — one deploy now covers both 2b and 2c
+> together, since neither shipped separately. Don't re-attempt the
+> deploy yourself from a sandbox session — no Supabase CLI/project
+> credentials exist here.
+>
+> **Also this session — a real, separate, cross-repo bug found and
+> fixed first, before continuing to 2c: references never actually
+> carried the `MAVW-` prefix the gateway (Task 41/42) routes on.**
+> `/api/payments/initialize/route.ts` was still generating
+> `WLT-<...>`/`GST-<...>`, which matched no entry in
+> `webhookGateway.js`'s routing table — every webhook for a
+> Mavins-web payment was silently logged "unroutable" and never
+> forwarded here at all, regardless of how correct Part 1b/2a/2b's own
+> logic was. Fixed to `MAVW-WLT-<...>`/`MAVW-GST-<...>`. See Task 43
+> below for the full write-up. **This means the "Not yet deployed"
+> items above only matter once this fix is deployed too** — no
+> webhook could have reached this function in production before now,
+> independent of the crediting-gate work.
 >
 > **Task group Tasks 34–40 (wallet crediting/debiting + fee +
 > first-timer-vs-returning-user spec) — Tasks 34, 38, 39 now done,
@@ -2581,20 +2576,20 @@ session, same one-task-per-session rule as the rest of this file:
    `SUPABASE_SERVICE_ROLE_KEY` (auto-provided) and
    `MAVW_WEBHOOK_FORWARD_SECRET` (already set per Task 42).
 
-   **2c. First-time-vs-returning-user branch. [ ] Not started, depends
-   on 2b existing first (2b is now done, so this is genuinely next).** `payment_sessions.metadata.type` is
-   already populated at write time by `initialize/route.ts` —
-   `'wallet_topup'` / `'wallet_topup_guest'` for a deposit,
-   distinguishable from a direct campaign payment (not yet built as
-   its own session-type value; Tasks 36/37, both still on hold per the
-   note at the top of this file, will need this route/metadata for
-   direct campaign-payment sessions). 2c's actual work: make 2b's
-   crediting call conditional on `metadata.type` indicating a top-up —
-   a direct campaign-payment session must never reach the crediting
-   code path at all, per this task's original ask. Likely small once
-   2b exists (a single `if` guarding the RPC call), which is why it's
-   split from 2b rather than folded in — so the credit-vs-don't-credit
-   decision is its own reviewable, revertible unit.
+   **2c. First-time-vs-returning-user branch. [x] Done this session
+   (2026-08-28).** Added a `TOP_UP_TYPES = new Set(['wallet_topup',
+   'wallet_topup_guest'])` gate immediately before 2b's crediting call
+   in `korapay-webhook/index.ts`: a successful charge whose
+   `metadata.type` isn't in that set is logged and acknowledged, but
+   never reaches `creditDeposit`/`credit_wallet_deposit` at all.
+   Deliberately an allowlist, not a denylist — a future session type
+   (Tasks 36/37's direct-campaign-payment type) simply won't match and
+   won't credit, by default, without this function needing to change
+   again when that type is introduced. `session`'s `select()` extended
+   to include `metadata` (wasn't selected before this session).
+   Verified via `npx tsc --noEmit` on the rest of the repo (this file
+   itself stays outside `tsconfig.json`'s scope, same as every prior
+   Edge Function task) — clean.
 
    **2d. Deploy + end-to-end verification. [ ] Not started, depends on
    2b/2c.** Same deploy pattern as Part 1/1b (`supabase db push` if a

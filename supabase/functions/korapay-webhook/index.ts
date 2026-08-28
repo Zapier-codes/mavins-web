@@ -43,14 +43,16 @@
 // a Korapay retry will actually retry the credit instead of silently
 // skipping it forever.
 //
-// NOT this function's job yet (Task 33 Part 2c, still open): gating
-// this on payment_sessions.metadata.type actually being a top-up.
-// Right now EVERY successful charge.success gets credited,
-// unconditionally -- harmless today because no other session type
-// exists yet (Tasks 36/37, direct campaign payment, are both still on
-// hold), but this is a real, temporary gap, not a design decision --
-// see handover.md's Task 33 Part 2c note, which must land before any
-// direct-campaign-payment session type goes live.
+// Task 33 Part 2c (this session): crediting above is now gated on
+// payment_sessions.metadata.type actually being a top-up
+// ('wallet_topup'/'wallet_topup_guest') -- a successful charge whose
+// session isn't one of those types is acknowledged and logged, but
+// never reaches the credit call. This is what makes it safe for
+// Tasks 36/37 (direct campaign payment) to introduce a new session
+// type later without also having to touch this function -- the
+// default for any type not in the top-up set is "don't credit",
+// which is already the correct behavior for a direct-campaign-payment
+// session, not something that type will need to separately request.
 //
 // Per Supabase's own current guidance (supabase.com/docs/guides/
 // ai-tools/ai-prompts/edge-functions, same source initialize-payment's
@@ -289,7 +291,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: session, error: fetchError } = await supabase
     .from('payment_sessions')
-    .select('id, status, user_id, customer_email, amount, currency')
+    .select('id, status, user_id, customer_email, amount, currency, metadata')
     .eq('reference', reference)
     .single();
 
@@ -334,7 +336,27 @@ Deno.serve(async (req: Request) => {
   // still 'pending'/'checkout_created', so it doesn't hit the
   // short-circuit) -- safe by construction rather than by hoping
   // nothing fails in between two writes.
-  if (newStatus === 'success') {
+  // Task 33 Part 2c: only a genuine top-up session should ever reach
+  // the crediting call. `metadata.type` is set at write time by
+  // /api/payments/initialize/route.ts -- 'wallet_topup' (authenticated)
+  // or 'wallet_topup_guest' (guest). Any other/absent type (including
+  // a future direct-campaign-payment session type, Tasks 36/37) must
+  // never credit a wallet at all -- that's this task's whole point,
+  // not an oversight if a future type is added and this list isn't
+  // updated to include it: the safe default is "don't credit", so a
+  // new type simply not crediting until explicitly added here is the
+  // correct failure mode, not a bug to fix reactively.
+  const TOP_UP_TYPES = new Set(['wallet_topup', 'wallet_topup_guest']);
+  const isTopUp = TOP_UP_TYPES.has(session.metadata?.type);
+
+  if (newStatus === 'success' && !isTopUp) {
+    console.log(
+      `korapay-webhook: reference '${reference}' succeeded but metadata.type ` +
+      `('${session.metadata?.type}') is not a top-up type -- skipping wallet credit by design.`,
+    );
+  }
+
+  if (newStatus === 'success' && isTopUp) {
     try {
       const userId = session.user_id ?? (await resolveOrCreateGuestUserId(supabase, session.customer_email));
 
@@ -423,9 +445,5 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  // Part 2c (gating crediting on payment_sessions.metadata.type
-  // actually being a top-up) is NOT implemented yet -- see this file's
-  // header comment and handover.md's Task 33 Part 2c note. Every
-  // successful charge currently gets credited unconditionally.
   return jsonResponse({ received: true, reference, status: newStatus });
 });
