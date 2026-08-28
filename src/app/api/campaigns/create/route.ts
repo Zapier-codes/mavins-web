@@ -38,12 +38,12 @@ interface CreateCampaignBody {
   targetCountries?: string[];
 }
 
-async function getWalletBalanceCents(admin: ReturnType<typeof createAdminClient>, userId: string): Promise<number> {
-  const { data, error } = await admin.from('users').select('wallet').eq('id', userId).single();
-  if (error || !data?.wallet) return 0;
-  const wallet = typeof data.wallet === 'string' ? JSON.parse(data.wallet) : data.wallet;
-  return wallet?.balance || 0;
-}
+// Task 34 (handover.md): the old getWalletBalanceCents() helper that
+// used to live here was only needed by this route's previous local
+// compensating-refund write (a manual balance read before a manual
+// wallet update). That write is gone — the refund now goes through
+// credit_wallet_refund (migration 008), which does its own atomic
+// balance read/write internally, so no pre-read is needed here.
 
 /**
  * Task 38 (handover.md): the primary wallet debit for campaign
@@ -161,43 +161,27 @@ export async function POST(request: NextRequest) {
       // itself fails, refund it rather than leaving the artist charged
       // for a campaign that was never created.
       //
-      // Deliberately NOT routed through debit_wallet_balance (that RPC
-      // only ever subtracts — p_amount_cents must be positive) or
-      // credit_wallet_deposit (built for actual deposits: its ledger
-      // entries are typed 'deposit' and it requires a p_source meant
-      // for payment providers, not "compensating refund"). Neither fits
-      // this credit-back cleanly, so this narrow, non-atomic local
-      // write is a known, flagged gap against Task 34's "RPC is the
-      // only writer" rule — this is a rare failure-path edge case (the
-      // debit already succeeded, then the very next insert failed),
-      // not the main money path Task 38 was scoped to fix. A future
-      // session closing out Task 34 should either add a small
-      // symmetric refund RPC or confirm this compensating-credit case
-      // is an accepted, narrow exception to the single-writer rule.
+      // Task 34 (handover.md): this used to be a narrow local
+      // non-atomic write, flagged as a known gap against "RPC is the
+      // only writer." Migration 008 added credit_wallet_refund
+      // specifically for this compensating-credit case (distinct from
+      // credit_wallet_deposit, which is semantically for real
+      // payment-provider deposits — ledger type 'deposit' would be
+      // wrong here). Reuses debitReference as the idempotency key so a
+      // retried failed-insert can't double-refund the same debit.
       if (!callerIsAdmin) {
-        const balance = await getWalletBalanceCents(admin, authUser.id);
-        await admin
-          .from('users')
-          .update({
-            wallet: { balance: balance + pricing.totalCostCents, currency: 'USD' },
-            update_time: new Date().toISOString(),
-          })
-          .eq('id', authUser.id);
-        await admin.from('wallet_ledger').insert({
-          id: crypto.randomUUID(),
-          user_id: authUser.id,
-          changeset: {
-            amount: pricing.totalCostCents,
-            currency: 'USD',
-            type: 'credit',
-            description: 'Refund: failed campaign creation',
-            previous_balance: balance,
-            new_balance: balance + pricing.totalCostCents,
-          },
-          metadata: { source: 'campaign_service', reference: debitReference },
-          create_time: new Date().toISOString(),
-          update_time: new Date().toISOString(),
+        const { error: refundError } = await admin.rpc('credit_wallet_refund', {
+          p_user_id: authUser.id,
+          p_amount_cents: pricing.totalCostCents,
+          p_reference: debitReference,
+          p_reason: 'campaign_create_failed',
         });
+        if (refundError) {
+          // The debit succeeded but neither the campaign insert nor
+          // the refund did — surface loudly rather than silently
+          // leaving the artist charged with nothing to show for it.
+          console.error('Campaign create: compensating credit_wallet_refund failed', refundError, { userId: authUser.id, debitReference });
+        }
       }
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }

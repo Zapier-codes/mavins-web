@@ -33,39 +33,16 @@ async function getWalletBalanceCents(userId: string): Promise<number> {
   }
 }
 
-/** Credit/debit wallet by updating users.wallet JSONB + logging to wallet_ledger.changeset. */
-async function updateWallet(userId: string, amountCents: number, description: string) {
-  const currentBalance = await getWalletBalanceCents(userId);
-  const newBalance = Math.max(0, currentBalance + amountCents);
-
-  const { error: walletError } = await supabase
-    .from('users')
-    .update({
-      wallet: { balance: newBalance, currency: 'USD' },
-      update_time: new Date().toISOString(),
-    })
-    .eq('id', userId);
-
-  if (walletError) throw walletError;
-
-  await supabase.from('wallet_ledger').insert({
-    id: crypto.randomUUID(),
-    user_id: userId,
-    changeset: {
-      amount: amountCents,
-      currency: 'USD',
-      type: amountCents >= 0 ? 'credit' : 'debit',
-      description,
-      previous_balance: currentBalance,
-      new_balance: newBalance,
-    },
-    metadata: { source: 'campaign_service' },
-    create_time: new Date().toISOString(),
-    update_time: new Date().toISOString(),
-  });
-
-  return newBalance;
-}
+// Task 34 (handover.md): the old updateWallet() direct-write helper
+// that used to live here (non-atomic users.wallet read-modify-write
+// from this anon-key browser client) is gone — it was a second,
+// independent crediting/debiting authority running in parallel with
+// the RPCs, and would fail outright anyway now that both
+// credit_wallet_refund (migration 008) and debit_wallet_balance
+// (migration 007) are locked to service_role only. cancelCampaign()
+// and addFundsToCampaign() below now call the corresponding
+// server-side routes (/api/campaigns/cancel, /api/campaigns/add-funds)
+// instead, which perform the actual wallet mutation through those RPCs.
 
 /**
  * Creates a campaign via /api/campaigns/create instead of inserting into
@@ -195,30 +172,16 @@ export async function resumeCampaign(campaignId: string) {
 
 export async function cancelCampaign(campaignId: string) {
   try {
-    const campaign = await getCampaignById(campaignId);
-    if (!campaign) return { success: false, error: 'Campaign not found' };
-
-    const unspent = (campaign.total_budget_cents || 0) - (campaign.spent_cents || 0);
-    if (unspent > 0 && campaign.artist_id) {
-      await updateWallet(
-        campaign.artist_id,
-        unspent,
-        `Campaign refund: ${campaignId.slice(0, 8)}`
-      );
+    const res = await fetch('/api/campaigns/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ campaignId }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      return { success: false, error: json.error || 'Failed to cancel campaign' };
     }
-
-    const { error } = await supabase
-      .from('track_campaigns')
-      .update({
-        is_active: false,
-        is_paused: false,
-        current_stage: 'completed',
-        completed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', campaignId);
-
-    return { success: !error, error: error?.message };
+    return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
@@ -229,26 +192,25 @@ export async function addFundsToCampaign(campaignId: string, additionalCents: nu
     const campaign = await getCampaignById(campaignId);
     if (!campaign) return { success: false, error: 'Campaign not found' };
 
+    // Fast client-side pre-check for immediate UX feedback only — the
+    // real, authoritative check happens atomically inside
+    // debit_wallet_balance (migration 007) via the API route below, so
+    // a stale read here can't cause an incorrect debit either way.
     const balance = await getWalletBalanceCents(campaign.artist_id);
     if (balance < additionalCents) {
       return { success: false, error: 'Insufficient wallet balance' };
     }
 
-    await updateWallet(
-      campaign.artist_id,
-      -additionalCents,
-      `Campaign top-up: ${campaignId.slice(0, 8)}`
-    );
-
-    const { error } = await supabase
-      .from('track_campaigns')
-      .update({
-        total_budget_cents: (campaign.total_budget_cents || 0) + additionalCents,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', campaignId);
-
-    return { success: !error, error: error?.message };
+    const res = await fetch('/api/campaigns/add-funds', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ campaignId, additionalCents }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      return { success: false, error: json.error || 'Failed to add funds' };
+    }
+    return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
