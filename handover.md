@@ -13,34 +13,40 @@
 > the project owner reports before doing anything else here** — same
 > pattern as Part 1's own hold: if the deploy + repoint worked, move on
 > to Part 2 (wallet-crediting, which 1b's note flags as needing a
-> `payments`-vs-`payment_sessions` reconciliation first); if something
+> `payments`-vs-`payment_sessions` reconciliation first, and which
+> **Task 40 below now gives the exact fee-arithmetic rule for**: the
+> Edge Function computes the 5% deposit deduction itself and hands the
+> RPC a plain net number — the RPC must not do any math); if something
 > failed, fix the actual reported error rather than re-guessing blind.
 >
-> **Task group Tasks 34–39 (wallet crediting/debiting + fee +
-> first-timer-vs-returning-user spec) — Tasks 38 and 39 now done, four
-> remain.** Recommended order was 38 → 35 → 34 → 36 → 37 → 39; actual
-> progress this session: **Task 38 done** (new `debit_wallet_balance`
-> RPC, migration 007 — and the live campaign-placement debit path in
-> `src/app/api/campaigns/create/route.ts` rewired onto it, replacing a
-> THIRD previously-unflagged direct-`users.wallet`-write helper this
-> session's own audit turned up there, separate from
-> `campaign.service.ts`'s `updateWallet()`). **Task 39 done** as a
-> pure confirmation, no code needed — that same route already sets
-> `is_active: true`/`current_stage: 'planting'` directly on insert, so
-> campaigns already go live immediately with nothing to fix. **Next:
-> Task 35** (10% platform fee on campaigns vs 5% gateway fee on
-> deposits — flags that the live `PLATFORM_FEE_PERCENT` is currently
-> 15, not 10, and that no 5% deposit-fee deduction exists anywhere
-> yet), per the original recommended order, followed by 34, 36, 37 in
-> that order. **Task 34's scope grew slightly this session** — it now
-> also owns: (a) migrating `campaign.service.ts`'s `addFundsToCampaign`
-> debit call onto the new `debit_wallet_balance` RPC (Task 38's own
-> text named this site but only the create-route's own separate helper
-> got migrated this session, since that was the live production debit
-> path and the higher-value fix), and (b) deciding what to do about
-> `create/route.ts`'s compensating refund-on-failed-insert, which is
-> still a narrow local non-atomic credit write, explicitly commented
-> in-code as a known exception pending Task 34. **Migrations 004, 005,
+> **Task group Tasks 34–40 (wallet crediting/debiting + fee +
+> first-timer-vs-returning-user spec) — Tasks 34, 38, 39 now done,
+> Task 40 added this session as a pure spec-clarification (product
+> owner's own words, no code), three implementation tasks remain: 35,
+> 36, 37.** **Task 34 done this session** (commit `150b36a`) — new
+> `credit_wallet_refund` RPC (migration 008), two new server-side
+> routes (`/api/campaigns/cancel`, `/api/campaigns/add-funds`)
+> replacing `campaign.service.ts`'s removed `updateWallet()` direct
+> write, and `create/route.ts`'s compensating refund now goes through
+> the new RPC too — see Task 34's own done-note below for the full
+> list. **`PLATFORM_FEE_PERCENT` staying at `15` was correct all
+> along — do NOT change it to 10.** Task 35's original text (below)
+> said the live `15` needed correcting down to `10`; the product owner
+> then directly confirmed **15% is right** (Task 40) — Task 35's own
+> text has a correction note at its top now, left in place rather than
+> silently rewritten, per this file's own convention. **Task 40 also
+> resolves where the fee math lives**: the Edge Function computes and
+> deducts the fee (15% campaign / 5% deposit) and hands the RPC an
+> already-net number to persist — the RPC never computes anything
+> itself. This directly informs Task 35's remaining real work (the 5%
+> deposit deduction, which still doesn't exist in code anywhere) and
+> is worth reading in full before starting Task 35, 36, or the deferred
+> Task 33 Part 2. **Recommended order now: 35 → 36 → 37**, same as
+> before minus 34/38/39. **Migration 008 (`credit_wallet_refund`) is
+> NOT yet applied to the live DB** — needs the exact same
+> `supabase db push` hand-off migrations 004/005/007 already went
+> through (see Task 38's note for the exact recovery-step command if
+> the same "Remote migration versions not found" error recurs).
 > and 007 are now all confirmed applied to the live DB** (2026-08-28,
 > project owner's own terminal log via `supabase db push` from
 > `/root/mavins-web` — 004/005 had been sitting unapplied since Task
@@ -2320,7 +2326,7 @@ session, same one-task-per-session rule as the rest of this file:
 
 ---
 
-## Task 34 — Single crediting authority: RPC credits, Edge Function only instructs it [ ]
+## Task 34 — Single crediting authority: RPC credits, Edge Function only instructs it [x]
 
 **Ask, from the product owner:** there must be exactly one place that
 ever increases a wallet balance. Either the RPC does the crediting or
@@ -2368,7 +2374,82 @@ wallet` across `src/` that none remain once this is done.
 
 ---
 
-## Task 35 — Fee structure: 10% platform fee on campaigns, 5% gateway fee on deposits [ ]
+**Done, this session (commit `150b36a`).** `campaign.service.ts`'s
+`updateWallet()` — the non-atomic direct `users.wallet` write flagged
+above as a second, independent crediting authority — is gone. It was
+also technically unreachable anyway: both `debit_wallet_balance`
+(migration 007) and the new `credit_wallet_refund` (migration 008,
+built this session) are locked to `service_role` only, and this file
+was calling them from the browser's anon-key client.
+- **New migration 008 — `credit_wallet_refund`**, mirroring
+  `credit_wallet_deposit`'s atomic/idempotent shape but semantically
+  distinct (ledger `type: 'refund'`, not `'deposit'` — reusing
+  `credit_wallet_deposit` here would have mislabeled refunds as
+  deposits in reporting). This resolves the "add a small symmetric
+  refund RPC, or confirm this is an accepted exception" question
+  Task 38's own note left open, in favor of the RPC.
+- **New `/api/campaigns/cancel/route.ts`** — server-side route for
+  `cancelCampaign`'s refund path: verifies session + ownership
+  (`artist_id` match or `isAdmin`), calls `credit_wallet_refund` with
+  `cancel-{campaignId}` as the idempotency reference, updates
+  `track_campaigns`.
+- **New `/api/campaigns/add-funds/route.ts`** — server-side route for
+  `addFundsToCampaign`'s debit path: verifies session + ownership,
+  calls `debit_wallet_balance` (its own atomic check decides
+  sufficient-vs-insufficient, not a client pre-check), updates
+  `track_campaigns.total_budget_cents`.
+- `campaign.service.ts`'s `cancelCampaign()`/`addFundsToCampaign()`
+  now `fetch()` those two new routes instead of calling the removed
+  `updateWallet()` directly. `addFundsToCampaign` keeps its balance
+  read as a fast client-side pre-check only — the RPC's own check is
+  authoritative.
+- `create/route.ts`'s compensating refund-on-failed-insert (Task 38's
+  own flagged exception) now calls `credit_wallet_refund` instead of a
+  local direct write, reusing the original debit's reference as the
+  refund's idempotency key. Removed the now-unused local
+  `getWalletBalanceCents()` helper that write needed.
+
+**Verification per this task's own text:** grepped `src/` for
+`.update({ wallet:` and `wallet:` broadly — the only remaining hits
+are inside `withdrawal/request/route.ts`'s Task-21-disabled commented
+handler, and `api/auth/create-user/route.ts`'s `wallet: { balance: 0 }`
+on account **creation** (an INSERT, not a balance-mutating write —
+correctly out of scope). Confirmed `guestCheckout.ts`'s
+`creditWalletTopUp()` (this task's own flagged follow-up check)
+already calls `credit_wallet_deposit` correctly.
+
+Verified via `npx tsc --noEmit` — clean.
+
+**Not verified** (same sandbox limitation as every RPC task before
+this one): migration 008 needs the same `supabase db push` hand-off
+Task 38's note documents before any of this is live — no live call
+against the real Supabase instance has been made yet.
+
+---
+
+## Task 35 — Fee structure: **15%** platform fee on campaigns, 5%
+gateway fee on deposits [ ]
+
+**Correction, from the product owner directly (see Task 40 below for
+the full architectural context this came with):** the platform fee on
+campaigns is **15%, not 10%** — this task's original text below had it
+backwards; `PLATFORM_FEE_PERCENT` already being `15` in
+`src/lib/campaign/pricing.ts` was **correct all along**, not a bug to
+fix down to 10. Leaving the original ask below unedited per this
+file's "don't delete completed entries" convention, but treat the 15%
+figure as authoritative — do not change `PLATFORM_FEE_PERCENT` back to
+10. The file's own header comment ("industry-standard pricing," no fee
+citation) should still be updated to cite this task + the product
+owner's confirmation, so a future session doesn't second-guess it
+again.
+
+**Also resolved by Task 40:** this task's own open question below
+("whether the 5% is deducted before calling the RPC, or the RPC itself
+computes it") — the product owner's answer is the Edge Function
+deducts it before calling the RPC; the RPC does no arithmetic at all.
+See Task 40 for the full rule and its implications for this task's
+remaining scope (the actual 5%-deduction code, which still doesn't
+exist anywhere and is this task's real remaining work).
 
 **Ask:** two separate, fixed fee rates, not to be confused with each
 other:
@@ -2629,6 +2710,97 @@ path today. This task turned out to be exactly the one-line
 confirmation its own text anticipated as the likely outcome; no code
 changed for this task specifically (the file changed this session was
 for Task 38's debit rewiring, not this).
+
+---
+
+## Task 40 — Fee arithmetic lives ONLY in the Edge Function; the RPC
+never computes, it only persists [ ]
+
+**Ask, from the product owner directly, verbatim intent:** the RPC
+does no arithmetic at all — that's the Edge Function's job. For every
+user action that moves money (a campaign placement, or a deposit), the
+Edge Function is the one place that:
+1. Calculates the total amount involved.
+2. Deducts the fee — **15% if it's a campaign placement, 5% if it's a
+   deposit**.
+3. For a deposit: the user sees the balance **after** the 5% is
+   already deducted — i.e. the net amount, not the gross amount they
+   paid. That net remaining balance is what gets sent to the RPC; the
+   RPC's only job is to persist it into the `users` table (via
+   `credit_wallet_deposit`, migration 004) — it does not compute the
+   5% itself.
+4. For a campaign: the 15% is deducted first, and **only the remaining
+   85%** is the amount actually used to place/fund the campaign (i.e.
+   the 15% never touches the campaign's own budget — it's the
+   platform's cut, taken off the top, not a cost inside the campaign
+   spend).
+
+**This settles two things Task 35 left as open questions** (see that
+task's own correction note above, added at the same time as this
+task):
+- **The 10%-vs-15% platform fee confusion is resolved: it's 15%,
+  confirmed by the product owner in this same message.**
+  `PLATFORM_FEE_PERCENT` in `src/lib/campaign/pricing.ts` (currently
+  `15`) was already correct and does **not** need to change to 10 —
+  Task 35's original "needs updating to match this task" instruction
+  was itself wrong and should be disregarded now.
+- **Where the 5%/15% math happens is resolved: the Edge Function, not
+  the RPC.** Task 35's own note had flagged two options ("the 5% is
+  deducted before calling the RPC" vs. "the RPC itself computes and
+  stores both the gross and net figures") and tentatively recommended
+  the RPC-computes approach. The product owner's direction here is the
+  opposite: **Edge-Function-computes is correct, RPC-computes is not**
+  — the RPC must stay a pure "write this exact number" primitive, no
+  business logic. `credit_wallet_deposit`/`debit_wallet_balance`
+  already have this shape today (they take a caller-supplied
+  `p_amount_cents` and just apply it) — the fix needed is entirely on
+  the calling side (the Edge Function), not the RPC's own signature.
+
+**Scope — none of this is built yet, this is a spec-clarification
+task, not an implementation one:**
+- **Deposit side (5%):** lives in Task 33 Part 2's wallet-crediting
+  logic, which per the orientation box at the top of this file is
+  still not built (`korapay-webhook/index.ts`'s own header comment
+  confirms: "NOT this function's job... Part 2 is what reads that
+  status change and decides whether/how much to credit"). When Part 2
+  is built, it must compute `net = gross * 0.95` itself and call
+  `credit_wallet_deposit` with the net figure — not the gross deposit
+  amount, and not delegate the multiplication to the RPC.
+- **Campaign side (15%):** `src/lib/campaign/pricing.ts`'s
+  `calculatePricing()` needs a from-scratch check (not assumed) that
+  it already nets out the 15% correctly before the amount reaches
+  `debit_wallet_balance`/the campaign's own `total_budget_cents` — i.e.
+  confirm the flow is "compute total → take 15% off the top → the
+  remaining 85% is both what's debited from the wallet AND what
+  actually funds/places the campaign," not "debit the full total, then
+  separately skim 15% off the campaign's budget after the fact" (those
+  two produce the same wallet debit but different campaign budgets,
+  and only the first one matches this task's wording — "only the
+  remaining is used to place the campaign").
+- **Where the platform's cut itself is recorded** is still the same
+  open question Task 35 already flagged (a ledger row, a separate
+  revenue table, or implicit) — not answered by this clarification
+  either, still worth a one-line confirmation before building reporting
+  on top of it.
+
+**Also noted by the product owner, this message — related but
+explicitly deferred, not part of this task's scope:**
+- **An API/token endpoint for placing a campaign already exists** —
+  this is `/api/campaigns/create/route.ts` (Task 34/38's own subject
+  this session). The product owner's framing suggests this is also
+  meant to be reachable as a general integration point (e.g. from
+  outside mavins-web itself), not just this app's own frontend — worth
+  confirming with the product owner exactly what "API token endpoint"
+  means here (an API key/token-authenticated variant of this same
+  route? a separate route entirely?) before assuming the existing
+  session-cookie-authenticated route already satisfies this framing.
+- **Campaigns will eventually also surface in "the music app"** — per
+  this file's own orientation box, that's Velune (the Android app,
+  `Zapier-codes/Velune`, campaign-relevant docs in that repo's
+  `HANDOVER_CAMPAIGN.md`). The product owner explicitly said this
+  integration will be addressed later ("we will update that too") —
+  not in scope for this task or Task 35, just noted here so a future
+  session doesn't assume it's already wired or forget it's coming.
 
 ---
 
