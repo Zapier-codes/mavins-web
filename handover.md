@@ -3,22 +3,22 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Next task: Task 33 Part 2 (wallet-crediting logic) — Part 1's
-> deploy is confirmed successful (2026-08-28).** The project owner ran
-> the full deploy from a `proot-distro` Ubuntu container (see "Supabase
-> CLI workflow" below for exactly how — reuse that path for any future
-> Supabase CLI task, don't reinvent it): `initialize-payment` Edge
-> Function deployed clean, `BPAY_BACKEND_URL` secret set, and the
-> `payment_sessions` migration applied ("Finished supabase db push").
-> No errors in the log. Part 1 is now fully done — code (commit
-> `37e1eea`) **and** deploy, not just code. Next: **Part 2**,
-> wallet-balance crediting on confirmed webhook (full amount minus
-> platform fee, returning-users-only) — see Task 33 below for the full
-> three-part breakdown and what Part 2 still needs. Part 3 (the success
-> screen) is also still open and can go either before or after Part 2.
+> **Next task: hold — Task 33 Part 1b (webhook receipt, new
+> `korapay-webhook` Edge Function) is done in code but NOT YET
+> DEPLOYED, and Korapay's dashboard webhook URL has NOT YET been
+> re-pointed at it.** Both are project-owner-only steps (Supabase CLI
+> deploy + a dashboard setting) — see Task 33's own "1b" note below for
+> the deploy command (including the new `KORAPAY_SECRET_KEY` secret)
+> and the exact repoint needed. **The next session should check what
+> the project owner reports before doing anything else here** — same
+> pattern as Part 1's own hold: if the deploy + repoint worked, move on
+> to Part 2 (wallet-crediting, which 1b's note flags as needing a
+> `payments`-vs-`payment_sessions` reconciliation first); if something
+> failed, fix the actual reported error rather than re-guessing blind.
 >
 > **Full cross-repo status, as of this note:**
-> - **mavins-web** (this repo) — next: **Task 33 Part 2** (see above)
+> - **mavins-web** (this repo) — next: **hold, awaiting deploy +
+>   dashboard-repoint feedback on Task 33 Part 1b** (see above)
 > - **B-Pay-backend** — next: **Task 9b is now unblocked** (Task 29's
 >   reconciled `src/lib/currency/countryCurrency.ts` in this repo is
 >   the real currency list that task needed to pull into
@@ -122,6 +122,19 @@ looks like, confirmed from a real deploy run (Task 33 Part 1):
   supabase functions deploy <function-name> --project-ref atojskxrxfsbpeefigtm
   supabase secrets set KEY=value --project-ref atojskxrxfsbpeefigtm
   ```
+- **Functions deployed so far:** `initialize-payment` (Task 33 Part
+  1). **Secrets set so far:** `BPAY_BACKEND_URL`. Any future function
+  (e.g. `korapay-webhook`, Part 1b) or secret (e.g.
+  `KORAPAY_SECRET_KEY`) needs its own explicit `deploy`/`secrets set`
+  call — the CLI does not deploy every function in `supabase/functions/`
+  automatically, and secrets already set don't imply a new one is.
+- **The `/root/mavins-web` clone inside the container needs to be kept
+  in sync separately from Termux's own clone** — `git pull` (or
+  `git am` the relevant patch) *inside* the container before deploying
+  any function whose source changed since that clone was last updated,
+  or the CLI will upload stale code. This bit nothing yet as of this
+  note, but is a real, easy-to-hit gap: a session's patch applied only
+  in Termux does NOT reach `/root/mavins-web` on its own.
 - Migrations specifically need the SQL file placed under
   `supabase/migrations/` with a timestamp-prefixed filename before
   `supabase db push` will pick it up — confirmed working pattern:
@@ -2175,6 +2188,58 @@ session, same one-task-per-session rule as the rest of this file:
    Korapay checkout) — that's still open, and would be a good first
    check whenever Part 2/3 work below touches this flow.
 
+   **1b. Webhook receipt — the gap flagged above, now closed
+   (2026-08-28, this session).** Per the project owner's explicit
+   direction (confirmed in chat): the Edge Function should fully own
+   webhook receipt too, not just payment initiation — closing this
+   gap rather than confirming "keep webhooks on B-Pay-backend
+   permanently" (the other option this file's own note offered).
+   New function: **`supabase/functions/korapay-webhook/index.ts`**.
+   Verifies Korapay's `x-korapay-signature` header (HMAC-SHA256 of
+   `body.data` only, hex-encoded) using the exact same algorithm as
+   B-Pay-backend's own `providers/korapay.js#verifyWebhookSignature`
+   (Task 4 in that repo) — ported to Deno's `node:crypto` import
+   rather than reimplemented from scratch, and re-verified against
+   Node directly before porting (4 cases: valid signature accepted,
+   wrong signature rejected, missing signature rejected, tampered
+   body rejected — all four matched expectation; this sandbox has no
+   Deno runtime to test the actual `.ts` file itself, same limitation
+   Part 1 already hit). On a verified `charge.success` or
+   `charge.failed` event, looks up the matching `payment_sessions` row
+   by `reference` and updates `status` accordingly (idempotent — a
+   row already at `success`/`failed` is left alone on a duplicate
+   delivery) plus stores the raw payload in `provider_response`. Other
+   Korapay event types (`transfer.*`, `refund.*` — real events per
+   B-Pay-backend's Task 4 findings) have no corresponding
+   `payment_sessions` row to update, so they're acknowledged and
+   logged only, matching B-Pay-backend's own webhook route's existing
+   posture for the same events. **Deliberately does NOT call any
+   wallet-crediting logic** — that's Part 2 below, kept as a separate
+   concern/commit on purpose.
+   **New secret needed, not yet set as of this note:**
+   ```
+   supabase secrets set KORAPAY_SECRET_KEY=<same value B-Pay-backend uses> --project-ref atojskxrxfsbpeefigtm
+   ```
+   (see "Supabase CLI workflow" near the top of this file for the full
+   deploy pattern — same `proot-distro` + `/root/mavins-web` path Part
+   1's deploy used). **Also requires a manual step outside any
+   session's reach: re-pointing Korapay's dashboard webhook URL** from
+   wherever it currently points (B-Pay-backend's
+   `/api/webhooks/korapay`) to this new function's URL
+   (`https://atojskxrxfsbpeefigtm.supabase.co/functions/v1/korapay-webhook`,
+   standard Supabase Edge Function URL shape — confirm exact path
+   against the dashboard's own function listing after deploy).
+   **B-Pay-backend's own webhook route is deliberately left in place,
+   not deleted** — it becomes unused once the dashboard URL is
+   repointed, but keeping it costs nothing and preserves a fallback/
+   audit path if the repoint is delayed or needs to be reverted;
+   flagged here rather than silently removed so a future session
+   doesn't wonder why "dead" code is still there.
+   **Deploy + dashboard repoint not done yet as of this note** — same
+   hold pattern as Part 1: a future session should check back here for
+   what the project owner reports before assuming this function is
+   live.
+
 2. **Wallet-balance computation on confirmed webhook** — full amount
    minus platform fee, credited **only for returning users doing a
    top-up**; first-time users who pay directly for a campaign should
@@ -2183,8 +2248,18 @@ session, same one-task-per-session rule as the rest of this file:
    wallet balance on a confirmed deposit webhook — but its own
    write-up doesn't mention a first-time-vs-returning-user distinction
    specifically, so this needs verification against that exact
-   requirement, not a full rebuild from scratch. **Still not started**
-   as of this session — Part 1 above was this session's whole scope.
+   requirement, not a full rebuild from scratch. **Still not started.**
+   **Important, found this session:** that RPC (and the webhook route
+   that calls it, `src/app/api/payments/webhook/route.ts`) reads from
+   a *different*, untracked `payments` table — not `payment_sessions`
+   — and credits unconditionally, with no first-time/returning-user
+   check at all. Part 2 needs to either point the crediting logic at
+   `payment_sessions` instead (now that 1b makes it a reliable source
+   of confirmed status) or explicitly reconcile the two tables — don't
+   build first-timer logic on top of the old `payments` table without
+   addressing that split first, or the drift this project has already
+   hit three times (see Tasks 13/14's own notes) just grows a fourth
+   head.
 3. **Shared user/admin success screen** with an animated
    country-interconnection pipeline visualization (central hub node,
    animated links out to each selected target country) shown on
