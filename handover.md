@@ -86,23 +86,22 @@ session produces more.) A multi-commit mbox file like this applies
 fine with `git am`, in commit order, from one file.
 
 To apply it — including from Termux on mobile, where downloaded files
-typically land under shared storage after `termux-setup-storage`:
+typically land under shared storage after `termux-setup-storage` —
+use the **"Unified hand-off command format"** section below (this is
+now the single source of truth for how every session, in any of the
+three repos, must give this command — kept identical across all three
+repos' handover files; see that section for the full rules, this is
+just the pointer):
 
 ```
-git am ~/storage/downloads/000X-task<N>-combined.patch
+git am ~/storage/downloads/mavins-web-<description>.patch
 git push origin main
 ```
 
-(Adjust the filename to match what was actually generated; run from
-inside the repo's working directory. **The local clone directory for
-this repo is `mavins-web`, lowercase — not `Mavins-web`** — even though
-the GitHub repo name itself is `Zapier-codes/Mavins-web`; `cd
-~/mavins-web` before running the above, not `cd ~/Mavins-web`, or the
-commands will fail with "not a git repository". Correction added this
-session — an earlier session's write-up of this repo's mechanics, both
-here and copied into B-Pay-backend's own `handover.md`, incorrectly
-implied no push step existed and used the GitHub-repo casing for the
-local folder name; both are now fixed.)
+(This repo's slug for patch filenames is `mavins-web` — see "Unified
+hand-off command format" for the exact naming rule and how to chain
+this with another repo's commands in one line when a session touches
+more than one repo.)
 
 ---
 
@@ -143,11 +142,63 @@ don't assume it matches the GitHub repo's own `Mavins-web` casing.
   fork→PR flow (commit → patch → human `git am` + `git push
   origin main` → auto-joins one open PR against upstream). See that
   repo's own `handover.md` for full detail.
-- **`Velune`** — `https://github.com/Zapier-codes/Velune` — no
-  `handover.md` exists there yet as of this note (B-Pay-backend's own
-  Task 22 is the investigation task that creates it). Once created, it
-  should carry this same "Sibling repos" block with its own mechanics
-  filled in.
+- **`Velune`** — `https://github.com/Zapier-codes/Velune` — campaign
+  work tracked in that repo's `HANDOVER_CAMPAIGN.md` (not `HANDOVER.md`,
+  an unrelated EQ/DSP subsystem in the same app) — not a fork, direct
+  push to `main`, local clone directory `Velune` (matches GitHub
+  casing).
+
+---
+
+## Unified hand-off command format — MANDATORY, every session, all three repos
+
+**Kept identical across all three repos' handover files — this repo's
+copy, B-Pay-backend's own `handover.md`, and Velune's
+`HANDOVER_CAMPAIGN.md` should all read the same here. If you edit this
+section, copy the same edit into the other two in the same session**
+(same rule this project already applies to the "Sibling repos" block
+above).
+
+Whenever a session finishes work — in this repo alone, or this one
+plus another — the final message must end with **one single,
+copy-pasteable, `&&`-chained command line** covering every repo
+touched this session, nothing else. Never separate blocks per repo,
+never prose interleaved between repos, never a bare `git am` without
+its `git push` right after it:
+
+```
+cd ~/<repo-1-local-dir> && git am ~/storage/downloads/<repo-1-slug>-<description>.patch && git push origin main && cd ~/<repo-2-local-dir> && git am ~/storage/downloads/<repo-2-slug>-<description>.patch && git push origin main
+```
+
+Extend with more `&& cd ~/<repo> && git am ... && git push ...`
+segments for however many repos were actually touched. A single-repo
+session still uses this exact shape — just a one-segment chain, not a
+different/shorter format.
+
+**Fixed rules:**
+1. Patch filenames: always `<repo-slug>-<short-description>.patch`,
+   lowercase-hyphenated. Fixed slugs: `mavins-web`, `b-pay-backend`,
+   `velune`.
+2. `cd` targets use each repo's **real local folder name/casing**,
+   which is NOT always the slug or the GitHub name:
+   - Mavins-web → `cd ~/mavins-web` (lowercase — GitHub repo is
+     capitalized `Zapier-codes/Mavins-web`, the local clone is not)
+   - B-Pay-backend → `cd ~/B-PAY-backend` (matches GitHub casing)
+   - Velune → `cd ~/Velune` (matches GitHub casing)
+3. Every repo segment gets its own `git push origin main` right after
+   its own `git am` — never batch every `git am` first and push once
+   at the end.
+4. All three currently push the same way (`git push origin main`) —
+   B-Pay-backend's still auto-joins its open upstream PR on push, no
+   extra command. If any repo's push mechanics ever change, update
+   this section (in all three files) and that repo's "Sibling repos"
+   entry together.
+5. Nothing between or after the chain — explanatory prose goes before
+   this command block, never interleaved with or appended after it.
+
+See B-Pay-backend's own `handover.md` → "Unified hand-off command
+format" for the full original write-up with complete rationale for
+each rule — this is the same content, kept in sync.
 
 ---
 
