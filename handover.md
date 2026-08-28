@@ -3,16 +3,19 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Next task: Task 29, in THIS repo (mavins-web).** Jump to
-> `## Task 29` further down.
+> **Next task: Task 30, in THIS repo (mavins-web).** Jump to
+> `## Task 30` further down. (Task 29 is done — the reconciliation it
+> was blocked on is committed in `81aa036`.)
 >
 > **Full cross-repo status, as of this note:**
-> - **mavins-web** (this repo) — next: **Task 29**
-> - **B-Pay-backend** — next: **none currently unblocked.** "Korapay
->   only" focus is active (waiting on API keys for the other three
->   providers); everything Korapay-eligible is done. Remaining open
->   tasks there either need those keys or are blocked on this repo's
->   Task 29/32/33 below.
+> - **mavins-web** (this repo) — next: **Task 30**
+> - **B-Pay-backend** — next: **Task 9b is now unblocked** (Task 29's
+>   reconciled `src/lib/currency/countryCurrency.ts` in this repo is
+>   the real currency list that task needed to pull into
+>   `getAmountFormat`). Otherwise still: none currently unblocked
+>   beyond that. "Korapay only" focus is active (waiting on API keys
+>   for the other three providers); everything Korapay-eligible is
+>   done.
 > - **Velune** — next: **see `HANDOVER_CAMPAIGN.md` → "8. Not done /
 >   open"** in that repo. No numbered task queue there (different
 >   convention, established by that repo's own sessions — don't
@@ -1909,34 +1912,32 @@ behavior unchanged. Verified via `npx tsc --noEmit` → clean.
 
 ---
 
-## Task 29 — Reconcile `TARGET_COUNTRIES` vs `COUNTRY_CURRENCY` into one source of truth [ ]
+## Task 29 — Reconcile `TARGET_COUNTRIES` vs `COUNTRY_CURRENCY` into one source of truth [x]
 
 **Migrated from B-Pay-backend's own `handover.md` (that repo's Task
 18) — that repo's copy is now historical only; this is the real,
-active copy.** `TARGET_COUNTRIES` (`src/lib/campaign/geoAffinity.ts`)
-and `COUNTRY_CURRENCY` (`src/app/promote/page.tsx`) should probably be
-the same list, or one should clearly be a documented superset of the
-other. As of B-Pay-backend's last check (cross-referenced directly
-against this repo, not from memory): `TARGET_COUNTRIES` has grown to
-25 entries (via this repo's own Task 23, a country-*targeting-pool*
-change, unrelated to currency), `COUNTRY_CURRENCY` is still the
-original 20-entry list, and the two now overlap on only 12 country
-codes. `TARGET_COUNTRIES` has 13 codes `COUNTRY_CURRENCY` doesn't (FR,
-DE, JM, NL, CI, SN, TZ, UG, EG, ES, IT, SE, KR); `COUNTRY_CURRENCY` has
-9 codes not in `TARGET_COUNTRIES` at all (EU, PK, BD, ID, PH, MY, SG,
-SA, TR — look like a leftover generic currency-conversion list,
-unrelated to campaign targeting).
+active copy.**
 
-**This blocks two things directly:** B-Pay-backend's own Task 9b
-(pulling a real currency list into that repo's `getAmountFormat`
-helper) and this file's Task 30 below — both are stuck until this
-task produces one reconciled list. Whichever list ends up authoritative
-should also get cross-checked against Korapay's actual supported-currency
-list (`src/lib/currency/korapayDccCurrency.ts`'s own doc comment names
-the confirmed set: NGN, GHS, KES, ZAR, USD, XAF, XOF, EGP, TZS) — a
-country on the reconciled list whose currency Korapay can't actually
-convert to is a real gap to flag back to the product owner, not
-something to silently paper over.
+**Done in commit `81aa036`.** New `src/lib/currency/countryCurrency.ts`
+is keyed 1:1 with `TARGET_COUNTRIES` (the authoritative list) and
+nothing else — `promote/page.tsx`'s separate 20-entry `COUNTRY_CURRENCY`
+(9 codes never targeting-relevant, 13 missing entirely) is gone,
+replaced with an import. Includes a dev-time console.warn that fires
+if a future `TARGET_COUNTRIES` addition doesn't get a matching
+currency entry, so this can't silently drift again. Verified
+programmatically: all 25 codes present on both sides, zero gap.
+
+Cross-checked against Korapay's real DCC-supported currency set
+(`korapayDccCurrency.ts`) as required — **the real gap, flagged, not
+papered over: only 8 of the 25 target countries (NG, GH, KE, ZA, EG,
+TZ, CI, SN) can actually be charged in local currency via Korapay DCC
+today.** The other 17 (US, GB, FR, DE, IN, BR, JM, CA, AE, NL, UG, MX,
+ES, IT, AU, SE, KR) show an informational currency estimate on the
+pricing card but are still charged in NGN/USD at checkout — closing
+that gap needs either Korapay adding DCC support for more currencies,
+or a second payment provider for those markets. This is exactly what
+Task 30 below needs to route around. New `isKorapayDccEligible()`
+helper exported for that.
 
 ---
 
