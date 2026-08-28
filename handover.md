@@ -46,21 +46,32 @@
 > every reader already treats that as a 0 balance. See Task 37's own
 > note for detail — nothing to build there.
 >
-> **Next task: hold — Task 33 Part 1b (webhook receipt, new
-> `korapay-webhook` Edge Function) is done in code but NOT YET
-> DEPLOYED, and Korapay's dashboard webhook URL has NOT YET been
-> re-pointed at it.** Both are project-owner-only steps (Supabase CLI
-> deploy + a dashboard setting) — see Task 33's own "1b" note below for
-> the deploy command (including the new `KORAPAY_SECRET_KEY` secret)
-> and the exact repoint needed. **The next session should check what
-> the project owner reports before doing anything else here** — same
-> pattern as Part 1's own hold: if the deploy + repoint worked, move on
-> to Part 2 (wallet-crediting, which 1b's note flags as needing a
-> `payments`-vs-`payment_sessions` reconciliation first, and which
-> **Task 40 below now gives the exact fee-arithmetic rule for**: the
-> Edge Function computes the 5% deposit deduction itself and hands the
-> RPC a plain net number — the RPC must not do any math); if something
-> failed, fix the actual reported error rather than re-guessing blind.
+> **Next task: NEW Task 41 — central webhook gateway, needed before
+> Task 33 Part 1b's dashboard repoint can happen at all.** Task 33
+> Part 1b's Edge Function deploy is now confirmed done (project owner,
+> this session) and `KORAPAY_SECRET_KEY` still needs setting per that
+> task's own instruction — **but do NOT re-point Korapay's dashboard
+> webhook URL at this repo's function directly, that plan is
+> superseded.** Korapay only accepts one webhook URL account-wide, and
+> the product owner is building multiple other multi-tenant apps that
+> will also need Korapay webhooks — so a shared gateway has to sit in
+> front of every app's own receiver, this one included, before any
+> dashboard repoint happens. **See Task 41 below for the full
+> recommended design** (reference-prefix tenant routing, per-app
+> internal forwarding secrets, persist-then-forward durability) and
+> its two open decisions the product owner still needs to confirm:
+> where the gateway lives (B-Pay-backend vs. a new dedicated repo —
+> B-Pay-backend recommended by default), and this app's own reference
+> prefix (`MAVW-` proposed). Once Task 41 is built, Task 33 Part 1b's
+> repoint step targets the gateway, and Part 2 (wallet-crediting) can
+> proceed behind it exactly as already planned — Part 2's own
+> requirements are unchanged by this, only *what Korapay's dashboard
+> points at* changes. **Task 40 below gives the exact fee-arithmetic
+> rule for Part 2** once it's reachable: the Edge Function computes the
+> 5% deposit deduction itself and hands the RPC a plain net number —
+> the RPC must not do any math. **The next session's actual next step
+> is Task 41's two open decisions**, not code — check with the product
+> owner before building the gateway itself.
 >
 > **Task group Tasks 34–40 (wallet crediting/debiting + fee +
 > first-timer-vs-returning-user spec) — Tasks 34, 38, 39 now done,
@@ -2341,6 +2352,25 @@ session, same one-task-per-session rule as the rest of this file:
    what the project owner reports before assuming this function is
    live.
 
+   **Superseded, this session — do NOT repoint Korapay's dashboard at
+   this function directly, see Task 41.** The Edge Function itself is
+   confirmed deployed (project owner, this session). But the plan of
+   pointing Korapay's one account-wide webhook URL straight at it only
+   ever worked because this was assumed to be the only app needing
+   Korapay webhooks. The product owner is now building multiple other
+   multi-tenant apps that will also need Korapay webhooks, and Korapay
+   allows exactly one URL account-wide — so a shared gateway has to
+   sit in front of every app's own receiver, this one included. Task
+   41 owns designing/building that gateway. Once it exists, the
+   remaining repoint step here changes from "point Korapay at this
+   function's URL" to "point Korapay at the gateway; the gateway
+   forwards to this function." **`KORAPAY_SECRET_KEY` still needs
+   setting per this note's own earlier instruction regardless** — the
+   gateway question doesn't block that — but the actual dashboard URL
+   change should target the gateway, not this function, once Task 41
+   lands. See Task 41 for full detail, including what changes in this
+   function's own signature-verification once that repoint happens.
+
 2. **Wallet-balance computation on confirmed webhook** — full amount
    minus platform fee, credited **only for returning users doing a
    top-up**; first-time users who pay directly for a campaign should
@@ -2959,6 +2989,116 @@ explicitly deferred, not part of this task's scope:**
   integration will be addressed later ("we will update that too") —
   not in scope for this task or Task 35, just noted here so a future
   session doesn't assume it's already wired or forget it's coming.
+
+---
+
+## Task 41 — Korapay's one-webhook-URL-per-account limit vs. multiple multi-tenant apps: central webhook gateway [ ]
+
+**Ask, from the product owner directly:** Korapay's dashboard has
+exactly one slot for a webhook URL — pointing it at a second app's
+endpoint silently replaces the first, it doesn't add a second
+destination. The product owner is building multiple other apps beyond
+this one, each multi-tenant in its own right, and all of them will
+need to receive Korapay webhook events. Every app registering its own
+URL directly isn't possible — need one professional, durable way to
+receive Korapay's single webhook stream and correctly route each event
+to whichever app actually owns it.
+
+**Directly affects Task 33 Part 1b, this repo — see the note added to
+that task's own section, same session.** The plan there was "re-point
+Korapay's dashboard webhook URL at this repo's own `korapay-webhook`
+Edge Function." That's no longer correct on its own: this repo can't
+be the only thing Korapay's one URL points at once other apps exist
+too. This task is what that repoint step is now blocked on.
+
+**Recommended architecture — a central webhook gateway in front of
+every app's own receiver, not each app registering with Korapay
+directly:**
+
+1. **Exactly one endpoint is ever registered in Korapay's dashboard —
+   the gateway.** Every app-specific webhook handler (this repo's
+   `korapay-webhook` included) becomes an internal-only downstream
+   target that Korapay itself never calls directly again.
+
+2. **The gateway verifies Korapay's `x-korapay-signature` exactly
+   once.** Downstream apps stop verifying it themselves (they can't —
+   Korapay never calls them) and instead trust the gateway's own
+   internal forwarding signature (point 4 below). This is also a nice
+   simplification: `KORAPAY_SECRET_KEY` only needs to live in one
+   place going forward, not copied into every app's own secrets.
+
+3. **Tenant routing, recommended approach — a reference-prefix
+   convention, not a database lookup.** Every app prefixes the
+   payment references *it* generates with a short, unique app code
+   before handing them to Korapay at charge-initialization time — e.g.
+   `MAVW-<rest>` for this app, a different 4-letter code per future
+   app. The gateway reads `data.reference` off the incoming webhook,
+   splits off the prefix, and looks it up in a small static routing
+   table (app code → internal forward URL + that app's own internal
+   forwarding secret). No shared database between apps required, no
+   cross-tenant data exposure, no extra round-trip. **Do not build
+   metadata-based routing as the primary mechanism** — Korapay's own
+   docs need checking to confirm `metadata` is reliably echoed back on
+   every relevant webhook event type before depending on it for
+   anything more than a defensive fallback.
+
+4. **Forwarding is signed with a per-app internal secret, never
+   Korapay's own secret.** Each app's webhook receiver verifies that
+   internal signature instead of a raw Korapay one. This keeps a
+   compromised app's secret from being usable to forge events for a
+   *different* app, and keeps `KORAPAY_SECRET_KEY` itself confined to
+   the gateway alone.
+
+5. **Persist-then-forward, for durability — don't let a downstream
+   app's downtime cause a lost event.** The gateway records the
+   verified event (raw payload, parsed reference, resolved tenant)
+   *before* attempting to forward it, and only returns `200` to
+   Korapay once that record is durably written — not once the
+   downstream forward succeeds. A lightweight retry (cron or queue)
+   redelivers from the gateway's own store if a forward attempt fails,
+   rather than depending on Korapay's own retry behavior for
+   correctness (that's outside anyone's control here and shouldn't be
+   load-bearing).
+
+6. **Idempotency at both hops.** The gateway dedupes on something like
+   `(korapay event id, or reference + event type)` so a Korapay retry
+   doesn't cause a double-forward; each downstream app's own receiver
+   stays idempotent too as defense in depth — `korapay-webhook`
+   (Task 33 Part 1b) already has this property (a row already at
+   `success`/`failed` is left alone on redelivery), which carries over
+   unchanged.
+
+**Where the gateway itself should live — flagging as an explicit,
+undecided call for the product owner rather than assuming either
+way:**
+- **Option A — B-Pay-backend becomes the gateway.** It already holds
+  the Korapay credentials, is already a shared (not mavins-web-
+  specific) payment backend by name and design, and already has a
+  webhook route this could evolve from. Simplest option if
+  B-Pay-backend is meant to be shared payment infrastructure for every
+  app long-term — one Korapay integration, one place.
+- **Option B — a new, dedicated micro-service/repo** (e.g.
+  `webhook-gateway`) whose only job is verify → route → forward,
+  nothing else. Cleaner separation if B-Pay-backend is meant to stay
+  narrower (mavins-web-specific business logic) rather than becoming
+  general-purpose infra, or if some future app won't otherwise talk to
+  B-Pay-backend at all.
+
+Recommend **Option A** as the default unless the product owner wants
+B-Pay-backend's scope kept narrower than "shared payment infra for
+every app" — needs a one-line confirmation either way before building
+starts, same as this file's convention for any real architectural
+fork.
+
+**Not started.** Blocks: the "repoint Korapay's dashboard URL" step
+still open in Task 33 Part 1b (this repo) — that step now targets the
+gateway once it exists, not this repo's Edge Function directly.
+**Needs product owner confirmation on:** (a) gateway location (Option
+A vs B above), (b) the reference-prefix convention and this app's own
+assigned prefix (`MAVW-` proposed, not yet confirmed), (c) whether
+B-Pay-backend's existing webhook-verification code is the right
+starting template regardless of which option is chosen for where the
+gateway lives.
 
 ---
 
