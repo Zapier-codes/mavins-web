@@ -109,6 +109,40 @@ export async function POST(request: NextRequest) {
 
     const pricing = calculatePricing(body.viewCount);
 
+    // Product-owner rule, this session: a duplicate campaign for the
+    // SAME link is not allowed, but multiple campaigns for multiple
+    // DIFFERENT links are fine — an artist can run several campaigns
+    // at once, just never two for the same source_url simultaneously.
+    // Checked BEFORE any wallet debit, so a rejected duplicate never
+    // charges the artist.
+    //
+    // Verified finding, this session: the schema's existing
+    // `one_active_campaign_per_track UNIQUE (track_id, is_active)`
+    // constraint does NOT actually enforce this in practice — this
+    // route (and, per this same finding, Task 36 Part 2's webhook
+    // path) never sets `track_id` on insert, so it's always NULL, and
+    // Postgres treats every NULL as distinct from every other NULL in
+    // a UNIQUE constraint — any number of NULL-track_id rows can
+    // coexist regardless of `is_active`. This check is a genuine new
+    // enforcement, not a duplicate of an existing one; scoped to
+    // `source_url` (what's actually populated) rather than `track_id`
+    // (what the DB constraint checks but nothing sets).
+    const { data: existingActive } = await admin
+      .from('track_campaigns')
+      .select('id')
+      .eq('artist_id', authUser.id)
+      .eq('source_url', body.sourceUrl)
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle();
+
+    if (existingActive) {
+      return NextResponse.json(
+        { success: false, error: 'You already have an active campaign for this link. Wait for it to finish, or cancel it, before starting another for the same link.' },
+        { status: 400 }
+      );
+    }
+
     // Reference for this debit attempt's idempotency key -- see
     // debitWalletForCampaign's own comment for why this isn't the
     // campaign's row id (doesn't exist yet at this point).

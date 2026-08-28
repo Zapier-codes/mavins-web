@@ -54,6 +54,20 @@
 // which is already the correct behavior for a direct-campaign-payment
 // session, not something that type will need to separately request.
 //
+// Task 36 Part 2 (this session): the "later" above has arrived --
+// metadata.type === 'campaign_direct' (written by
+// api/payments/initialize-campaign/route.ts, Task 36 Part 1) now
+// creates the users row (Task 37, via resolveOrCreateGuestUserId,
+// same function the top-up path already used) + track_campaigns row
+// directly on a successful payment, reading the full campaign/pricing
+// snapshot back out of session.metadata.campaign. No wallet RPC is
+// ever called on this path -- see createDirectCampaign() below and
+// Task 36's own "no wallet crediting happens for a direct campaign,
+// ever" rule. Also carries the same duplicate-campaign-per-link check
+// this session added to create/route.ts (see createDirectCampaign's
+// own comment for why it can't reject-before-charging the way that
+// route can).
+//
 // Per Supabase's own current guidance (supabase.com/docs/guides/
 // ai-tools/ai-prompts/edge-functions, same source initialize-payment's
 // own header cites): Deno.serve() directly, `jsr:`/`npm:`/`node:`
@@ -195,6 +209,82 @@ async function creditDeposit(
 
   const row = Array.isArray(data) ? data[0] : data;
   return { credited: !!row?.credited, newBalanceCents: row?.new_balance_cents ?? null };
+}
+
+// Task 36 Part 2 (handover.md): mirrors create/route.ts's
+// track_campaigns insert shape exactly (same field set, same
+// defaults) — deliberately NOT a new/different shape, so a campaign
+// created via this direct-pay path is indistinguishable in structure
+// from one created via the authenticated wallet-debit path. The one
+// real difference: total_budget_cents/pricing come from the snapshot
+// taken at Part 1 initiation time (session.metadata.campaign.pricing),
+// never recomputed here — see initialize-campaign/route.ts's own
+// header comment for why a snapshot, not a live recompute, is
+// deliberate.
+//
+// No wallet touched anywhere in this function — Task 36's explicit,
+// unconditional rule for a direct-pay campaign. Compare to
+// creditDeposit() above, which this function never calls.
+async function createDirectCampaign(
+  supabase: any,
+  params: { artistId: string; campaign: Record<string, any> },
+): Promise<{ created: boolean; campaignId: string | null; duplicate: boolean }> {
+  const { sourceUrl, geographicTier, targetCountries, genre, pricing } = params.campaign || {};
+
+  if (!sourceUrl || !pricing) {
+    throw new Error('createDirectCampaign: session.metadata.campaign is missing sourceUrl or pricing');
+  }
+
+  // Same duplicate-link rule as create/route.ts (added this same
+  // session) — a guest's very first campaign essentially never
+  // collides with this in practice (nothing to be a duplicate OF
+  // yet), but this covers the narrow race of two concurrent checkout
+  // sessions for the same link/email landing within moments of each
+  // other. Unlike create/route.ts, this can't reject-before-charging
+  // — Korapay payment has already succeeded by the time this function
+  // runs (that's the whole point of a webhook). Deliberately does NOT
+  // attempt a refund here (a direct-pay campaign never touches
+  // credit_wallet_refund or any wallet RPC, matching Task 36's rule,
+  // and a real gateway-level refund call is out of scope for this
+  // function) — instead still creates the campaign the guest already
+  // paid for, and returns duplicate: true purely for logging, so
+  // there's a signal a future session can use to build a proper
+  // refund-and-notify path if this ever actually fires in practice.
+  const { data: existingActive } = await supabase
+    .from('track_campaigns')
+    .select('id')
+    .eq('artist_id', params.artistId)
+    .eq('source_url', sourceUrl)
+    .eq('is_active', true)
+    .limit(1)
+    .maybeSingle();
+
+  const { data: inserted, error: insertError } = await supabase
+    .from('track_campaigns')
+    .insert({
+      source_url: sourceUrl,
+      artist_id: params.artistId,
+      // Same Task 40/35 rule as create/route.ts: subtotal only, fee
+      // excluded — the snapshot already carries both figures
+      // separately (see initialize-campaign/route.ts), so this reads
+      // subtotalCents directly rather than re-deriving it from
+      // totalCostCents/platformFeePercent.
+      total_budget_cents: pricing.subtotalCents ?? 0,
+      spent_cents: 0,
+      geographic_tier: geographicTier || 'local',
+      target_countries: targetCountries || [],
+      target_genres: genre ? [genre] : [],
+      current_stage: 'planting',
+      is_active: true,
+      is_paused: false,
+      total_streams: 0,
+    })
+    .select('id')
+    .single();
+
+  if (insertError) throw insertError;
+
+  return { created: true, campaignId: inserted.id, duplicate: !!existingActive };
 }
 
 Deno.serve(async (req: Request) => {
@@ -339,20 +429,26 @@ Deno.serve(async (req: Request) => {
   // Task 33 Part 2c: only a genuine top-up session should ever reach
   // the crediting call. `metadata.type` is set at write time by
   // /api/payments/initialize/route.ts -- 'wallet_topup' (authenticated)
-  // or 'wallet_topup_guest' (guest). Any other/absent type (including
-  // a future direct-campaign-payment session type, Tasks 36/37) must
-  // never credit a wallet at all -- that's this task's whole point,
-  // not an oversight if a future type is added and this list isn't
-  // updated to include it: the safe default is "don't credit", so a
-  // new type simply not crediting until explicitly added here is the
-  // correct failure mode, not a bug to fix reactively.
+  // or 'wallet_topup_guest' (guest). Any other/absent type must never
+  // credit a wallet at all -- that's this task's whole point, not an
+  // oversight if a future type is added and this list isn't updated to
+  // include it: the safe default is "don't credit", so a new type
+  // simply not crediting until explicitly added here is the correct
+  // failure mode, not a bug to fix reactively.
   const TOP_UP_TYPES = new Set(['wallet_topup', 'wallet_topup_guest']);
   const isTopUp = TOP_UP_TYPES.has(session.metadata?.type);
+  // Task 36 Part 2 (this session): the type Part 2c's comment above
+  // named as the intended future extension point. A successful
+  // payment of this type creates the campaign directly -- no wallet
+  // touched at all, per Task 36's explicit rule (compare to the
+  // isTopUp branch below, which is the only path that ever calls
+  // creditDeposit).
+  const isDirectCampaign = session.metadata?.type === 'campaign_direct';
 
-  if (newStatus === 'success' && !isTopUp) {
+  if (newStatus === 'success' && !isTopUp && !isDirectCampaign) {
     console.log(
       `korapay-webhook: reference '${reference}' succeeded but metadata.type ` +
-      `('${session.metadata?.type}') is not a top-up type -- skipping wallet credit by design.`,
+      `('${session.metadata?.type}') is not a recognized type -- skipping by design.`,
     );
   }
 
@@ -379,6 +475,46 @@ Deno.serve(async (req: Request) => {
       // block for the full reasoning.
       console.error(`korapay-webhook: FAILED to credit deposit for reference '${reference}'`, creditError);
       return jsonResponse({ error: 'Failed to credit deposit' }, 500);
+    }
+  }
+
+  // Task 36 Part 2 -- same ordering reasoning as the isTopUp branch
+  // above and the same reason: do this BEFORE payment_sessions.status
+  // ever reaches 'success', so a failure here (guest account creation,
+  // the campaign insert, anything) leaves the row retryable instead of
+  // permanently stuck 'success' with no campaign to show for it. No
+  // idempotency guard is needed on the insert itself the way
+  // credit_wallet_deposit has one built in (migration 004's unique
+  // index) -- the outer status short-circuit above is what prevents a
+  // duplicate campaign from a retried webhook delivery for the SAME
+  // reference; a genuinely new payment for the same link is the
+  // duplicate-link check inside createDirectCampaign's own job, not
+  // this one's.
+  if (newStatus === 'success' && isDirectCampaign) {
+    try {
+      const artistId = session.user_id ?? (await resolveOrCreateGuestUserId(supabase, session.customer_email));
+
+      const { campaignId, duplicate } = await createDirectCampaign(supabase, {
+        artistId,
+        campaign: session.metadata?.campaign,
+      });
+
+      if (duplicate) {
+        // Logged loudly on purpose -- see createDirectCampaign's own
+        // comment for why this still creates the campaign rather than
+        // rejecting/refunding, and why a future session should build
+        // real refund-and-notify handling if this ever actually fires.
+        console.error(
+          `korapay-webhook: reference '${reference}' created campaign '${campaignId}' for artist ` +
+          `'${artistId}' who ALREADY had an active campaign for the same source_url -- ` +
+          `duplicate-link rule violated post-payment, needs manual follow-up.`,
+        );
+      }
+
+      console.log(`korapay-webhook: created direct-pay campaign '${campaignId}' for reference '${reference}', artist '${artistId}'`);
+    } catch (campaignError) {
+      console.error(`korapay-webhook: FAILED to create direct-pay campaign for reference '${reference}'`, campaignError);
+      return jsonResponse({ error: 'Failed to create campaign' }, 500);
     }
   }
 
