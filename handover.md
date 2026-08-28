@@ -63,16 +63,26 @@
 > reminder of what to re-check if this ever regresses (a future
 > `git push` to that function without a matching redeploy).
 >
-> **Next task, unambiguously now: Task 33 Part 2 (wallet-crediting).**
-> That's what this entire gateway chain (Tasks 33 Part 1b → 41 → 42)
-> was built to unblock, and it's now genuinely startable, not just one
-> step closer. **Task 40 below gives the exact fee-arithmetic rule for
-> Part 2**: the Edge Function computes the 5% deposit deduction itself
-> and hands the RPC a plain net number — the RPC must not do any math.
-> Task 35's own remaining work (the 5% deduction itself, which still
-> doesn't exist in code anywhere) is tightly coupled to Part 2's
-> implementation per that same rule — likely the same session ends up
-> doing both rather than treating them as fully separable.
+> **Next task, unambiguously now: Task 33 Part 2b (wallet-crediting,
+> continued).** Part 2a is done this session (2026-08-28) — see that
+> task's own note for the full audit and cleanup: removed two parallel
+> non-webhook crediting paths that violated "wait on webhook status
+> before crediting," deleted the now-fully-dead `korapay.service.ts`
+> (including a dangerous always-`true` webhook-signature stub), and
+> `payment_sessions` (written only by the webhook Edge Function) is now
+> the single source of truth for payment status project-wide. **Net
+> effect: this app currently credits ZERO deposits, for anyone** —
+> correct and intentional post-2a, not a regression; 2b is what
+> restores crediting, from the one place it should ever happen. Part 2
+> was split into 2a/2b/2c/2d this session — see Task 33's own entry for
+> what each covers; only 2a is done. **Task 40 below gives the exact
+> fee-arithmetic rule 2b must follow**: the Edge Function computes the
+> 5% deposit deduction itself and hands the RPC a plain net number —
+> the RPC must not do any math. Task 35's own remaining work (the 5%
+> deduction itself, which still doesn't exist in code anywhere) is
+> tightly coupled to 2b's implementation per that same rule — likely
+> the same session ends up doing both rather than treating them as
+> fully separable.
 >
 > **Task group Tasks 34–40 (wallet crediting/debiting + fee +
 > first-timer-vs-returning-user spec) — Tasks 34, 38, 39 now done,
@@ -116,9 +126,8 @@
 > that fix directly, not re-investigate from scratch.
 >
 > **Full cross-repo status, as of this note:**
-> - **mavins-web** (this repo) — next: **confirm the two `supabase
->   secrets set` / `supabase functions deploy` commands above have
->   succeeded, then Task 33 Part 2** (wallet-crediting — see above).
+> - **mavins-web** (this repo) — next: **Task 33 Part 2b** (wallet-
+>   crediting, continued — see above; 2a done this session).
 > - **B-Pay-backend** — next: **Task 9b** (Task 29's
 >   reconciled `src/lib/currency/countryCurrency.ts` feeding
 >   `getAmountFormat`) — no other unblocked work in that repo's own
@@ -2375,23 +2384,140 @@ session, same one-task-per-session rule as the rest of this file:
 2. **Wallet-balance computation on confirmed webhook** — full amount
    minus platform fee, credited **only for returning users doing a
    top-up**; first-time users who pay directly for a campaign should
-   see no wallet balance change, ever. **Partially covered already:**
-   Task 13 (`[x]`, this file) implemented an RPC that auto-credits the
-   wallet balance on a confirmed deposit webhook — but its own
-   write-up doesn't mention a first-time-vs-returning-user distinction
-   specifically, so this needs verification against that exact
-   requirement, not a full rebuild from scratch. **Still not started.**
-   **Important, found this session:** that RPC (and the webhook route
-   that calls it, `src/app/api/payments/webhook/route.ts`) reads from
-   a *different*, untracked `payments` table — not `payment_sessions`
-   — and credits unconditionally, with no first-time/returning-user
-   check at all. Part 2 needs to either point the crediting logic at
-   `payment_sessions` instead (now that 1b makes it a reliable source
-   of confirmed status) or explicitly reconcile the two tables — don't
-   build first-timer logic on top of the old `payments` table without
-   addressing that split first, or the drift this project has already
-   hit three times (see Tasks 13/14's own notes) just grows a fourth
-   head.
+   see no wallet balance change, ever. **Split into four parts this
+   session, per explicit product-owner direction: wallet crediting
+   must wait on webhook-confirmed status before ever crediting, and
+   every redundant/parallel ("survival") path that could independently
+   decide a payment succeeded must be removed — one source of truth
+   only. Only Part 2a is done; 2b/2c/2d are still open, in that
+   order.**
+
+   **Audit finding that drove this split (2026-08-28):** going in to
+   scope Part 2, found the codebase already had **two live, parallel,
+   non-webhook crediting paths**, neither of which the original Part 2
+   text above had accounted for:
+   - `src/app/api/payments/webhook/route.ts` — an old Next.js webhook
+     receiver, now fully superseded by
+     `supabase/functions/korapay-webhook/index.ts` (Part 1b) and
+     unreachable in the current architecture (Korapay's dashboard
+     points at the B-Pay-backend gateway, Task 41/42, which forwards to
+     the Supabase Edge Function, never to this Next.js route). Read/
+     wrote a `payments` table that `src/app/api/payments/initialize/
+     route.ts` stopped writing to entirely back in Part 1 — meaning
+     every lookup in this route against a payment initiated by the
+     current flow would find nothing, silently no-op.
+   - `src/app/api/payments/verify/[reference]/route.ts` — the route the
+     browser lands on after checkout. This one WAS reachable, and did
+     three things this task's "wait on webhook status" rule forbids:
+     called Korapay directly (via the B-Pay-backend proxy) to ask
+     "did this succeed?" instead of reading the webhook-confirmed
+     status; credited the wallet itself based on that direct-call
+     answer (`credit_wallet_deposit`, same RPC the webhook route also
+     called — so two different code paths could each independently
+     decide to credit the same payment, racing each other, protected
+     only by the RPC's idempotency key rather than there being one
+     decision-maker); and separately resolved/created a guest account
+     and called `creditWalletTopUp` for the guest case, a THIRD
+     crediting entry point. In practice this route's crediting was
+     already silently broken for any payment on the current flow too —
+     same root cause, it read the same abandoned `payments` table
+     (`existing?.user_id` was always `undefined`, so the credit
+     `if` block never fired) — but the direct-provider-call pattern and
+     the multiple-crediting-entry-points problem were real regardless
+     of whether they currently happened to fire.
+
+   **2a. Single source of truth — remove every non-webhook crediting/
+   verification path. [x] Done this session.**
+   - **Deleted** `src/app/api/payments/webhook/route.ts` entirely (dead
+     table, unreachable route, fully superseded by Part 1b).
+   - **Rewrote** `src/app/api/payments/verify/[reference]/route.ts`
+     into a pure read: looks up `payment_sessions` (not `payments`) by
+     `reference`, and redirects based on `status` alone —
+     `'success'` → redirect to the caller's `redirect` param (no
+     crediting here, that's 2b's job on the webhook side);
+     `'failed'` → error redirect; `'pending'`/`'checkout_created'`
+     (webhook hasn't landed yet) → an informational "still confirming"
+     redirect, explicitly NOT a live Korapay call to resolve it faster.
+     No provider calls, no wallet writes, no guest-account creation
+     anywhere in this route anymore.
+   - **Deleted** `src/services/payment/korapay.service.ts` entirely —
+     confirmed via grep it was already 100% unused elsewhere
+     (`initializeCharge`/`initializePayment`, per the file's own prior
+     header comment) or about to become unused once the verify-route
+     rewrite above landed (`verifyCharge`/`getChargeStatus`). Also
+     removes `verifyWebhookSignature`, a stub that **unconditionally
+     returned `true`** — a real landmine that could have silently
+     accepted a forged webhook if anything had ever called it; nothing
+     did, but leaving a live always-true signature check lying around
+     unused is exactly the kind of dormant "survival approach" this
+     task's own mandate is about removing before it gets wired in by
+     accident.
+   - **NOT touched, on purpose:** `resolveOrCreateGuestAccount`/
+     `creditWalletTopUp` in `src/lib/auth/guestCheckout.ts` — these
+     lost their only caller (the old verify route) and are temporarily
+     unused project-wide, but they are NOT dead code the way
+     `korapay.service.ts` was. They're exactly what 2b needs to call
+     from the webhook-triggered path. **Do not delete them** — a future
+     session doing a "remove unused code" pass should check this note
+     first.
+   - **NOT touched, flagged instead:** the `payments` table itself
+     still exists in the live database, just unread/unwritten by any
+     app code now. Dropping it is a separate, destructive schema
+     decision (data retention) — out of scope for this cleanup, a
+     future session/product-owner call.
+   - Verified: `npx tsc --noEmit` clean. Grepped the whole repo after
+     the change for `.from('payments')`, the deleted webhook route's
+     path, and `korapay.service` — zero real hits, only a few doc-
+     comment mentions of the deleted files left as historical context
+     (in `initialize/route.ts` and `supabase/functions/
+     initialize-payment/index.ts`), which don't affect behavior.
+   - **After 2a, this app credits ZERO deposits, for anyone, under any
+     circumstance** — that's intentional, not a regression: it's
+     strictly safer than the multiple broken/racing paths it replaces,
+     and correct per "wait on webhook status" (nothing should credit
+     until 2b exists to do it from the confirmed-webhook side). A
+     top-up made right now would show as "confirming" indefinitely from
+     the user's perspective until 2b ships.
+
+   **2b. Build the actual webhook-triggered crediting call. [ ] Not
+   started.** Extend `supabase/functions/korapay-webhook/index.ts` (or
+   logic it calls) so that when it writes `payment_sessions.status =
+   'success'`, it also: resolves/creates the guest account by
+   `customer_email` if `user_id` is null (reusing the same pattern as
+   the now-removed guest branch in 2a's old verify route — see
+   `src/lib/auth/guestCheckout.ts`, kept exactly for this), computes
+   the net amount per Task 40's rule (**Edge Function computes the 5%
+   deposit deduction itself; the RPC only persists a plain net
+   number** — `credit_wallet_deposit` must not do any math), and calls
+   that RPC. This is the ONLY place in the whole app that should ever
+   call it going forward — 2a already removed every other caller.
+
+   **2c. First-time-vs-returning-user branch. [ ] Not started,
+   depends on 2b existing first.** `payment_sessions.metadata.type` is
+   already populated at write time by `initialize/route.ts` —
+   `'wallet_topup'` / `'wallet_topup_guest'` for a deposit,
+   distinguishable from a direct campaign payment (not yet built as
+   its own session-type value; Tasks 36/37, both still on hold per the
+   note at the top of this file, will need this route/metadata for
+   direct campaign-payment sessions). 2c's actual work: make 2b's
+   crediting call conditional on `metadata.type` indicating a top-up —
+   a direct campaign-payment session must never reach the crediting
+   code path at all, per this task's original ask. Likely small once
+   2b exists (a single `if` guarding the RPC call), which is why it's
+   split from 2b rather than folded in — so the credit-vs-don't-credit
+   decision is its own reviewable, revertible unit.
+
+   **2d. Deploy + end-to-end verification. [ ] Not started, depends on
+   2b/2c.** Same deploy pattern as Part 1/1b (`supabase db push` if a
+   new migration is needed, `supabase functions deploy korapay-webhook
+   --project-ref atojskxrxfsbpeefigtm`) — see the "Supabase CLI on
+   Termux" section near the top of this file for the full mechanics.
+   This sandbox has no Deno runtime, so 2b/2c's Edge Function changes
+   can only be verified by careful reading here, same limitation every
+   Edge Function task before this one has hit — a real test needs a
+   live webhook delivery against a real Korapay sandbox charge, which
+   only the project owner can trigger.
+
 3. **Shared user/admin success screen** with an animated
    country-interconnection pipeline visualization (central hub node,
    animated links out to each selected target country) shown on
