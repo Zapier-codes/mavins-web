@@ -384,9 +384,48 @@ Deno.serve(async (req: Request) => {
 
   console.log(`korapay-webhook: reference '${reference}' -> '${newStatus}'`);
 
-  // Part 2c (gating this on payment_sessions.metadata.type actually
-  // being a top-up) is NOT implemented yet -- see this file's header
-  // comment and handover.md's Task 33 Part 2c note. Every successful
-  // charge currently gets credited unconditionally.
+  // Task 33 Part 2 (product owner's own words, this session): a
+  // successful top-up is self-evident from the wallet balance itself
+  // (see creditDeposit above) -- no separate notification needed for
+  // that case. A FAILED payment is the case that isn't otherwise
+  // visible: the user may have already closed the checkout tab by the
+  // time this webhook lands, so this is their only signal something
+  // needs retrying. Only for a known account (session.user_id already
+  // set) -- a guest whose payment failed has no account and no
+  // notifications page to see this on, and creating one solely to
+  // deliver a failure notice isn't warranted. Reuses the existing
+  // notifications table exactly as every other route already inserts
+  // into it (src/services/notifications/notifications.service.ts's own
+  // header comment lists them) -- same {user_id, type, content: {text,
+  // ...}, created_at} shape, no new table/column.
+  if (newStatus === 'failed' && session.user_id) {
+    const { error: notifyError } = await supabase.from('notifications').insert({
+      user_id: session.user_id,
+      type: 'payment_failed',
+      content: {
+        text: `⚠️ Your payment of ${session.amount} ${session.currency} could not be completed. Please try again.`,
+        reference,
+        amount: session.amount,
+        currency: session.currency,
+      },
+      created_at: new Date().toISOString(),
+    });
+
+    if (notifyError) {
+      // Non-fatal on purpose -- the payment_sessions row is already
+      // correctly marked 'failed' above; a failure to insert the
+      // notification shouldn't turn into a 500/retry over something
+      // that isn't money-moving and has no idempotency concern of its
+      // own (a duplicate webhook delivery hitting this again would
+      // already have been caught by the status short-circuit before
+      // reaching this line).
+      console.error(`korapay-webhook: failed to insert payment_failed notification for '${reference}'`, notifyError);
+    }
+  }
+
+  // Part 2c (gating crediting on payment_sessions.metadata.type
+  // actually being a top-up) is NOT implemented yet -- see this file's
+  // header comment and handover.md's Task 33 Part 2c note. Every
+  // successful charge currently gets credited unconditionally.
   return jsonResponse({ received: true, reference, status: newStatus });
 });

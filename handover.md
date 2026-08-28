@@ -68,12 +68,29 @@
 > Needs `supabase functions deploy korapay-webhook --project-ref
 > atojskxrxfsbpeefigtm` from `/root/mavins-web` in the `proot-distro`
 > container — same mechanics as every deploy before it, no new secret
-> this time. **The next session should check what the project owner
-> reports before doing anything else here** — if it deployed clean,
-> move on to **Part 2c** (gate crediting on `metadata.type` actually
-> being a top-up — small, since 2b already did the hard part; see
-> Task 33's own 2c note for exactly what's left); if it failed, fix
-> the actual reported error. Don't re-attempt the deploy yourself from
+> this time. **Wallet crediting only EVER happens inside the
+> `charge.success` branch of this webhook — i.e. only after Korapay has
+> already confirmed the payment.** A prior version of this note
+> described an internal reordering (crediting before this function's
+> OWN `payment_sessions.status = 'success'` write, for retry-safety —
+> see Task 33 Part 2b's own note) in a way the product owner initially
+> (and reasonably) read as "credits before confirmation" — it isn't;
+> both the credit call and that internal status write happen after,
+> and only after, Korapay's webhook has already fired. Worth being
+> precise about this distinction in any future explanation of this
+> code, since it caused a real (understandable) moment of alarm.
+> **Also this session:** a `payment_failed` notification now fires on
+> a failed payment (see Task 33 Part 2b's note) — a "pending" one does
+> NOT exist yet and needs a product-owner decision first (no webhook
+> event corresponds to "still pending"; a real one would need a new
+> scheduled/timeout mechanism — see that same note for why this wasn't
+> guessed at).
+> **The next session should check what the project owner reports
+> before doing anything else here** — if it deployed clean, move on to
+> **Part 2c** (gate crediting on `metadata.type` actually being a
+> top-up — small, since 2b already did the hard part; see Task 33's
+> own 2c note for exactly what's left); if it failed, fix the actual
+> reported error. Don't re-attempt the deploy yourself from
 > a sandbox session — no Supabase CLI/project credentials exist here.
 >
 > **Task group Tasks 34–40 (wallet crediting/debiting + fee +
@@ -2522,6 +2539,40 @@ session, same one-task-per-session rule as the rest of this file:
    successful charge gets credited right now, regardless of
    `metadata.type`. Harmless today (no other session type exists yet),
    not safe to leave once Tasks 36/37 exist.
+   **Also added this session, same commit — a `payment_failed`
+   notification.** Product owner clarified directly: a successful
+   top-up needs no separate notification (the wallet balance itself is
+   the signal), but a failed payment does — the user may have already
+   left the checkout page by the time the webhook lands, so this is
+   their only way to find out something needs retrying. Reuses the
+   existing `notifications` table exactly as every other route already
+   writes to it (`src/services/notifications/notifications.service.ts`'s
+   own header comment lists them) — same `{user_id, type, content:
+   {text, ...}, created_at}` shape, no new table/column, plus one new
+   `TYPE_META` entry (`payment_failed`) in that same service file so
+   the existing `/notifications` page renders it without any page-level
+   change. Only inserted when `session.user_id` is already known — a
+   guest whose payment failed has no account/notifications page to see
+   it on, and creating one solely to deliver a failure notice isn't
+   warranted. Insert failure is non-fatal (logged, not a 500/retry) —
+   the `payment_sessions` row is already correctly marked `'failed'` by
+   that point regardless.
+   **Explicitly NOT built, needs a product-owner decision before
+   guessing further:** the product owner also asked for a "pending"
+   notification. There is no Korapay webhook event for "still
+   pending" — Korapay only ever calls this function for
+   `charge.success`/`charge.failed`. A payment sitting at
+   `'pending'`/`'checkout_created'` (webhook hasn't arrived yet) is
+   already visible on the `/verify/[reference]` redirect page as
+   "still confirming" (Part 2a), just not as a persistent notification.
+   Building a "pending" notification for real would mean a *new*
+   mechanism entirely — most likely a scheduled check (Supabase cron /
+   `pg_cron`) that flags a session still pending after some timeout —
+   which is a meaningfully bigger feature than this session's scope
+   and needs its own timeout-length decision, not a guessed value. Left
+   unbuilt rather than inventing that threshold; see this file's
+   ongoing conversation with the product owner for whenever that's
+   clarified.
    **Not yet deployed** — needs `supabase functions deploy
    korapay-webhook --project-ref atojskxrxfsbpeefigtm` from
    `/root/mavins-web` in the `proot-distro` container, same as every

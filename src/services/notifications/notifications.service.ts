@@ -27,6 +27,7 @@ const TYPE_META: Record<string, { emoji: string; label: string }> = {
   points_earned: { emoji: '💰', label: 'Points' },
   tier_upgrade: { emoji: '🏆', label: 'Tier' },
   withdrawal_requested: { emoji: '💸', label: 'Withdrawal' },
+  payment_failed: { emoji: '⚠️', label: 'Payment' },
   system: { emoji: '🔔', label: 'System' },
 };
 
