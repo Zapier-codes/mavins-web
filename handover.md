@@ -3420,3 +3420,53 @@ exists to warn about doesn't go away just because it was closed once.
   caught several real bugs (missing exports, wrong RPC arg shapes,
   wrong currency var names) purely through the type checker across
   past sessions.
+
+---
+
+## Task 43 — Reference prefix never actually adopted `MAVW-`; every webhook silently unroutable through the gateway [x]
+
+**Found and fixed this session (2026-08-28), before continuing to any
+other task — this blocked everything built in Tasks 33/40/41/42.**
+
+Task 41 confirmed the tenant-routing convention with the product
+owner directly: B-Pay-backend's gateway (`webhookGateway.js`) resolves
+which app a webhook belongs to purely via
+`reference.split('-')[0].toUpperCase()`, matched against a static
+routing table keyed `MAVW` → this app. Task 42 correctly built the
+*receiving* side (`korapay-webhook/index.ts` verifying the gateway's
+internal signature) and confirmed it deployed live — but **nothing
+ever updated `/api/payments/initialize/route.ts`, the place that
+actually generates the reference Korapay gets charged against.** It
+was still generating `WLT-<user-id-slice>-<timestamp>` (authenticated)
+and `GST-<timestamp>-<random>` (guest) — neither starts with `MAVW`,
+so `resolveTenant()` finds no match for every single Mavins-web
+payment, logs `"unroutable event ... matched no known tenant prefix"`,
+and never forwards the webhook to `korapay-webhook` at all.
+
+**Impact:** with this bug in place, Task 33 Part 2's crediting logic,
+Task 40's fee-deduction logic, and Task 42's own signature work were
+all unreachable in production — not broken themselves, just never
+invoked, because no webhook for a Mavins-web payment could ever arrive
+at this repo's Edge Function post-gateway. Every one of those tasks'
+own "verified" notes about *their own* logic being correct were true
+in isolation and still are; this was the one broken link connecting
+this repo to the gateway at all.
+
+**Fix:** both reference-generation sites in
+`/api/payments/initialize/route.ts` now prefix with `MAVW-`:
+`MAVW-WLT-<user-id-slice>-<timestamp>` and
+`MAVW-GST-<timestamp>-<random>`. Confirmed via grep, nothing else in
+this repo (`src/` or `supabase/functions/`) parses or depends on the
+old bare `WLT-`/`GST-` prefix, so this is a pure additive fix, not a
+breaking rename.
+
+**Not verified: an actual live webhook round-trip through the
+gateway** — same no-network-to-Supabase/Korapay limitation as every
+prior task's own note. This should be confirmed with a real test
+payment once deployed; if the gateway's `/gateway-stats` endpoint
+(B-Pay-backend, Task 41) still shows the same unroutable-event count
+after a real payment post-deploy, re-check this fix against
+`webhookGateway.js`'s exact prefix-matching logic directly rather than
+assuming this note settled it.
+
+Verified via `npx tsc --noEmit` — clean.

@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
         .eq('id', user.id)
         .single();
 
-      reference = `WLT-${user.id.slice(0, 8)}-${Date.now()}`;
+      reference = `MAVW-WLT-${user.id.slice(0, 8)}-${Date.now()}`;
       sessionRow = {
         reference,
         user_id: user.id,
@@ -147,7 +147,7 @@ export async function POST(request: NextRequest) {
       // No user_id yet -- there's no account until payment succeeds.
       // The guest's email is the anchor; verify/webhook resolve it
       // into an account (see src/lib/auth/guestCheckout.ts).
-      reference = `GST-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      reference = `MAVW-GST-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       sessionRow = {
         reference,
         user_id: null,
