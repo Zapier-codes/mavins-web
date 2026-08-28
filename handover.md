@@ -47,31 +47,34 @@
 > note for detail — nothing to build there.
 >
 > **Next task: NEW Task 41 — central webhook gateway, needed before
-> Task 33 Part 1b's dashboard repoint can happen at all.** Task 33
-> Part 1b's Edge Function deploy is now confirmed done (project owner,
-> this session) and `KORAPAY_SECRET_KEY` still needs setting per that
-> task's own instruction — **but do NOT re-point Korapay's dashboard
-> webhook URL at this repo's function directly, that plan is
-> superseded.** Korapay only accepts one webhook URL account-wide, and
-> the product owner is building multiple other multi-tenant apps that
-> will also need Korapay webhooks — so a shared gateway has to sit in
-> front of every app's own receiver, this one included, before any
-> dashboard repoint happens. **See Task 41 below for the full
-> recommended design** (reference-prefix tenant routing, per-app
-> internal forwarding secrets, persist-then-forward durability) and
-> its two open decisions the product owner still needs to confirm:
-> where the gateway lives (B-Pay-backend vs. a new dedicated repo —
-> B-Pay-backend recommended by default), and this app's own reference
-> prefix (`MAVW-` proposed). Once Task 41 is built, Task 33 Part 1b's
-> repoint step targets the gateway, and Part 2 (wallet-crediting) can
-> proceed behind it exactly as already planned — Part 2's own
-> requirements are unchanged by this, only *what Korapay's dashboard
-> points at* changes. **Task 40 below gives the exact fee-arithmetic
+> Task 33 Part 1b's dashboard repoint can happen at all. Location
+> decision now confirmed: this is B-Pay-backend work, not mavins-web
+> work.** Task 33 Part 1b's Edge Function deploy is confirmed done
+> and `KORAPAY_SECRET_KEY` still needs setting per that task's own
+> instruction — **but do NOT re-point Korapay's dashboard webhook URL
+> at this repo's function directly, that plan is still superseded.**
+> Korapay only accepts one webhook URL account-wide, and the product
+> owner is building multiple other multi-tenant apps that will also
+> need Korapay webhooks — so a shared gateway has to sit in front of
+> every app's own receiver, this one included, before any dashboard
+> repoint happens. **Product owner has confirmed both of Task 41's
+> open decisions**, this session: the gateway lives in B-Pay-backend
+> (not a new repo), and this app's own reference prefix is `MAVW-`.
+> **The actual gateway build is B-Pay-backend work and belongs in that
+> repo's own handover** — nothing left to decide here, just a build to
+> do, over there, not in this repo. **This repo's own follow-up once
+> that gateway exists:** swap `korapay-webhook`'s Korapay-signature
+> verification for the gateway's internal forwarding signature instead
+> (see Task 41's own note for the exact secret-separation detail).
+> Until then, Part 2 (wallet-crediting) stays exactly where it already
+> was — blocked behind the same repoint, just now waiting on
+> B-Pay-backend's gateway instead of a direct Korapay dashboard change.
+> **Task 40 below gives the exact fee-arithmetic
 > rule for Part 2** once it's reachable: the Edge Function computes the
 > 5% deposit deduction itself and hands the RPC a plain net number —
-> the RPC must not do any math. **The next session's actual next step
-> is Task 41's two open decisions**, not code — check with the product
-> owner before building the gateway itself.
+> the RPC must not do any math. **The next mavins-web session should
+> check B-Pay-backend's own handover for the gateway's actual build
+> status before assuming it's ready to repoint against.**
 >
 > **Task group Tasks 34–40 (wallet crediting/debiting + fee +
 > first-timer-vs-returning-user spec) — Tasks 34, 38, 39 now done,
@@ -115,15 +118,20 @@
 > that fix directly, not re-investigate from scratch.
 >
 > **Full cross-repo status, as of this note:**
-> - **mavins-web** (this repo) — next: **hold, awaiting deploy +
->   dashboard-repoint feedback on Task 33 Part 1b** (see above)
-> - **B-Pay-backend** — next: **Task 9b is now unblocked** (Task 29's
->   reconciled `src/lib/currency/countryCurrency.ts` in this repo is
->   the real currency list that task needed to pull into
->   `getAmountFormat`). Otherwise still: none currently unblocked
->   beyond that. "Korapay only" focus is active (waiting on API keys
->   for the other three providers); everything Korapay-eligible is
->   done.
+> - **mavins-web** (this repo) — next: **see Task 41's own "next
+>   task" note above** — waiting on B-Pay-backend's webhook-gateway
+>   build before Task 33 Part 1b's dashboard repoint can happen.
+> - **B-Pay-backend** — next: **build the webhook gateway (this
+>   repo's Task 41, location decision confirmed as B-Pay-backend work
+>   — copy that task into B-Pay-backend's own `handover.md` as the
+>   real tracking copy, same "migrated task" pattern already used for
+>   Tasks 30–33 in the other direction).** Task 9b (Task 29's
+>   reconciled `src/lib/currency/countryCurrency.ts` feeding
+>   `getAmountFormat`) is also still unblocked and open if the gateway
+>   isn't picked up first — no ordering dependency between the two,
+>   whichever a B-Pay-backend session reaches first is fine. "Korapay
+>   only" focus is active (waiting on API keys for the other three
+>   providers); everything else Korapay-eligible is done.
 > - **Velune** — next: **see `HANDOVER_CAMPAIGN.md` → "8. Not done /
 >   open"** in that repo. No numbered task queue there (different
 >   convention, established by that repo's own sessions — don't
@@ -3090,15 +3098,34 @@ every app" — needs a one-line confirmation either way before building
 starts, same as this file's convention for any real architectural
 fork.
 
-**Not started.** Blocks: the "repoint Korapay's dashboard URL" step
-still open in Task 33 Part 1b (this repo) — that step now targets the
-gateway once it exists, not this repo's Edge Function directly.
-**Needs product owner confirmation on:** (a) gateway location (Option
-A vs B above), (b) the reference-prefix convention and this app's own
-assigned prefix (`MAVW-` proposed, not yet confirmed), (c) whether
-B-Pay-backend's existing webhook-verification code is the right
-starting template regardless of which option is chosen for where the
-gateway lives.
+**Confirmed by the product owner, this session: Option A (B-Pay-
+backend becomes the gateway), and the `MAVW-` reference prefix for
+this app — both recommendations accepted as-is, no changes.** Decision
+(c) below — whether B-Pay-backend's existing webhook-verification code
+is the right starting template — wasn't explicitly addressed and isn't
+blocking; whichever session builds this in B-Pay-backend should just
+confirm it holds up as a base before extending it, same as any normal
+implementation check.
+
+**Not started — still needs actual code.** Blocks: the "repoint
+Korapay's dashboard URL" step still open in Task 33 Part 1b (this
+repo) — that step now targets the gateway once it exists, not this
+repo's Edge Function directly. **Location decision:** this is
+B-Pay-backend work, not mavins-web work — the gateway itself (routing
+table, signature verification, persist-then-forward store, the
+`/functions/v1/korapay-webhook`-style forwarding target for this app)
+belongs in that repo, not here. **This repo's own remaining piece,
+once the gateway exists elsewhere:** swap `korapay-webhook`'s
+Korapay-signature verification for verifying the gateway's internal
+forwarding signature instead (a new secret, separate from
+`KORAPAY_SECRET_KEY`, shared only between B-Pay-backend and this
+repo) — flagging now so whichever session picks this up doesn't
+have to re-derive it. **This decision should also be copied into
+B-Pay-backend's own `handover.md`** (that repo's copy of this task, or
+a fresh entry there) the next time that repo is touched — this file
+can record that the decision was made, but the actual build tracking
+belongs in the repo that owns the work, per this file's existing
+"migrated tasks" convention for B-Pay-backend-owned items.
 
 ---
 
