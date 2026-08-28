@@ -3,17 +3,20 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Next task: Task 33, in THIS repo (mavins-web).** Jump to
-> `## Task 33` further down. (Task 31 is done, commit `5617244`. Task
-> 30 is still blocked — checked this session: B-Pay-backend's Task 10
-> is still exactly at its "Korapay-only partial pass" state, not
-> further along, so Task 30's own blocking condition still holds; skip
-> it again next time too until that changes. Task 32 is also blocked,
-> on Task 33 below.)
+> **Next task: hold — Task 33 Part 1 is done in code (commit
+> `37e1eea`) but NOT YET DEPLOYED/TESTED.** The project owner is
+> deploying it via Supabase CLI from Termux and will report back what
+> happens. **The next session should check what that report says
+> before doing anything else in this repo** — if it worked, move on to
+> Task 33 Part 2 (wallet-crediting logic) or Part 3 (success screen);
+> if it failed, fix the actual reported error first rather than
+> re-guessing at the code blind. Don't re-attempt the deploy yourself
+> from a sandbox session — no Supabase CLI/project credentials exist
+> here, that's why this is a hold, not a normal "next task" pointer.
 >
 > **Full cross-repo status, as of this note:**
-> - **mavins-web** (this repo) — next: **Task 33** (Task 30/32 still
->   blocked, see above)
+> - **mavins-web** (this repo) — next: **hold, awaiting deploy
+>   feedback on Task 33 Part 1** (see above)
 > - **B-Pay-backend** — next: **Task 9b is now unblocked** (Task 29's
 >   reconciled `src/lib/currency/countryCurrency.ts` in this repo is
 >   the real currency list that task needed to pull into
@@ -2047,6 +2050,48 @@ session, same one-task-per-session rule as the rest of this file:
    directly once this exists (see Task 32 above — confirmed this
    session that it currently does call it directly). This part
    unblocks Task 32.
+
+   **Done in commit `37e1eea`.** New `public.payment_sessions` table
+   (`supabase_migration_006_payment_sessions.sql`) and
+   `supabase/functions/initialize-payment` Edge Function (Deno) — full
+   write-up in that commit's message and both files' own header
+   comments. `src/app/api/payments/initialize/route.ts` now writes the
+   reference to Supabase and invokes the Edge Function instead of
+   calling `korapay.service.ts` directly. **Explicit scope decision
+   this session, confirmed with the project owner:** webhooks and
+   verification stay on B-Pay-backend for now — this Edge Function
+   only handles the *initiate* half of Decision 1, not the *receive
+   the webhook, write the result back* half. That's a real,
+   intentional gap against Decision 1's fuller original vision, not an
+   oversight — a future session should either close it (port
+   B-Pay-backend's webhook verification into this Edge Function too,
+   and re-point each provider's webhook URL at it) or get the project
+   owner to confirm keeping webhooks on B-Pay-backend permanently and
+   update Decision 1's own text to match. Also fixed, found while
+   rewiring this: the old authenticated-flow `wallet_ledger` "mark
+   pending" insert was using columns (`amount_cents`, `type`,
+   `description`) that migration 004 already found don't exist on the
+   live table — removed as dead/broken code, `payment_sessions` now
+   covers that job anyway.
+
+   **Not yet deployed or tested end-to-end** — this sandbox has no
+   Supabase CLI/project credentials and no network access to
+   jsr.io/deno.land to type-check the Edge Function itself. The
+   project owner is deploying via Supabase CLI from Termux and will
+   report back what happens; deploy commands:
+   ```
+   cd ~/mavins-web
+   supabase functions deploy initialize-payment --project-ref <ref>
+   supabase secrets set BPAY_BACKEND_URL=https://b-pay-backend.onrender.com --project-ref <ref>
+   ```
+   and the migration needs running too (Supabase SQL Editor, or
+   `supabase db push`) — `supabase_migration_006_payment_sessions.sql`,
+   same as migrations 002/004/005 before it.
+   **The next session should check back here for what came of that
+   deploy before touching this area again** — a failure report should
+   get its own follow-up note in this section, not a silent re-attempt
+   assuming the code above was already correct.
+
 2. **Wallet-balance computation on confirmed webhook** — full amount
    minus platform fee, credited **only for returning users doing a
    top-up**; first-time users who pay directly for a campaign should
@@ -2055,7 +2100,8 @@ session, same one-task-per-session rule as the rest of this file:
    wallet balance on a confirmed deposit webhook — but its own
    write-up doesn't mention a first-time-vs-returning-user distinction
    specifically, so this needs verification against that exact
-   requirement, not a full rebuild from scratch.
+   requirement, not a full rebuild from scratch. **Still not started**
+   as of this session — Part 1 above was this session's whole scope.
 3. **Shared user/admin success screen** with an animated
    country-interconnection pipeline visualization (central hub node,
    animated links out to each selected target country) shown on
