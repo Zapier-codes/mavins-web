@@ -121,6 +121,19 @@ export interface ChargeStatusResponse {
 
 /**
  * Initialize a charge via the render backend.
+ *
+ * NOT called by src/app/api/payments/initialize/route.ts anymore as of
+ * Task 33, Part 1 -- that route now writes to public.payment_sessions
+ * and invokes the `initialize-payment` Supabase Edge Function instead,
+ * which duplicates this function's request-building/response-
+ * unwrapping logic on the Deno side (kept in sync manually -- see that
+ * function's own file header). Left here, not deleted: verifyCharge/
+ * getChargeStatus below are still used by
+ * src/app/api/payments/verify/[reference]/route.ts (verification
+ * stays on this app for now, not moved to Supabase, per this
+ * session's explicit scope), and a future task may want to remove
+ * this specific function once nothing references it -- confirmed via
+ * grep this session that nothing does anymore.
  */
 export async function initializeCharge(
   input: InitializeChargeInput

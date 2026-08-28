@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { initializeCharge } from '@/services/payment/korapay.service';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { checkRateLimit, getClientIp } from '@/lib/security/rateLimit';
 
 const GUEST_RATE_LIMIT = 5; // checkout attempts
@@ -38,6 +38,36 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * funds opens the fund-wallet page before an account exists" -- but since
  * anonymous visitors triggering real checkout-session creation is a
  * spam/fraud surface, guest calls are rate-limited by IP.
+ *
+ * Task 33, Part 1 — this route no longer calls B-Pay-backend directly
+ * (that was Task 32's finding, and this is what unblocks it). It now:
+ *   1. Writes a public.payment_sessions row with the real amount/
+ *      currency/customer details (see
+ *      supabase_migration_006_payment_sessions.sql), using the
+ *      service-role admin client -- needed unconditionally here now,
+ *      not just for the guest flow, since RLS on payment_sessions has
+ *      zero policies (default-deny) by design.
+ *   2. Invokes the `initialize-payment` Supabase Edge Function with
+ *      just `{ reference }` -- that function re-reads the row itself
+ *      and is the one that actually calls B-Pay-backend's POST
+ *      /api/pay. See that function's own file header for the full
+ *      write-up, including the explicit scope note that webhooks stay
+ *      on B-Pay-backend for now (this session's product-owner
+ *      direction), not moving to the Edge Function yet.
+ *
+ * Also removed: the old authenticated-flow `wallet_ledger` insert that
+ * used to mark a top-up "pending" (`amount_cents: 0, type: 'bonus',
+ * description: ...`). Two reasons, not one: (a) payment_sessions now
+ * *is* the pending-state record, making that insert purely redundant;
+ * and (b) per migration 004's header comment, wallet_ledger's real
+ * live columns are `changeset`/`create_time`/`update_time`, not
+ * `amount_cents`/`type`/`description` at all -- so that insert was
+ * very likely already silently failing against the actual schema
+ * before this change (same bug class migration 005 found in
+ * guestCheckout.ts). Flagging this explicitly rather than quietly
+ * dropping it: worth a project-owner confirmation that no other code
+ * depended on that row ever having existed, though nothing found via
+ * grep reads it back anywhere.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -61,106 +91,110 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Minimum amount is $1' }, { status: 400 });
     }
 
+    // Service-role client, unconditionally now -- payment_sessions has
+    // no RLS policies at all (default-deny for both anon and
+    // authenticated), by design, same posture as wallet_ledger's own
+    // money-adjacent tables. See migration 006's header for the full
+    // reasoning.
+    const admin = createAdminClient();
+
+    let reference: string;
+    let sessionRow: Record<string, unknown>;
+
     if (user) {
-      // --- AUTHENTICATED FLOW (unchanged) ---
+      // --- AUTHENTICATED FLOW ---
       const { data: profile } = await supabase
         .from('users')
         .select('artist_name, email')
         .eq('id', user.id)
         .single();
 
-      const reference = `WLT-${user.id.slice(0, 8)}-${Date.now()}`;
-
-      const result = await initializeCharge({
+      reference = `WLT-${user.id.slice(0, 8)}-${Date.now()}`;
+      sessionRow = {
+        reference,
+        user_id: user.id,
+        customer_email: profile?.email || user.email!,
+        customer_name: profile?.artist_name || 'Mavins User',
+        provider: 'korapay',
         amount,
         currency,
         ...(paymentCurrency && paymentCurrency !== settlementCurrency
-          ? { paymentCurrency, settlementCurrency }
+          ? { payment_currency: paymentCurrency, settlement_currency: settlementCurrency }
           : {}),
-        reference,
-        customerEmail: profile?.email || user.email!,
-        customerName: profile?.artist_name || 'Mavins User',
         metadata: {
           user_id: user.id,
           type: 'wallet_topup',
           description: 'Mavins Wallet Top-up',
         },
-      });
+      };
+    } else {
+      // --- GUEST FLOW ---
+      const guestEmail = typeof body.guestEmail === 'string' ? body.guestEmail.trim().toLowerCase() : '';
 
-      // Store pending transaction
-      await supabase.from('wallet_ledger').insert({
-        user_id: user.id,
-        amount_cents: 0, // Will be updated on webhook confirmation
-        type: 'bonus',
-        description: `Pending top-up: ${reference}`,
-      });
+      if (!guestEmail || !EMAIL_RE.test(guestEmail)) {
+        return NextResponse.json({ error: 'A valid email is required' }, { status: 400 });
+      }
 
-      if (!result.data?.checkout_url) {
-        console.error('Korapay initialize returned no checkout_url (authenticated flow):', result);
+      const ip = getClientIp(request);
+      const allowed = checkRateLimit(`guest-init:${ip}`, GUEST_RATE_LIMIT, GUEST_RATE_WINDOW_MS);
+      if (!allowed) {
         return NextResponse.json(
-          { error: 'Could not start checkout. Please try again in a moment.' },
-          { status: 502 }
+          { error: 'Too many attempts. Please wait a few minutes and try again.' },
+          { status: 429 }
         );
       }
 
-      return NextResponse.json({
-        success: true,
-        checkout_url: result.data.checkout_url,
-        reference: result.data.reference,
-      });
+      // No user_id yet -- there's no account until payment succeeds.
+      // The guest's email is the anchor; verify/webhook resolve it
+      // into an account (see src/lib/auth/guestCheckout.ts).
+      reference = `GST-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      sessionRow = {
+        reference,
+        user_id: null,
+        customer_email: guestEmail,
+        customer_name: 'Mavins User',
+        provider: 'korapay',
+        amount,
+        currency,
+        ...(paymentCurrency && paymentCurrency !== settlementCurrency
+          ? { payment_currency: paymentCurrency, settlement_currency: settlementCurrency }
+          : {}),
+        metadata: {
+          guest_email: guestEmail,
+          type: 'wallet_topup_guest',
+          description: 'Mavins Wallet Top-up (guest)',
+        },
+      };
     }
 
-    // --- GUEST FLOW ---
-    const guestEmail = typeof body.guestEmail === 'string' ? body.guestEmail.trim().toLowerCase() : '';
-
-    if (!guestEmail || !EMAIL_RE.test(guestEmail)) {
-      return NextResponse.json({ error: 'A valid email is required' }, { status: 400 });
-    }
-
-    const ip = getClientIp(request);
-    const allowed = checkRateLimit(`guest-init:${ip}`, GUEST_RATE_LIMIT, GUEST_RATE_WINDOW_MS);
-    if (!allowed) {
+    const { error: insertError } = await admin.from('payment_sessions').insert(sessionRow);
+    if (insertError) {
+      console.error('payment_sessions insert error:', insertError);
       return NextResponse.json(
-        { error: 'Too many attempts. Please wait a few minutes and try again.' },
-        { status: 429 }
+        { error: 'Could not start checkout. Please try again in a moment.' },
+        { status: 500 }
       );
     }
 
-    // No user_id yet -- there's no account until payment succeeds. The
-    // guest's email is the only anchor; verify/webhook resolve it into
-    // an account (see src/lib/auth/guestCheckout.ts). Nothing gets
-    // written to wallet_ledger here since there's no user_id to attach
-    // a pending row to yet.
-    const reference = `GST-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-    const result = await initializeCharge({
-      amount,
-      currency,
-      ...(paymentCurrency && paymentCurrency !== settlementCurrency
-        ? { paymentCurrency, settlementCurrency }
-        : {}),
-      reference,
-      customerEmail: guestEmail,
-      customerName: 'Mavins User',
-      metadata: {
-        guest_email: guestEmail,
-        type: 'wallet_topup_guest',
-        description: 'Mavins Wallet Top-up (guest)',
-      },
+    // The admin client's project URL doubles as its Functions base URL
+    // (supabase-js derives `${url}/functions/v1/<name>` internally) --
+    // no separate functions client/URL needed.
+    const { data: fnResult, error: fnError } = await admin.functions.invoke('initialize-payment', {
+      body: { reference },
     });
 
-    if (!result.data?.checkout_url) {
-      console.error('Korapay initialize returned no checkout_url (guest flow):', result);
+    if (fnError || !fnResult?.success || !fnResult?.checkout_url) {
+      console.error('initialize-payment edge function did not return a checkout_url:', fnError || fnResult);
       return NextResponse.json(
-        { error: 'Could not start checkout. Please try again in a moment.' },
+        { error: fnResult?.error || 'Could not start checkout. Please try again in a moment.' },
         { status: 502 }
       );
     }
 
     return NextResponse.json({
       success: true,
-      checkout_url: result.data.checkout_url,
-      reference: result.data.reference,
+      checkout_url: fnResult.checkout_url,
+      reference,
     });
   } catch (err: any) {
     console.error('Payment initialize error:', err);
@@ -170,3 +204,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
