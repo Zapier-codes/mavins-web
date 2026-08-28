@@ -16,34 +16,34 @@
 > `payments`-vs-`payment_sessions` reconciliation first); if something
 > failed, fix the actual reported error rather than re-guessing blind.
 >
-> **New task group added this session, Tasks 34–39 — the full
-> wallet-crediting/debiting + fee + first-timer-vs-returning-user spec,
-> from the product owner directly (not migrated from another repo this
-> time).** These formalize and extend Task 33 Part 2, which was already
-> the "wallet-crediting + first-time-vs-returning-user logic" task but
-> hadn't been started: Task 34 (only the RPC ever writes `users.wallet`
-> — Edge Function just tells it what to credit — and flags that
-> `campaign.service.ts`'s `updateWallet()` currently violates this),
-> Task 35 (10% platform fee on campaigns vs 5% gateway fee on deposits —
-> flags that the live `PLATFORM_FEE_PERCENT` is currently 15, not 10,
-> and that no 5% deposit-fee deduction exists anywhere yet), Task 36
-> (direct-pay with zero wallet involvement for a guest's first campaign;
-> wallet-funded only for returning users after that), Task 37
-> (confirm/wire account+wallet auto-provisioning to trigger specifically
-> on that first campaign placement), Task 38 (new debit-side RPC,
-> mirroring Task 13's credit RPC — Task 13 itself already flagged this
-> gap), and Task 39 (confirm a placed campaign's DB row already comes
-> in "live," not needing a separate activation step). **Recommended
-> order given the dependencies actually spelled out in each task's own
-> text: 38 → 35 → 34 → 36 → 37 → 39** — 38 has no dependency on the
-> others and unblocks 34's cleanup; 35's fee rates should land before
-> 34 rewires call sites around them; 36 needs both 34 (single write
-> path) and 35 (correct fee) settled first; 37 is mostly a verification
-> pass once 36's trigger point is nailed down; 39 is independent and can
-> slot in anywhere, including first, if a session wants a quick win.
-> **None of these six are started yet** — this session only wrote the
-> task specs into this file, per the specific request that produced
-> them; no code changed.
+> **Task group Tasks 34–39 (wallet crediting/debiting + fee +
+> first-timer-vs-returning-user spec) — Tasks 38 and 39 now done, four
+> remain.** Recommended order was 38 → 35 → 34 → 36 → 37 → 39; actual
+> progress this session: **Task 38 done** (new `debit_wallet_balance`
+> RPC, migration 007 — and the live campaign-placement debit path in
+> `src/app/api/campaigns/create/route.ts` rewired onto it, replacing a
+> THIRD previously-unflagged direct-`users.wallet`-write helper this
+> session's own audit turned up there, separate from
+> `campaign.service.ts`'s `updateWallet()`). **Task 39 done** as a
+> pure confirmation, no code needed — that same route already sets
+> `is_active: true`/`current_stage: 'planting'` directly on insert, so
+> campaigns already go live immediately with nothing to fix. **Next:
+> Task 35** (10% platform fee on campaigns vs 5% gateway fee on
+> deposits — flags that the live `PLATFORM_FEE_PERCENT` is currently
+> 15, not 10, and that no 5% deposit-fee deduction exists anywhere
+> yet), per the original recommended order, followed by 34, 36, 37 in
+> that order. **Task 34's scope grew slightly this session** — it now
+> also owns: (a) migrating `campaign.service.ts`'s `addFundsToCampaign`
+> debit call onto the new `debit_wallet_balance` RPC (Task 38's own
+> text named this site but only the create-route's own separate helper
+> got migrated this session, since that was the live production debit
+> path and the higher-value fix), and (b) deciding what to do about
+> `create/route.ts`'s compensating refund-on-failed-insert, which is
+> still a narrow local non-atomic credit write, explicitly commented
+> in-code as a known exception pending Task 34. **Migration 007 not yet
+> applied to the live DB** — same project-owner-only `supabase db push`
+> hand-off as every prior migration; see "Supabase CLI workflow" near
+> the top of this file.
 >
 > **Full cross-repo status, as of this note:**
 > - **mavins-web** (this repo) — next: **hold, awaiting deploy +
@@ -2464,7 +2464,7 @@ wording:
 
 ---
 
-## Task 38 — RPC for wallet balance deduction (campaign spend) [ ]
+## Task 38 — RPC for wallet balance deduction (campaign spend) [x]
 
 **Ask:** just as Task 13 built an RPC for crediting deposits, there
 needs to be a matching RPC for **deducting** from a wallet balance —
@@ -2493,9 +2493,63 @@ debit side specifically): `campaign.service.ts`'s `addFundsToCampaign`
 debit call and any future returning-user campaign-placement debit
 (Task 36) — both should call this RPC instead of `updateWallet()`.
 
+**Done, this session.** `supabase_migration_007_debit_wallet_balance.sql`
+— `debit_wallet_balance(p_user_id, p_amount_cents, p_reference,
+p_reason DEFAULT 'campaign_spend')`, returning `(debited, new_balance_cents,
+error_code)`. Uses `SELECT ... FOR UPDATE` to row-lock before deciding
+sufficient-vs-insufficient (rather than migration 004's UPDATE-first
+approach), since this function needs to branch on the balance *before*
+writing anything — an insufficient-balance call writes nothing at all
+and returns `debited = false, error_code = 'insufficient_balance'`, a
+normal outcome, not an exception. A genuinely-missing user row still
+raises, same as migration 004. Idempotency reuses migration 004's
+existing `wallet_ledger_user_reference_unique` partial index rather
+than adding a second one — it's keyed on `(user_id, reference)` with
+no assumption baked in about credit vs. debit direction. Same
+lockdown as migration 004: `SECURITY DEFINER`, revoked from
+`anon`/`authenticated`, granted only to `service_role`.
+
+**Call-site migration — only the highest-value one done this session,
+not both flagged ones:** `src/app/api/campaigns/create/route.ts` had
+its **own separate** local `debitWallet()` helper (not
+`campaign.service.ts`'s `updateWallet()` — a third, previously-
+unflagged direct-write path found this session) doing the actual
+production campaign-placement debit non-atomically with no idempotency
+guard. That's now rewired to call `debit_wallet_balance` via a new
+`debitWalletForCampaign()` wrapper in the same file — this was the
+live, load-bearing debit path, so fixing it here is Task 38's real
+deliverable, not just the migration file existing unused.
+`campaign.service.ts`'s `addFundsToCampaign` (the other call site this
+task's own text named) is **still on the old `updateWallet()` path,
+not migrated** — left for Task 34's cleanup pass, since that task
+already owns "confirm no direct writes remain" as its explicit scope
+and doing it piecemeal across two different sessions risks missing a
+third site the way this session's own audit just did.
+
+**Known, flagged gap — not closed this session:** the same route's
+compensating refund-on-failed-insert (if the wallet debit succeeds but
+the immediately-following `track_campaigns` insert then fails) is
+still a narrow local non-atomic write, not routed through any RPC —
+neither `debit_wallet_balance` (only ever subtracts) nor
+`credit_wallet_deposit` (semantically built for real deposits, wrong
+ledger `type` and `p_source` shape for a refund) fits this credit-back
+case cleanly. Left as an explicitly-commented exception in the code
+itself for Task 34 to resolve (add a small symmetric refund RPC, or
+confirm this narrow case is an accepted exception to the single-writer
+rule) — not silently expanded into scope here.
+
+Verified via `npx tsc --noEmit` — clean. Not verified: the migration
+hasn't been applied to the live DB yet (same "Action required before
+this does anything live" situation as every prior migration in this
+file — needs `supabase db push` from the project owner's own
+environment, see "Supabase CLI workflow" near the top) and no live
+insufficient-balance/idempotent-retry test has been run against a real
+Supabase instance (no sandbox network access, same limitation as
+every RPC task before this one).
+
 ---
 
-## Task 39 — Campaign goes live immediately on placement [ ]
+## Task 39 — Campaign goes live immediately on placement [x]
 
 **Ask:** once a campaign is successfully placed (payment
 confirmed — either direct-pay per Task 36, or wallet-debited per Task
@@ -2512,6 +2566,17 @@ than requiring a separate activation call this task would need to add.
 If campaign creation already sets those fields correctly on insert,
 this task is a one-line confirmation, not new code — check before
 assuming work is needed here.
+
+**Confirmed, this session, while working on Task 38 in the same
+file.** `src/app/api/campaigns/create/route.ts`'s `track_campaigns`
+insert already sets `is_active: true`, `is_paused: false`, and
+`current_stage: 'planting'` (not `'pending'`/`'draft'` or anything
+requiring a later transition) directly on the same insert that debits
+the wallet — there is no separate activation step anywhere in this
+path today. This task turned out to be exactly the one-line
+confirmation its own text anticipated as the likely outcome; no code
+changed for this task specifically (the file changed this session was
+for Task 38's debit rewiring, not this).
 
 ---
 
