@@ -84,12 +84,19 @@
 > apply anywhere below in this file as of this confirmation — treat any
 > such wording found further down (there's a lot of it, accumulated
 > across sessions) as historical, not current. **Actual next
-> unblocked work:** Task 36 Parts 3-4 (redirect + frontend wiring, Part
-> 3 already noted below as unblocked now that Part 2 exists), Task 35's
+> unblocked work:** Task 36 Part 4 (frontend wiring — Part 3 is now
+> done, see that task's own note), Task 35's
 > two remaining open items (where the platform's cut gets recorded;
 > whether `add-funds` should carry the fee too — both still need a
 > product-owner call, not blocked on deploy), or Task 44 (spec-only,
 > not started). No task in this file is currently on hold.
+>
+> **This session — Task 36 Part 3 done.** `create/route.ts`'s bare
+> `401` for an unauthenticated caller now carries `code:
+> 'GUEST_USE_DIRECT_PAY'` + `redirectTo:
+> '/api/payments/initialize-campaign'` instead of a dead-end rejection
+> — see Task 36's own Part 3 note for detail. Only Part 4 (frontend
+> wiring) remains on Task 36.
 >
 > **Also this session — a real, separate, cross-repo bug found and
 > fixed first, before continuing to 2c: references never actually
@@ -2883,10 +2890,11 @@ owner call before touching it — don't assume either way.
 convention (this task was flagged "not startable in any partial form"
 by an earlier session's assessment — that was accurate for building
 the whole thing at once, but the dependencies below split cleanly once
-Task 33 Part 2b/2c landed code-complete). Parts 1 and 2 done; a sync
+Task 33 Part 2b/2c landed code-complete). Parts 1, 2, and 3 done; only
+Part 4 (frontend wiring) remains.** A sync
 issue between sessions briefly left this section (and the orientation
 box above) inconsistent about Part 2's status even after its code had
-landed — reconciled as of this note, Part 2 is genuinely done.**
+landed — reconciled as of this note, Part 2 is genuinely done.
 
 1. **[x] Part 1 — guest-only campaign-payment initiation route.**
    Symmetric to Task 33 Part 1's wallet-topup initiation: writes a
@@ -2906,13 +2914,26 @@ landed — reconciled as of this note, Part 2 is genuinely done.**
    `session.metadata.campaign` rather than trusting anything
    client-supplied at webhook time. No wallet touched at all — that's
    this whole task's point.
-3. **[ ] Part 3 — enforce the two-way rule in `create/route.ts`.**
+3. **[x] Part 3 — enforce the two-way rule in `create/route.ts`.**
    That route's unconditional `401` for an unauthenticated caller
    should become a clear redirect/instruction toward Part 1's route
    instead of a bare rejection. (The other direction — a returning
    user must never direct-pay — is already enforced by Part 1 itself,
    for free, since that route rejects any authenticated caller
    outright.)
+
+   **Done this session.** Status stays `401` (still accurate — no
+   session), but the response body now carries `code:
+   'GUEST_USE_DIRECT_PAY'` and `redirectTo:
+   '/api/payments/initialize-campaign'` alongside a clearer `error`
+   message, so a caller (Part 4's frontend, once built) has a
+   machine-readable signal to branch on instead of parsing free text
+   or treating every `401` here as a dead end. Deliberately did not
+   touch anything else in this route — the wallet-debit path for an
+   authenticated caller is unchanged, and Part 1's own rejection of an
+   authenticated caller (the other half of the "two-way rule") already
+   existed before this session, nothing to add there. Verified: `npx
+   tsc --noEmit` passes clean.
 4. **[ ] Part 4 — frontend wiring.** `promote/page.tsx`'s "Place
    Campaign" action branches on auth state: logged-in → existing
    `create/route.ts` wallet-debit call, unchanged; guest → Part 1's

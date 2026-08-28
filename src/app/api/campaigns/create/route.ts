@@ -91,7 +91,24 @@ export async function POST(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (!authUser) {
-      return NextResponse.json({ success: false, error: 'Not authenticated' }, { status: 401 });
+      // Task 36 Part 3 (handover.md): this used to be a bare rejection.
+      // A guest hitting this route isn't just unauthorized — they have
+      // a real, working alternative (Part 1's guest-only direct-pay
+      // route), so tell them that instead of a dead-end 401. Status
+      // stays 401 (still accurate: no session), but `code`/`redirectTo`
+      // give the frontend (Part 4 — not built yet, see that task's own
+      // note) a machine-readable signal to branch on rather than
+      // parsing `error`'s free text.
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'Not authenticated. Guests pay for their first campaign directly, without a wallet — use the direct-pay endpoint instead.',
+          code: 'GUEST_USE_DIRECT_PAY',
+          redirectTo: '/api/payments/initialize-campaign',
+        },
+        { status: 401 }
+      );
     }
 
     const body: CreateCampaignBody = await request.json();
