@@ -143,7 +143,19 @@ export async function POST(request: NextRequest) {
       .insert({
         source_url: body.sourceUrl,
         artist_id: authUser.id,
-        total_budget_cents: callerIsAdmin ? 0 : pricing.totalCostCents,
+        // Task 40/35 (handover.md): total_budget_cents is the
+        // delivery-funding amount only — it must NOT include the 10%
+        // platform fee. The wallet is still debited pricing.totalCostCents
+        // (subtotal + fee) above, since that's the full amount the user
+        // actually pays; this field is deliberately smaller than that.
+        // Confirmed directly by the product owner: on a cancelled/
+        // partially-delivered campaign, the platform keeps its 10% cut —
+        // only the 90% subtotal portion is refundable — and the Fresh
+        // Connect webhook route (api/webhooks/freshconnect/route.ts)
+        // computes refunds directly off this column, so netting the fee
+        // out here is what makes that refund math correct without any
+        // change needed on the webhook side.
+        total_budget_cents: callerIsAdmin ? 0 : pricing.subtotalCents,
         spent_cents: 0,
         geographic_tier: body.geographicTier || 'local',
         target_countries: body.targetCountries || [],

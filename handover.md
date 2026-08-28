@@ -17,6 +17,19 @@
 > again without a fresh confirmation that explicitly references this
 > exact box.
 >
+> **Also this session — cancellation/partial-delivery refunds now
+> correctly exclude the platform's cut.** Product owner confirmed
+> directly: the platform keeps its 10% fee on a cancelled or
+> partially-delivered campaign, only the 90% subtotal is refundable.
+> Fixed `api/campaigns/create/route.ts`'s `total_budget_cents` (was
+> wrongly set to the fee-inclusive total, which meant
+> `api/webhooks/freshconnect/route.ts`'s refund math was refunding the
+> fee too) — see Task 35's "Campaign-side audit + fix" note for detail.
+> This closes Task 40's "campaign side" audit item. **Flagged but NOT
+> fixed:** `api/campaigns/add-funds/route.ts` applies no fee at all to
+> top-ups on an existing campaign — needs its own product-owner call,
+> see that same note.
+>
 > **Next task: hold — Task 33 Part 1b (webhook receipt, new
 > `korapay-webhook` Edge Function) is done in code but NOT YET
 > DEPLOYED, and Korapay's dashboard webhook URL has NOT YET been
@@ -2521,6 +2534,40 @@ correctly split out:**
   credited for less than was paid") — not specified by the product
   owner yet, worth a one-line confirmation before building reporting on
   top of it.
+
+**Campaign-side audit + fix, this session (closes the "Campaign side"
+item Task 40 flagged as needing a from-scratch check):** confirmed
+`total_budget_cents` in `api/campaigns/create/route.ts` was set to
+`pricing.totalCostCents` — the **full** amount including the platform
+fee, not netted out. Since `api/webhooks/freshconnect/route.ts`
+computes refunds (partial-delivery and full-cancellation) directly off
+`total_budget_cents`, this meant a cancelled campaign was refunding the
+platform's own fee back to the user's wallet. **Asked the product owner
+directly: confirmed the platform keeps its 10% cut on
+cancellation/partial delivery — only the 90% subtotal is refundable.**
+Fixed: `total_budget_cents` now uses `pricing.subtotalCents` (the
+pre-fee delivery-funding amount) instead of `pricing.totalCostCents`;
+the wallet debit two lines above it is unchanged and still correctly
+uses the full `pricing.totalCostCents` (that's what the user actually
+pays). No change was needed in the Fresh Connect webhook route itself —
+now that `total_budget_cents` is already net of the fee, its existing
+refund math is correct without modification. This also incidentally
+makes the campaign progress bar (`promote/page.tsx`,
+`spent_cents / total_budget_cents`) more accurate, since `spent_cents`
+tracks actual Fresh Connect delivery cost, which was always meant to be
+measured against the net delivery-funding amount, not the fee-inclusive
+total. Verified: `npx tsc --noEmit` passes clean.
+
+**Related gap found, NOT fixed this session (separate concern, flag for
+Task 36 or its own task):** `api/campaigns/add-funds/route.ts` (adding
+funds to an *existing* campaign) takes a raw client-supplied
+`additionalCents` with no `calculatePricing()` call and no fee applied
+at all — unclear whether topping up an existing campaign's budget is
+meant to also carry the 10% platform fee, or whether it's meant to be a
+direct dollar-for-dollar addition (e.g. because the fee was already
+charged once at campaign creation and add-funds is just "more of the
+same campaign," not a new fee-bearing transaction). Needs a product-
+owner call before touching it — don't assume either way.
 
 ---
 
