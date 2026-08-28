@@ -10,6 +10,7 @@ import { useGeo } from '@/components/providers/GeoProvider';
 import { calculatePricing, formatCents, formatNumber, DURATION_SLOTS } from '@/lib/campaign/pricing';
 import { getRecommendedGeographies, getGeoTargetingPool, scoreLabel, TARGET_COUNTRIES } from '@/lib/campaign/geoAffinity';
 import { getKorapayDccCurrency } from '@/lib/currency/korapayDccCurrency';
+import { COUNTRY_CURRENCY } from '@/lib/currency/countryCurrency';
 import { initializeCheckout } from '@/lib/payments/checkout';
 import { getWalletBalanceCents } from '@/lib/payments/wallet';
 import { cn } from '@/lib/utils/cn';
@@ -55,30 +56,9 @@ const TIERS = [
 const PENDING_CAMPAIGN_KEY = 'mavins_pending_campaign';
 const MAX_COUNTRIES_FREE = 3;
 
-// Country → currency mapping for ipapi.co conversion
-const COUNTRY_CURRENCY: Record<string, { code: string; symbol: string; rate: number }> = {
-  NG: { code: 'NGN', symbol: '₦', rate: 1 },
-  US: { code: 'USD', symbol: '$', rate: 0.00065 },
-  GB: { code: 'GBP', symbol: '£', rate: 0.00051 },
-  GH: { code: 'GHS', symbol: 'GH₵', rate: 0.0098 },
-  KE: { code: 'KES', symbol: 'KSh', rate: 0.084 },
-  ZA: { code: 'ZAR', symbol: 'R', rate: 0.012 },
-  CA: { code: 'CAD', symbol: 'C$', rate: 0.00088 },
-  AU: { code: 'AUD', symbol: 'A$', rate: 0.00098 },
-  EU: { code: 'EUR', symbol: '€', rate: 0.00060 },
-  IN: { code: 'INR', symbol: '₹', rate: 0.054 },
-  PK: { code: 'PKR', symbol: '₨', rate: 0.18 },
-  BD: { code: 'BDT', symbol: '৳', rate: 0.072 },
-  ID: { code: 'IDR', symbol: 'Rp', rate: 10.2 },
-  PH: { code: 'PHP', symbol: '₱', rate: 0.038 },
-  MY: { code: 'MYR', symbol: 'RM', rate: 0.0030 },
-  SG: { code: 'SGD', symbol: 'S$', rate: 0.00087 },
-  AE: { code: 'AED', symbol: 'د.إ', rate: 0.0024 },
-  SA: { code: 'SAR', symbol: '﷼', rate: 0.0024 },
-  TR: { code: 'TRY', symbol: '₺', rate: 0.021 },
-  BR: { code: 'BRL', symbol: 'R$', rate: 0.0033 },
-  MX: { code: 'MXN', symbol: 'Mex$', rate: 0.011 },
-};
+// Country → currency mapping moved to src/lib/currency/countryCurrency.ts
+// (Task 29) — kept 1:1 with TARGET_COUNTRIES there instead of drifting
+// as a separate local list.
 
 function getStageColor(stage: string) {
   switch (stage) {
