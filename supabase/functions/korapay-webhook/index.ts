@@ -5,9 +5,10 @@
 // B-Pay-backend's handover.md, "Project owner decisions" -> Decision 1),
 // this Edge Function -- not B-Pay-backend's own /api/webhooks/korapay
 // route -- is the real destination for Korapay's webhook, in the sense
-// that it's what ultimately updates payment_sessions. It verifies a
-// signature, updates the matching public.payment_sessions row, and
-// writes the raw payload back for audit/debugging.
+// that it's what ultimately updates payment_sessions AND (as of Task
+// 33 Part 2b, this session) credits the wallet. It verifies a
+// signature, updates the matching public.payment_sessions row, credits
+// the deposit, and writes the raw payload back for audit/debugging.
 //
 // Task 42 -- who signs what this function verifies changed. Korapay's
 // dashboard has exactly one webhook-URL slot account-wide, and the
@@ -25,14 +26,31 @@
 // for the new algorithm, copied exactly from B-Pay-backend's
 // webhookGateway.js#signForward so the two sides agree byte-for-byte.
 //
-// NOT this function's job (deliberately out of scope, left for the
-// very next task -- see handover.md's Task 33 Part 2 note): actually
-// crediting a wallet. This function only ever writes
-// payment_sessions.status to 'success' or 'failed' plus the raw
-// provider_response -- Part 2 is what reads that status change and
-// decides whether/how much to credit, with the first-time-vs-
-// returning-user distinction Decision 2 describes. Keeping those two
-// concerns in separate commits/functions rather than one.
+// Task 33 Part 2b (this session): on a verified charge.success event,
+// this function now also credits the wallet -- resolving/creating a
+// guest account by customer_email when user_id is null (same pattern
+// as src/lib/auth/guestCheckout.ts#resolveOrCreateGuestAccount, ported
+// here rather than imported, since that file uses Next.js path aliases
+// and a Node-only admin client that don't exist in this Deno runtime),
+// computing the net amount per Task 40's rule (THIS function deducts
+// the 5% deposit fee; credit_wallet_deposit, migration 004, does no
+// arithmetic, it only persists the net figure it's handed), and
+// calling that RPC. Crediting happens BEFORE payment_sessions.status
+// is written to 'success' (deliberately reordered from how this file's
+// own header comment used to describe the plan) -- see the handler
+// body below for why: crediting first means a crediting failure keeps
+// the row out of the 'success'/'failed' idempotency short-circuit, so
+// a Korapay retry will actually retry the credit instead of silently
+// skipping it forever.
+//
+// NOT this function's job yet (Task 33 Part 2c, still open): gating
+// this on payment_sessions.metadata.type actually being a top-up.
+// Right now EVERY successful charge.success gets credited,
+// unconditionally -- harmless today because no other session type
+// exists yet (Tasks 36/37, direct campaign payment, are both still on
+// hold), but this is a real, temporary gap, not a design decision --
+// see handover.md's Task 33 Part 2c note, which must land before any
+// direct-campaign-payment session type goes live.
 //
 // Per Supabase's own current guidance (supabase.com/docs/guides/
 // ai-tools/ai-prompts/edge-functions, same source initialize-payment's
@@ -80,6 +98,101 @@ function verifyGatewaySignature(secret: string, rawBodyText: string, signature: 
   const sigBuffer = Buffer.from(signature, 'utf8');
   if (hashBuffer.length !== sigBuffer.length) return false;
   return timingSafeEqual(hashBuffer, sigBuffer);
+}
+
+// Ported from src/lib/auth/guestCheckout.ts#resolveOrCreateGuestAccount
+// -- same lookup-then-create-then-race-recheck shape, same
+// is_guest_created/username-derivation convention (that file's own
+// comment explains why: users.username is NOT NULL with no default).
+// Deliberately NOT a straight import: that file uses a Next.js path
+// alias (`@/lib/supabase/admin`) and assumes a Node runtime, neither
+// of which exist here. Also deliberately simpler: this function only
+// ever needs a user id back, never a browser session (there's no
+// browser on the other end of a webhook), so the sign-in-immediately-
+// after-creation step that file has is dropped entirely.
+async function resolveOrCreateGuestUserId(supabase: any, email: string): Promise<string> {
+  const normalizedEmail = email.trim().toLowerCase();
+
+  const { data: existing, error: lookupError } = await supabase
+    .from('users')
+    .select('id')
+    .ilike('email', normalizedEmail)
+    .maybeSingle();
+
+  if (lookupError) throw lookupError;
+  if (existing) return existing.id;
+
+  // Only ever used to satisfy createUser()'s required field -- never
+  // surfaced, never signed in with, never needed again (unlike the
+  // Next.js version, which does sign in with it once, immediately).
+  const passwordBytes = new Uint8Array(24);
+  crypto.getRandomValues(passwordBytes);
+  const password = 'gst_' + btoa(String.fromCharCode(...passwordBytes)).replace(/[+/=]/g, '');
+
+  const { data: created, error: createError } = await supabase.auth.admin.createUser({
+    email: normalizedEmail,
+    password,
+    email_confirm: true,
+    user_metadata: { created_via: 'guest_checkout_webhook' },
+  });
+
+  if (createError) {
+    // Race: the same email got created between our lookup and this
+    // call -- e.g. two webhook deliveries for two different guest
+    // payments using the same email, landing within milliseconds of
+    // each other. Re-resolve instead of failing the whole webhook.
+    const { data: raceWinner, error: raceLookupError } = await supabase
+      .from('users')
+      .select('id')
+      .ilike('email', normalizedEmail)
+      .maybeSingle();
+    if (raceLookupError || !raceWinner) throw createError;
+    return raceWinner.id;
+  }
+
+  const authUser = created.user;
+  if (!authUser) throw new Error('Guest account creation returned no user');
+
+  const { error: insertError } = await supabase.from('users').insert({
+    id: authUser.id,
+    username: `guest_${authUser.id.replace(/-/g, '').slice(0, 12)}`,
+    email: normalizedEmail,
+    profile_completed: false,
+    is_guest_created: true,
+  });
+
+  if (insertError) throw insertError;
+
+  return authUser.id;
+}
+
+// Task 40's rule, applied: THIS function computes and deducts the fee
+// -- 5% on deposits -- credit_wallet_deposit (migration 004) does no
+// arithmetic of its own, it only persists whatever p_amount_cents it's
+// handed. payment_sessions.amount is a base currency unit (e.g. whole
+// dollars, confirmed by that migration's own header comment), so this
+// also does the base-unit-to-cents conversion migration 004's callers
+// are all expected to do themselves.
+const DEPOSIT_FEE_RATE = 0.05;
+
+async function creditDeposit(
+  supabase: any,
+  params: { userId: string; grossAmount: number; currency: string; reference: string },
+): Promise<{ credited: boolean; newBalanceCents: number | null }> {
+  const netAmountCents = Math.round(params.grossAmount * (1 - DEPOSIT_FEE_RATE) * 100);
+
+  const { data, error } = await supabase.rpc('credit_wallet_deposit', {
+    p_user_id: params.userId,
+    p_amount_cents: netAmountCents,
+    p_reference: params.reference,
+    p_source: 'korapay',
+    p_currency: params.currency,
+  });
+
+  if (error) throw error;
+
+  const row = Array.isArray(data) ? data[0] : data;
+  return { credited: !!row?.credited, newBalanceCents: row?.new_balance_cents ?? null };
 }
 
 Deno.serve(async (req: Request) => {
@@ -176,7 +289,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: session, error: fetchError } = await supabase
     .from('payment_sessions')
-    .select('id, status')
+    .select('id, status, user_id, customer_email, amount, currency')
     .eq('reference', reference)
     .single();
 
@@ -194,9 +307,57 @@ Deno.serve(async (req: Request) => {
   // not flip back and forth on a duplicate delivery (Korapay, like
   // most providers, does retry). 'pending'/'checkout_created' are the
   // only states this function should actually transition out of.
+  // Important, and why crediting (below) happens BEFORE this row ever
+  // reaches 'success': once it's here, this function will never look
+  // at this reference again, so anything that hasn't happened by the
+  // time status flips to 'success' never will via a retry.
   if (session.status === 'success' || session.status === 'failed') {
     console.log(`korapay-webhook: reference '${reference}' already '${session.status}', duplicate delivery ignored`);
     return jsonResponse({ received: true, note: 'Already processed' });
+  }
+
+  // Task 33 Part 2b: credit the deposit BEFORE writing status =
+  // 'success' -- not after, despite that being the more obvious
+  // reading of "when it writes status = 'success', it also credits"
+  // from this file's own header comment / handover.md's task note.
+  // Reasoning: credit_wallet_deposit is idempotent (migration 004's
+  // own unique index on (user_id, reference)), so calling it more than
+  // once for the same payment is always safe -- but the idempotency
+  // short-circuit just above is NOT safe to leave crediting behind:
+  // once status = 'success', this function acknowledges every future
+  // retry without looking at the row again. If crediting happened
+  // AFTER that write and then failed (network blip, a bad guest-email
+  // lookup, anything), the row would be permanently stuck at
+  // 'success' with no wallet credit and no retry path to fix it. Doing
+  // it first means a crediting failure below returns a 500, Korapay
+  // retries, and the retry reaches this same code again (status is
+  // still 'pending'/'checkout_created', so it doesn't hit the
+  // short-circuit) -- safe by construction rather than by hoping
+  // nothing fails in between two writes.
+  if (newStatus === 'success') {
+    try {
+      const userId = session.user_id ?? (await resolveOrCreateGuestUserId(supabase, session.customer_email));
+
+      const { credited, newBalanceCents } = await creditDeposit(supabase, {
+        userId,
+        grossAmount: session.amount,
+        currency: session.currency,
+        reference,
+      });
+
+      console.log(
+        `korapay-webhook: credited='${credited}' for reference '${reference}', user '${userId}'` +
+        (newBalanceCents !== null ? `, new_balance_cents=${newBalanceCents}` : ''),
+      );
+    } catch (creditError) {
+      // A genuine failure to credit -- 500 so Korapay retries. Do NOT
+      // write payment_sessions.status here; leaving it at
+      // 'pending'/'checkout_created' is exactly what keeps a retry
+      // able to reach this branch again. See the comment above this
+      // block for the full reasoning.
+      console.error(`korapay-webhook: FAILED to credit deposit for reference '${reference}'`, creditError);
+      return jsonResponse({ error: 'Failed to credit deposit' }, 500);
+    }
   }
 
   const { error: updateError } = await supabase
@@ -211,16 +372,21 @@ Deno.serve(async (req: Request) => {
   if (updateError) {
     // A real failure to persist -- this one IS worth a 500 so Korapay
     // retries, unlike the "acknowledge and move on" cases above where
-    // retrying would never help.
+    // retrying would never help. Note: if newStatus === 'success', the
+    // credit above has already happened by this point and will NOT be
+    // re-attempted on retry (the retry will find status still not
+    // 'success' and re-run the credit block too) -- credit_wallet_deposit's
+    // own idempotency (see creditDeposit's comment) is what makes that
+    // safe rather than a double-credit.
     console.error(`korapay-webhook: failed to update payment_sessions for '${reference}'`, updateError);
     return jsonResponse({ error: 'Failed to update payment session' }, 500);
   }
 
   console.log(`korapay-webhook: reference '${reference}' -> '${newStatus}'`);
 
-  // Part 2 (wallet-crediting, first-time-vs-returning-user logic) is
-  // NOT called from here yet -- see this file's header comment and
-  // handover.md's Task 33 Part 2 note. This function's job ends at
-  // "payment_sessions now reflects reality."
+  // Part 2c (gating this on payment_sessions.metadata.type actually
+  // being a top-up) is NOT implemented yet -- see this file's header
+  // comment and handover.md's Task 33 Part 2c note. Every successful
+  // charge currently gets credited unconditionally.
   return jsonResponse({ received: true, reference, status: newStatus });
 });

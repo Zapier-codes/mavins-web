@@ -63,26 +63,18 @@
 > reminder of what to re-check if this ever regresses (a future
 > `git push` to that function without a matching redeploy).
 >
-> **Next task, unambiguously now: Task 33 Part 2b (wallet-crediting,
-> continued).** Part 2a is done this session (2026-08-28) — see that
-> task's own note for the full audit and cleanup: removed two parallel
-> non-webhook crediting paths that violated "wait on webhook status
-> before crediting," deleted the now-fully-dead `korapay.service.ts`
-> (including a dangerous always-`true` webhook-signature stub), and
-> `payment_sessions` (written only by the webhook Edge Function) is now
-> the single source of truth for payment status project-wide. **Net
-> effect: this app currently credits ZERO deposits, for anyone** —
-> correct and intentional post-2a, not a regression; 2b is what
-> restores crediting, from the one place it should ever happen. Part 2
-> was split into 2a/2b/2c/2d this session — see Task 33's own entry for
-> what each covers; only 2a is done. **Task 40 below gives the exact
-> fee-arithmetic rule 2b must follow**: the Edge Function computes the
-> 5% deposit deduction itself and hands the RPC a plain net number —
-> the RPC must not do any math. Task 35's own remaining work (the 5%
-> deduction itself, which still doesn't exist in code anywhere) is
-> tightly coupled to 2b's implementation per that same rule — likely
-> the same session ends up doing both rather than treating them as
-> fully separable.
+> **Next task: hold — Task 33 Part 2b (wallet-crediting call itself)
+> is done in code (2026-08-28, this session) but NOT YET DEPLOYED.**
+> Needs `supabase functions deploy korapay-webhook --project-ref
+> atojskxrxfsbpeefigtm` from `/root/mavins-web` in the `proot-distro`
+> container — same mechanics as every deploy before it, no new secret
+> this time. **The next session should check what the project owner
+> reports before doing anything else here** — if it deployed clean,
+> move on to **Part 2c** (gate crediting on `metadata.type` actually
+> being a top-up — small, since 2b already did the hard part; see
+> Task 33's own 2c note for exactly what's left); if it failed, fix
+> the actual reported error. Don't re-attempt the deploy yourself from
+> a sandbox session — no Supabase CLI/project credentials exist here.
 >
 > **Task group Tasks 34–40 (wallet crediting/debiting + fee +
 > first-timer-vs-returning-user spec) — Tasks 34, 38, 39 now done,
@@ -126,8 +118,9 @@
 > that fix directly, not re-investigate from scratch.
 >
 > **Full cross-repo status, as of this note:**
-> - **mavins-web** (this repo) — next: **Task 33 Part 2b** (wallet-
->   crediting, continued — see above; 2a done this session).
+> - **mavins-web** (this repo) — next: **hold, awaiting deploy
+>   feedback on Task 33 Part 2b** (see above; 2a and 2b are both done
+>   in code this session, only 2b's deploy is outstanding).
 > - **B-Pay-backend** — next: **Task 9b** (Task 29's
 >   reconciled `src/lib/currency/countryCurrency.ts` feeding
 >   `getAmountFormat`) — no other unblocked work in that repo's own
@@ -2479,21 +2472,66 @@ session, same one-task-per-session rule as the rest of this file:
      top-up made right now would show as "confirming" indefinitely from
      the user's perspective until 2b ships.
 
-   **2b. Build the actual webhook-triggered crediting call. [ ] Not
-   started.** Extend `supabase/functions/korapay-webhook/index.ts` (or
-   logic it calls) so that when it writes `payment_sessions.status =
-   'success'`, it also: resolves/creates the guest account by
-   `customer_email` if `user_id` is null (reusing the same pattern as
-   the now-removed guest branch in 2a's old verify route — see
-   `src/lib/auth/guestCheckout.ts`, kept exactly for this), computes
-   the net amount per Task 40's rule (**Edge Function computes the 5%
-   deposit deduction itself; the RPC only persists a plain net
-   number** — `credit_wallet_deposit` must not do any math), and calls
-   that RPC. This is the ONLY place in the whole app that should ever
-   call it going forward — 2a already removed every other caller.
+   **2b. Build the actual webhook-triggered crediting call. [x] Done
+   this session (2026-08-28).** Extended
+   `supabase/functions/korapay-webhook/index.ts`: on a verified
+   `charge.success`, resolves/creates the guest account by
+   `customer_email` when `user_id` is null (ported
+   `resolveOrCreateGuestAccount`'s lookup-then-create-then-race-recheck
+   logic directly into this file as `resolveOrCreateGuestUserId` — not
+   a straight import, since the original uses a Next.js path alias and
+   a Node-only admin client neither of which exist in Deno; simpler
+   here too, since a webhook has no browser to mint a session for),
+   computes the net amount per Task 40's rule (`Math.round(grossAmount
+   * 0.95 * 100)` — 5% deposit fee, base-currency-unit-to-cents
+   conversion done here since `payment_sessions.amount` is base units
+   per that migration's own header comment), and calls
+   `credit_wallet_deposit` (migration 004) with the net figure. This is
+   now the only place in the whole app that calls that RPC — 2a already
+   removed every other caller.
+   **One deliberate deviation from the literal task wording, worth
+   flagging explicitly:** crediting now happens *before*
+   `payment_sessions.status` is written to `'success'`, not after. The
+   short-circuit just above (`status === 'success' || 'failed'` →
+   acknowledge and stop) means once that write lands, this function
+   never looks at the row again — so if crediting happened after that
+   write and then failed, the row would be permanently stuck at
+   `'success'` with no wallet credit and no retry path to fix it,
+   silently losing money. Crediting first means a credit failure
+   returns a `500` (Korapay retries) with the row still at
+   `'pending'`/`'checkout_created'`, so a retry genuinely retries the
+   credit — safe by construction, not by hoping nothing fails between
+   two separate writes. `credit_wallet_deposit`'s own idempotency
+   (migration 004's unique index on `(user_id, reference)`) is what
+   makes calling it more than once for the same payment always safe,
+   which is what makes this reordering possible without introducing a
+   double-credit risk of its own — see the file's own inline comments
+   for the full reasoning, left in place rather than only summarized
+   here.
+   **Verified (no Deno runtime available, same limitation every Edge
+   Function task has hit):** the fee/cents math specifically
+   (`Math.round(grossAmount * 0.95 * 100)`) against 5 cases in Node —
+   $100 → 9500, $50 → 4750, $10.50 → 998 (not 997 or 997.5 — confirms
+   the rounding happens after the multiply, not before), $1 → 95,
+   $33.33 → 3166 — all five matched hand-calculated expectation.
+   `npx tsc --noEmit` clean across the rest of the repo (this file
+   itself is outside `tsconfig.json`'s scope, same as every Edge
+   Function before it — confirmed via that file's own `exclude` list,
+   not an oversight).
+   **Still unconditional — see 2c below, not yet built:** every
+   successful charge gets credited right now, regardless of
+   `metadata.type`. Harmless today (no other session type exists yet),
+   not safe to leave once Tasks 36/37 exist.
+   **Not yet deployed** — needs `supabase functions deploy
+   korapay-webhook --project-ref atojskxrxfsbpeefigtm` from
+   `/root/mavins-web` in the `proot-distro` container, same as every
+   deploy before it (see "Supabase CLI workflow" near the top of this
+   file). No new secret needed — this reuses `SUPABASE_URL`/
+   `SUPABASE_SERVICE_ROLE_KEY` (auto-provided) and
+   `MAVW_WEBHOOK_FORWARD_SECRET` (already set per Task 42).
 
-   **2c. First-time-vs-returning-user branch. [ ] Not started,
-   depends on 2b existing first.** `payment_sessions.metadata.type` is
+   **2c. First-time-vs-returning-user branch. [ ] Not started, depends
+   on 2b existing first (2b is now done, so this is genuinely next).** `payment_sessions.metadata.type` is
    already populated at write time by `initialize/route.ts` —
    `'wallet_topup'` / `'wallet_topup_guest'` for a deposit,
    distinguishable from a direct campaign payment (not yet built as
