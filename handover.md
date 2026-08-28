@@ -47,40 +47,32 @@
 > note for detail — nothing to build there.
 >
 > **Task 41 (B-Pay-backend gateway) and Task 42 (this repo's signature
-> swap) are both code-complete now — but Task 42 is NOT yet live,
-> read this before assuming the webhook chain works end to end.**
-> Both of Task 42's prerequisites were confirmed done by the product
-> owner (env vars set on B-Pay-backend's Render dashboard, Korapay's
-> own dashboard webhook URL re-pointed at that Render service), and
-> `korapay-webhook/index.ts` now verifies the gateway's
-> `X-Gateway-Signature` instead of Korapay's own — see Task 42's own
-> note below for the full implementation detail and the byte-for-byte
-> verification this session actually ran (not just eyeballed) to
-> confirm the two sides' HMAC agrees. **But applying that patch only
-> updates the source file in git — Supabase Edge Functions are not
-> auto-deployed by a `git push`.** Two commands still need to run
-> (from wherever the Supabase CLI is linked to this project — see
-> "Supabase CLI workflow" further down, the `/root/mavins-web`
-> container clone) before this is actually live:
-> ```
-> supabase secrets set MAVW_WEBHOOK_FORWARD_SECRET=<same value as B-Pay-backend's Render dashboard> --project-ref atojskxrxfsbpeefigtm
-> supabase functions deploy korapay-webhook --project-ref atojskxrxfsbpeefigtm
-> ```
-> Until both run successfully, the **old** code is still what's live —
-> meaning every webhook the gateway forwards will currently fail
-> signature verification, a real regression from the pre-Task-42
-> working state (when Korapay called this function directly). **Next
-> task: confirm those two commands have been run and succeeded, then
-> move to Task 33 Part 2 (wallet-crediting)** — that's what this
-> entire gateway chain (Tasks 33 Part 1b → 41 → 42) was blocking, and
-> it's now genuinely reachable once the deploy is confirmed, not just
-> one step closer. **Task 40 below gives the exact fee-arithmetic rule
-> for Part 2**: the Edge Function computes the 5% deposit deduction
-> itself and hands the RPC a plain net number — the RPC must not do
-> any math. Task 35's own remaining work (the 5% deduction itself,
-> which still doesn't exist in code anywhere) is tightly coupled to
-> Part 2's implementation per that same rule — likely the same session
-> ends up doing both rather than treating them as fully separable.
+> swap) are both code-complete AND now confirmed deployed/live — the
+> full webhook chain works end to end.** Both of Task 42's
+> prerequisites were confirmed done by the product owner (env vars set
+> on B-Pay-backend's Render dashboard, Korapay's own dashboard webhook
+> URL re-pointed at that Render service), `korapay-webhook/index.ts`
+> verifies the gateway's `X-Gateway-Signature` instead of Korapay's own
+> (see Task 42's own note below for implementation detail and the
+> byte-for-byte verification actually run, not just eyeballed), and as
+> of this session **the product owner has confirmed the two required
+> deploy commands (`supabase secrets set` +
+> `supabase functions deploy korapay-webhook`) were run successfully.**
+> The manual-deploy regression window this box used to warn about is
+> closed — see Task 42's own entry for the confirmation note and a
+> reminder of what to re-check if this ever regresses (a future
+> `git push` to that function without a matching redeploy).
+>
+> **Next task, unambiguously now: Task 33 Part 2 (wallet-crediting).**
+> That's what this entire gateway chain (Tasks 33 Part 1b → 41 → 42)
+> was built to unblock, and it's now genuinely startable, not just one
+> step closer. **Task 40 below gives the exact fee-arithmetic rule for
+> Part 2**: the Edge Function computes the 5% deposit deduction itself
+> and hands the RPC a plain net number — the RPC must not do any math.
+> Task 35's own remaining work (the 5% deduction itself, which still
+> doesn't exist in code anywhere) is tightly coupled to Part 2's
+> implementation per that same rule — likely the same session ends up
+> doing both rather than treating them as fully separable.
 >
 > **Task group Tasks 34–40 (wallet crediting/debiting + fee +
 > first-timer-vs-returning-user spec) — Tasks 34, 38, 39 now done,
@@ -3185,6 +3177,22 @@ updating `payment_sessions`, a real regression from the pre-Task-42
 working state, until the redeploy actually happens. Confirm both
 commands' output shows success before considering this task's real
 production behavior fixed, not just its source code.
+
+**✅ Deploy confirmed by the product owner.** Both commands above have
+been run successfully — `MAVW_WEBHOOK_FORWARD_SECRET` is set as a
+Supabase secret, and `korapay-webhook` has been redeployed with the
+gateway-signature-verification code. The regression window described
+above is closed; this task is now fully done in both source and
+production, not just source. **Not independently re-verified by a
+session** (no Supabase API credentials in this sandbox to confirm the
+deployed function's live behavior directly) — taken on the product
+owner's direct confirmation, same evidentiary standard this file uses
+for the Render-dashboard and Korapay-dashboard steps above. If a live
+webhook is ever seen failing signature verification after this point,
+the first thing to check is whether a *later* `git push` to
+`korapay-webhook/index.ts` happened without a matching
+`supabase functions deploy` — the manual-deploy gap this whole note
+exists to warn about doesn't go away just because it was closed once.
 
 ---
 
