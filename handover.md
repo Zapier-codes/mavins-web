@@ -16,6 +16,35 @@
 > `payments`-vs-`payment_sessions` reconciliation first); if something
 > failed, fix the actual reported error rather than re-guessing blind.
 >
+> **New task group added this session, Tasks 34–39 — the full
+> wallet-crediting/debiting + fee + first-timer-vs-returning-user spec,
+> from the product owner directly (not migrated from another repo this
+> time).** These formalize and extend Task 33 Part 2, which was already
+> the "wallet-crediting + first-time-vs-returning-user logic" task but
+> hadn't been started: Task 34 (only the RPC ever writes `users.wallet`
+> — Edge Function just tells it what to credit — and flags that
+> `campaign.service.ts`'s `updateWallet()` currently violates this),
+> Task 35 (10% platform fee on campaigns vs 5% gateway fee on deposits —
+> flags that the live `PLATFORM_FEE_PERCENT` is currently 15, not 10,
+> and that no 5% deposit-fee deduction exists anywhere yet), Task 36
+> (direct-pay with zero wallet involvement for a guest's first campaign;
+> wallet-funded only for returning users after that), Task 37
+> (confirm/wire account+wallet auto-provisioning to trigger specifically
+> on that first campaign placement), Task 38 (new debit-side RPC,
+> mirroring Task 13's credit RPC — Task 13 itself already flagged this
+> gap), and Task 39 (confirm a placed campaign's DB row already comes
+> in "live," not needing a separate activation step). **Recommended
+> order given the dependencies actually spelled out in each task's own
+> text: 38 → 35 → 34 → 36 → 37 → 39** — 38 has no dependency on the
+> others and unblocks 34's cleanup; 35's fee rates should land before
+> 34 rewires call sites around them; 36 needs both 34 (single write
+> path) and 35 (correct fee) settled first; 37 is mostly a verification
+> pass once 36's trigger point is nailed down; 39 is independent and can
+> slot in anywhere, including first, if a session wants a quick win.
+> **None of these six are started yet** — this session only wrote the
+> task specs into this file, per the specific request that produced
+> them; no code changed.
+>
 > **Full cross-repo status, as of this note:**
 > - **mavins-web** (this repo) — next: **hold, awaiting deploy +
 >   dashboard-repoint feedback on Task 33 Part 1b** (see above)
@@ -2265,6 +2294,224 @@ session, same one-task-per-session rule as the rest of this file:
    animated links out to each selected target country) shown on
    confirmed payment. **Not started** — confirmed this session via
    grep, nothing matching this description exists in `src/` yet.
+
+---
+
+## Task 34 — Single crediting authority: RPC credits, Edge Function only instructs it [ ]
+
+**Ask, from the product owner:** there must be exactly one place that
+ever increases a wallet balance. Either the RPC does the crediting or
+the Edge Function does — not both, and not any other code path either.
+The chosen split is: the Edge Function identifies the payment/user and
+tells the RPC *what* to credit; the RPC is the only thing that actually
+writes the new balance.
+
+**Audit finding, this session — this is currently violated in at least
+three places**, not a clean slate:
+- `credit_wallet_deposit` (migration 004, Task 13) is the correct
+  RPC-does-the-crediting pattern — atomic, idempotent, `SECURITY
+  DEFINER`, correctly the only path called from `webhook/route.ts` and
+  `verify/[reference]/route.ts`.
+- `korapay-webhook` (Task 33 Part 1b) correctly does **not** credit —
+  it only updates `payment_sessions.status` and leaves crediting to
+  Part 2, which per Task 33's own note should eventually call the same
+  RPC. Consistent with this task's rule; nothing to fix here, just
+  confirm Part 2 (when built) calls the RPC rather than writing
+  `users.wallet` itself.
+- `guestCheckout.ts`'s `creditWalletTopUp()` — flagged in Task 13 as
+  the thing that RPC replaced — needs a follow-up check that it now
+  actually calls `credit_wallet_deposit` and doesn't still have a
+  parallel hand-rolled write path left over anywhere.
+- **`campaign.service.ts`'s `updateWallet()` is a second, independent
+  crediting/debiting path** that writes `users.wallet` directly
+  (non-atomic read-modify-write, no idempotency key) and is called for
+  campaign refunds (`cancelCampaign`) and top-up debits
+  (`addFundsToCampaign`). Task 13 already flagged this as "deliberately
+  not touched" for the debit side; this task extends that finding —
+  it's not just non-atomic, it's a *second crediting authority*
+  running in parallel with the RPC, which is exactly what this task
+  says must not exist. Refunding via `updateWallet(..., unspent, ...)`
+  in `cancelCampaign` is a credit, and it doesn't go through
+  `credit_wallet_deposit` or any RPC at all.
+
+**Scope:** replace every direct `users.wallet` write in app code
+(`campaign.service.ts`'s `updateWallet`, and anything else a fresh grep
+turns up) with calls to the RPCs from this task group (this task's
+credit RPC for the refund/credit direction, Task 38's new debit RPC for
+the spend direction) so `users.wallet` has exactly one writer overall:
+Postgres functions, never a Next.js API route or client-side service
+function. Confirm via grep for `.update({ wallet:` and `.update({...
+wallet` across `src/` that none remain once this is done.
+
+---
+
+## Task 35 — Fee structure: 10% platform fee on campaigns, 5% gateway fee on deposits [ ]
+
+**Ask:** two separate, fixed fee rates, not to be confused with each
+other:
+- **Platform fee: 10%**, charged when a campaign is placed (i.e. on
+  the campaign spend/subtotal, whether paid directly by a first-timer
+  or drawn from an existing wallet balance).
+- **Payment gateway charge: 5%**, charged on deposits only (i.e. on
+  the amount going *into* the wallet via Korapay/B-Pay-backend, not on
+  campaign placement).
+
+**Audit finding, this session — current code has neither rate
+correctly split out:**
+- `src/lib/campaign/pricing.ts`'s `PLATFORM_FEE_PERCENT` is currently
+  **15**, not 10 — needs updating to match this task, and needs a
+  comment explaining where 10% comes from (this task) so a future
+  session doesn't quietly revert it back to a guessed "industry
+  standard" number the way 15% appears to have been picked (see that
+  file's own header comment — "industry-standard pricing," no fee
+  citation).
+- **No 5% gateway-charge deduction exists anywhere yet** — a full
+  grep for gateway/processing-fee logic in `src/services/payment/` and
+  the two payment Edge Functions turned up nothing. `credit_wallet_deposit`
+  (migration 004) currently credits the wallet for the **full** deposit
+  amount it's called with; it needs a decision (see below) on whether
+  the 5% is deducted before calling the RPC (i.e. the RPC is called
+  with `p_amount_cents = deposit_amount * 0.95`) or the RPC itself
+  computes and stores both the gross and net figures. Given Task 34's
+  "RPC is the only writer" rule, computing the deduction inside the RPC
+  (taking the gross deposit amount and a fee-rate parameter, or a
+  hardcoded 5% constant in the migration SQL itself) keeps the fee
+  logic in the one place that matters rather than trusting every
+  caller to pre-deduct it correctly — recommend that approach, but flag
+  to the product owner before committing to it since it changes
+  `credit_wallet_deposit`'s function signature/behavior from Task 13's
+  original version.
+- Decide where the platform's 10%/5% cut itself is recorded (a ledger
+  row, a separate `platform_revenue` table, or just implicit in "wallet
+  credited for less than was paid") — not specified by the product
+  owner yet, worth a one-line confirmation before building reporting on
+  top of it.
+
+---
+
+## Task 36 — Direct-pay campaigns for guests/first-timers; wallet-funded campaigns for returning users only [ ]
+
+**Ask, restated precisely:** a **direct campaign** (pay for this one
+campaign right now, no wallet involved) is how every guest/first-time
+user must place their first campaign — this is what creates their
+logged-in account (see Task 37). **No wallet crediting happens for a
+direct campaign, ever** — the money goes straight to paying for that
+campaign, full stop. Every **subsequent** campaign from that same
+(now-registered) user must be funded from wallet balance — they can no
+longer direct-pay once they have an account; they must have deposited
+into their wallet first.
+
+**Relationship to existing tasks:** this is the "first-time-vs-
+returning-user logic" half of Task 33 Part 2, which that task's own
+note already flagged as not started and pointed at reconciling the
+`payments` vs `payment_sessions` table split first. This task makes
+the actual rule explicit and unconditional (no wallet touched at all
+for direct/first campaigns, not just "credited differently") — treat
+this as the authoritative spec for that half of Task 33 Part 2 rather
+than building both in parallel.
+
+**Scope:**
+- The campaign-placement flow needs a branch: does this
+  user/session already have a `users` row (i.e. are they a returning,
+  logged-in user)? If not, route to a direct-payment flow that pays
+  B-Pay-backend/Korapay for exactly this campaign's cost and, on
+  success, provisions the account (Task 37) — no `credit_wallet_deposit`
+  call anywhere in this path. If yes, require sufficient wallet balance
+  (via Task 38's new debit RPC) and reject/prompt-to-deposit if
+  insufficient — no direct-pay option offered to an existing user.
+- `addFundsToCampaign` in `campaign.service.ts` already assumes a
+  wallet-balance model (checks `getWalletBalanceCents` before
+  deducting) — that's the returning-user shape this task wants;
+  `createCampaign` itself currently has no such branch at all and
+  needs one added.
+
+---
+
+## Task 37 — Auto-provision `users` row + wallet on a guest's first campaign [ ]
+
+**Ask:** when a guest places their first (direct-pay, per Task 36)
+campaign, that's the moment their account gets created — a `users`
+row populated, and a wallet initialized for them — so that on any
+later visit, the RPCs know exactly which wallet to credit/debit for
+that person going forward.
+
+**Relationship to existing code:** `guestCheckout.ts`'s
+`resolveOrCreateGuestAccount()` (touched during Task 13's migration
+005) already does roughly this — creates the `users` row with a
+derived `username`, `profile_completed`, `is_guest_created` — so this
+is likely mostly wired already rather than needing to be built from
+scratch. What needs explicit verification against *this* task's exact
+wording:
+- Does account creation currently happen **only** on first campaign
+  placement, or does it also (or instead) happen earlier, e.g. at the
+  fund-wallet/email step Task 28 skips for already-authenticated users?
+  If it's currently tied to the deposit/fund-wallet flow rather than
+  campaign placement specifically, that's a mismatch against this
+  task's "first campaign placement is the trigger" requirement and
+  needs to move.
+- Per Task 34/35, "wallet initialized" should mean `users.wallet` set
+  to a zero-balance JSONB shape (`{ balance: 0, currency: ... }`) at
+  creation time — confirm `resolveOrCreateGuestAccount()`'s `INSERT`
+  actually sets an initial `wallet` value and doesn't leave it `NULL`
+  (a `NULL` wallet would make `getWalletBalanceCents`'s existing
+  `if (error || !data?.wallet) return 0;` fallback silently paper over
+  a missing initialization rather than surfacing it).
+- Since Task 36 means this user's first campaign is direct-pay and
+  never touches the wallet, the wallet row this task creates starts at
+  zero and stays at zero until their first actual deposit — confirm
+  nothing accidentally credits campaign-payment proceeds into it at
+  creation time.
+
+---
+
+## Task 38 — RPC for wallet balance deduction (campaign spend) [ ]
+
+**Ask:** just as Task 13 built an RPC for crediting deposits, there
+needs to be a matching RPC for **deducting** from a wallet balance —
+used when a returning user's campaign is paid for out of their wallet
+(Task 36) rather than direct-pay.
+
+**Relationship to existing code:** Task 13 explicitly flagged this gap
+itself — *"`campaign.service.ts`'s `updateWallet()` (the
+campaign-spend/debit side) has the same non-atomic read-modify-write
+pattern as the three deposit call sites did... worth its own task if
+the product owner wants the debit side made atomic too."* This is that
+task, now confirmed wanted. Build `debit_wallet_balance(p_user_id,
+p_amount_cents, p_reference, p_reason)` as a new migration, mirroring
+`credit_wallet_deposit`'s shape from migration 004: single row-locking
+`UPDATE` on `users` (no lost-update race), reject/error rather than
+go negative if `p_amount_cents` exceeds the current balance (insufficient-
+balance is a real, expected outcome here — Task 36's returning-user
+path needs to handle that error rather than trusting a client-side
+pre-check to always be right), `SECURITY DEFINER`, execute revoked from
+`anon`/`authenticated`, granted only to `service_role`, and log to
+`wallet_ledger` the same way migration 004 does.
+
+**Call sites to migrate onto this RPC once it exists** (see Task 34 —
+these are the same direct-write violations flagged there, from the
+debit side specifically): `campaign.service.ts`'s `addFundsToCampaign`
+debit call and any future returning-user campaign-placement debit
+(Task 36) — both should call this RPC instead of `updateWallet()`.
+
+---
+
+## Task 39 — Campaign goes live immediately on placement [ ]
+
+**Ask:** once a campaign is successfully placed (payment
+confirmed — either direct-pay per Task 36, or wallet-debited per Task
+38), it should go live right away, no separate "activate" step or
+admin approval gate in between.
+
+**Needs a from-scratch check, not assumed already true:** grep for
+`is_active`/`current_stage` defaults on `track_campaigns` insert (the
+`/api/campaigns/create` route referenced from `campaign.service.ts`'s
+`createCampaign`) to confirm a newly-created row is already written
+with whatever status means "live" (e.g. `is_active: true`,
+`current_stage` not stuck at some `'pending'`/`'draft'` value) rather
+than requiring a separate activation call this task would need to add.
+If campaign creation already sets those fields correctly on insert,
+this task is a one-line confirmation, not new code — check before
+assuming work is needed here.
 
 ---
 
