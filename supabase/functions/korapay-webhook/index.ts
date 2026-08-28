@@ -4,19 +4,26 @@
 // project owner's explicit direction (confirmed in chat, see
 // B-Pay-backend's handover.md, "Project owner decisions" -> Decision 1),
 // this Edge Function -- not B-Pay-backend's own /api/webhooks/korapay
-// route -- is now the real receiver of Korapay's webhook. It verifies
-// the signature, updates the matching public.payment_sessions row, and
+// route -- is the real destination for Korapay's webhook, in the sense
+// that it's what ultimately updates payment_sessions. It verifies a
+// signature, updates the matching public.payment_sessions row, and
 // writes the raw payload back for audit/debugging.
 //
-// Signature verification is ported from B-Pay-backend's own
-// providers/korapay.js#verifyWebhookSignature (confirmed directly
-// against developers.korapay.com/docs/webhooks by that repo's Task 4)
-// -- same algorithm, same "hash only body.data, not the full payload"
-// behavior, re-verified against Node's crypto module before being
-// translated to Deno's node:crypto compat import (this sandbox has no
-// network access to actually run Deno, so this substitution was the
-// closest available verification -- see this session's commit message
-// for the exact cases checked).
+// Task 42 -- who signs what this function verifies changed. Korapay's
+// dashboard has exactly one webhook-URL slot account-wide, and the
+// project owner is running multiple multi-tenant apps beyond this one
+// that also need Korapay webhooks -- so B-Pay-backend now sits in
+// front as a single gateway (webhookGateway.js there), verifies
+// Korapay's own signature ONCE, and fans each event out to whichever
+// app's `reference` prefix matches (this app's prefix: `MAVW`). Once
+// Korapay's dashboard is re-pointed at that gateway (confirmed done as
+// of this task, see handover.md), Korapay never calls this function
+// directly again -- the gateway does, with its OWN internal signature,
+// not Korapay's. Verifying Korapay's x-korapay-signature here now
+// would always fail, since this function will never see a
+// genuine-from-Korapay request again. See verifyGatewaySignature below
+// for the new algorithm, copied exactly from B-Pay-backend's
+// webhookGateway.js#signForward so the two sides agree byte-for-byte.
 //
 // NOT this function's job (deliberately out of scope, left for the
 // very next task -- see handover.md's Task 33 Part 2 note): actually
@@ -46,15 +53,29 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   });
 }
 
-// Identical algorithm to B-Pay-backend's providers/korapay.js
-// #verifyWebhookSignature -- kept in sync manually, same as
-// initialize-payment/index.ts already does for unwrapBPayResponse.
-// Hex-encoded HMAC-SHA256 of ONLY the `data` object (not the full
-// body) -- Korapay's own official examples hash
-// `JSON.stringify(req.body.data)` specifically.
-function verifyKorapaySignature(secretKey: string, body: any, signature: string | null): boolean {
+// Task 42 -- verifies B-Pay-backend's webhookGateway.js#signForward
+// output, not Korapay's own signature (see this file's header comment
+// for why that changed). Algorithm copied exactly: HMAC-SHA256 hex
+// digest, compared via timingSafeEqual against the
+// X-Gateway-Signature header.
+//
+// Deliberately hashes the RAW request body text, not a re-serialized
+// copy of the parsed object -- signForward computes its HMAC over
+// `JSON.stringify(rawBody)` on the Node/Render side and sends that
+// exact string as the HTTP body, so hashing the literal bytes this
+// function received guarantees byte-for-byte agreement. Re-parsing
+// then re-stringifying before hashing (the old Korapay-signature code
+// below this function's predecessor did that, safely, only because
+// Korapay computes ITS signature server-side over the same data it
+// sends and isn't sensitive to how we re-serialize on our end) would
+// introduce a real risk here instead: nothing guarantees Deno's
+// JSON.stringify and Node's produce identical output for every
+// possible payload (unicode escaping, edge-case number formatting),
+// and a mismatch would silently and intermittently reject genuine
+// gateway forwards.
+function verifyGatewaySignature(secret: string, rawBodyText: string, signature: string | null): boolean {
   if (!signature) return false;
-  const hash = createHmac('sha256', secretKey).update(JSON.stringify(body?.data)).digest('hex');
+  const hash = createHmac('sha256', secret).update(rawBodyText).digest('hex');
   const hashBuffer = Buffer.from(hash, 'utf8');
   const sigBuffer = Buffer.from(signature, 'utf8');
   if (hashBuffer.length !== sigBuffer.length) return false;
@@ -70,36 +91,48 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: 'Method not allowed' }, 405);
   }
 
-  // Read as text first, not req.json() directly -- we need the exact
-  // parsed object for both signature verification (hashes body.data)
-  // and downstream use, and re-reading req.json() twice would throw
-  // ("body already consumed"). A parse failure here is treated the
-  // same as B-Pay-backend's own webhook route treats it: can't verify
-  // a signature over an unparseable body, so reject before even
-  // looking at headers.
+  // Read as text first, not req.json() directly -- needed both for
+  // signature verification (HMAC'd over the exact raw bytes received,
+  // not a re-serialized copy -- see verifyGatewaySignature's comment
+  // above for why that distinction matters here) and for JSON.parse
+  // below. Re-reading req.json() twice would throw ("body already
+  // consumed"). A read/parse failure here is treated the same as
+  // B-Pay-backend's own webhook route treats it: can't verify a
+  // signature over an unparseable body, so reject before even looking
+  // at headers.
+  let rawBodyText: string;
+  try {
+    rawBodyText = await req.text();
+  } catch {
+    return jsonResponse({ error: 'Could not read request body' }, 400);
+  }
+
   let body: any;
   try {
-    body = await req.json();
+    body = JSON.parse(rawBodyText);
   } catch {
     return jsonResponse({ error: 'Invalid JSON body' }, 400);
   }
 
-  // Not auto-provided by the platform (unlike SUPABASE_URL/
-  // SUPABASE_SERVICE_ROLE_KEY below) -- must be set explicitly:
-  //   supabase secrets set KORAPAY_SECRET_KEY=sk_... --project-ref atojskxrxfsbpeefigtm
-  // This is the SAME secret key value B-Pay-backend's own Korapay
-  // provider uses for this identical check -- not a new/different key.
-  const korapaySecretKey = Deno.env.get('KORAPAY_SECRET_KEY');
-  if (!korapaySecretKey) {
+  // Task 42 -- this now verifies B-Pay-backend gateway's forwarding
+  // signature, not Korapay's own key (see this file's header comment).
+  // Must be the SAME value set as MAVW_WEBHOOK_FORWARD_SECRET in
+  // B-Pay-backend's Render dashboard -- the two sides only work if
+  // they share the identical value. Not auto-provided by the platform
+  // (unlike SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY below) -- must be
+  // set explicitly:
+  //   supabase secrets set MAVW_WEBHOOK_FORWARD_SECRET=<value> --project-ref atojskxrxfsbpeefigtm
+  const forwardSecret = Deno.env.get('MAVW_WEBHOOK_FORWARD_SECRET');
+  if (!forwardSecret) {
     // Fail closed, not open -- an unconfigured secret must never be
     // treated as "signature check skipped, trust the payload".
-    console.error('korapay-webhook: KORAPAY_SECRET_KEY is not set');
+    console.error('korapay-webhook: MAVW_WEBHOOK_FORWARD_SECRET is not set');
     return jsonResponse({ error: 'Webhook receiver misconfigured' }, 500);
   }
 
-  const signature = req.headers.get('x-korapay-signature');
-  if (!verifyKorapaySignature(korapaySecretKey, body, signature)) {
-    console.error('korapay-webhook: signature verification FAILED');
+  const signature = req.headers.get('x-gateway-signature');
+  if (!verifyGatewaySignature(forwardSecret, rawBodyText, signature)) {
+    console.error('korapay-webhook: gateway signature verification FAILED');
     return jsonResponse({ error: 'Invalid webhook signature' }, 401);
   }
 
