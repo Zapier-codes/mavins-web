@@ -46,38 +46,41 @@
 > every reader already treats that as a 0 balance. See Task 37's own
 > note for detail — nothing to build there.
 >
-> **Next task: NEW Task 41 — central webhook gateway, needed before
-> Task 33 Part 1b's dashboard repoint can happen at all. Location
-> decision now confirmed: this is B-Pay-backend work, not mavins-web
-> work.** Task 33 Part 1b's Edge Function deploy is confirmed done
-> and `KORAPAY_SECRET_KEY` still needs setting per that task's own
-> instruction — **but do NOT re-point Korapay's dashboard webhook URL
-> at this repo's function directly, that plan is still superseded.**
-> Korapay only accepts one webhook URL account-wide, and the product
-> owner is building multiple other multi-tenant apps that will also
-> need Korapay webhooks — so a shared gateway has to sit in front of
-> every app's own receiver, this one included, before any dashboard
-> repoint happens. **Task 41's B-Pay-backend build is now done** —
-> `webhookGateway.js` there, verified via smoke tests — see Task 41's
-> own note below for the full write-up and its one real, flagged gap
-> (in-memory event store, no database decision made yet). **This
-> repo's own follow-up is now Task 42, immediately after Task 41
-> below** — swap `korapay-webhook`'s Korapay-signature verification
-> for the gateway's internal forwarding signature instead, but it's
-> explicitly blocked until the product owner sets real env var values
-> on B-Pay-backend's Render dashboard AND Korapay's dashboard webhook
-> URL is actually re-pointed at the gateway — see Task 42's own
-> "Blocked on" list before starting it, don't jump ahead of either
-> prerequisite. Until Task 42 is unblocked and done, Part 2
-> (wallet-crediting) stays exactly where it already was — blocked
-> behind the same repoint chain, just one step further along than
-> before. **Task 40 below gives the exact fee-arithmetic
-> rule for Part 2** once it's reachable: the Edge Function computes the
-> 5% deposit deduction itself and hands the RPC a plain net number —
-> the RPC must not do any math. **The next mavins-web session should
-> check B-Pay-backend's own handover for whether the env vars have
-> been set and the dashboard repointed, before assuming Task 42 is
-> actually unblocked.**
+> **Task 41 (B-Pay-backend gateway) and Task 42 (this repo's signature
+> swap) are both code-complete now — but Task 42 is NOT yet live,
+> read this before assuming the webhook chain works end to end.**
+> Both of Task 42's prerequisites were confirmed done by the product
+> owner (env vars set on B-Pay-backend's Render dashboard, Korapay's
+> own dashboard webhook URL re-pointed at that Render service), and
+> `korapay-webhook/index.ts` now verifies the gateway's
+> `X-Gateway-Signature` instead of Korapay's own — see Task 42's own
+> note below for the full implementation detail and the byte-for-byte
+> verification this session actually ran (not just eyeballed) to
+> confirm the two sides' HMAC agrees. **But applying that patch only
+> updates the source file in git — Supabase Edge Functions are not
+> auto-deployed by a `git push`.** Two commands still need to run
+> (from wherever the Supabase CLI is linked to this project — see
+> "Supabase CLI workflow" further down, the `/root/mavins-web`
+> container clone) before this is actually live:
+> ```
+> supabase secrets set MAVW_WEBHOOK_FORWARD_SECRET=<same value as B-Pay-backend's Render dashboard> --project-ref atojskxrxfsbpeefigtm
+> supabase functions deploy korapay-webhook --project-ref atojskxrxfsbpeefigtm
+> ```
+> Until both run successfully, the **old** code is still what's live —
+> meaning every webhook the gateway forwards will currently fail
+> signature verification, a real regression from the pre-Task-42
+> working state (when Korapay called this function directly). **Next
+> task: confirm those two commands have been run and succeeded, then
+> move to Task 33 Part 2 (wallet-crediting)** — that's what this
+> entire gateway chain (Tasks 33 Part 1b → 41 → 42) was blocking, and
+> it's now genuinely reachable once the deploy is confirmed, not just
+> one step closer. **Task 40 below gives the exact fee-arithmetic rule
+> for Part 2**: the Edge Function computes the 5% deposit deduction
+> itself and hands the RPC a plain net number — the RPC must not do
+> any math. Task 35's own remaining work (the 5% deduction itself,
+> which still doesn't exist in code anywhere) is tightly coupled to
+> Part 2's implementation per that same rule — likely the same session
+> ends up doing both rather than treating them as fully separable.
 >
 > **Task group Tasks 34–40 (wallet crediting/debiting + fee +
 > first-timer-vs-returning-user spec) — Tasks 34, 38, 39 now done,
@@ -100,8 +103,8 @@
 > already-net number to persist — the RPC never computes anything
 > itself. This directly informs Task 35's remaining real work (the 5%
 > deposit deduction, which still doesn't exist in code anywhere) and
-> is worth reading in full before starting Task 35, 36, or the deferred
-> Task 33 Part 2. **Recommended order now: 35 → 36 → 37**, same as
+> is worth reading in full before starting Task 35, 36, or Task 33
+> Part 2 above. **Recommended order now: 35 → 36 → 37**, same as
 > before minus 34/38/39. **Migration 008 (`credit_wallet_refund`) is
 > NOT yet applied to the live DB** — needs the exact same
 > `supabase db push` hand-off migrations 004/005/007 already went
@@ -121,18 +124,13 @@
 > that fix directly, not re-investigate from scratch.
 >
 > **Full cross-repo status, as of this note:**
-> - **mavins-web** (this repo) — next: **see Task 41's own "next
->   task" note above** — waiting on B-Pay-backend's webhook-gateway
->   build before Task 33 Part 1b's dashboard repoint can happen.
-> - **B-Pay-backend** — next: **build the webhook gateway (this
->   repo's Task 41, location decision confirmed as B-Pay-backend work
->   — copy that task into B-Pay-backend's own `handover.md` as the
->   real tracking copy, same "migrated task" pattern already used for
->   Tasks 30–33 in the other direction).** Task 9b (Task 29's
+> - **mavins-web** (this repo) — next: **confirm the two `supabase
+>   secrets set` / `supabase functions deploy` commands above have
+>   succeeded, then Task 33 Part 2** (wallet-crediting — see above).
+> - **B-Pay-backend** — next: **Task 9b** (Task 29's
 >   reconciled `src/lib/currency/countryCurrency.ts` feeding
->   `getAmountFormat`) is also still unblocked and open if the gateway
->   isn't picked up first — no ordering dependency between the two,
->   whichever a B-Pay-backend session reaches first is fine. "Korapay
+>   `getAmountFormat`) — no other unblocked work in that repo's own
+>   queue right now, Task 41's gateway build is done. "Korapay
 >   only" focus is active (waiting on API keys for the other three
 >   providers); everything else Korapay-eligible is done.
 > - **Velune** — next: **see `HANDOVER_CAMPAIGN.md` → "8. Not done /
@@ -3133,40 +3131,60 @@ persist-then-forward store) lives in that repo, not here.
 
 ---
 
-## Task 42 — Swap korapay-webhook's signature verification to the gateway's internal signature, once B-Pay-backend's gateway is live [ ]
+## Task 42 — Swap korapay-webhook's signature verification to the gateway's internal signature, once B-Pay-backend's gateway is live [x]
 
-**New task, created this session per Task 41's own follow-up note —
-don't duplicate, this is the real, only copy.** B-Pay-backend's Task
-41 is now built (`webhookGateway.js` — routing, idempotency, internal
-HMAC signing, retry sweep; see that repo's own handover.md for the
-full write-up). This repo's `korapay-webhook` Edge Function still
-verifies Korapay's own `x-korapay-signature` directly — that's now
-wrong going forward, since once Korapay's dashboard is re-pointed at
-the gateway (B-Pay-backend), Korapay will stop calling this function
-directly at all; the gateway calls it instead, with its own internal
-signature.
+**Done in commit `c086872`.** Both blockers confirmed cleared by the
+product owner before starting: `MAVW_WEBHOOK_URL` +
+`MAVW_WEBHOOK_FORWARD_SECRET` set on B-Pay-backend's Render dashboard,
+and Korapay's own dashboard webhook URL re-pointed at that Render
+service.
 
-**Blocked on two things, both outside this repo, check before
-starting:**
-1. The product owner setting real values for `MAVW_WEBHOOK_URL` and
-   `MAVW_WEBHOOK_FORWARD_SECRET` in B-Pay-backend's Render dashboard
-   (this repo's Edge Function needs its own copy of that exact same
-   `MAVW_WEBHOOK_FORWARD_SECRET` value as a Supabase secret — the two
-   sides only work if they share the identical value).
-2. Korapay's dashboard webhook URL not being re-pointed yet — until
-   then, Korapay still calls this function directly with its own
-   signature, so swapping verification logic before the repoint would
-   break the *currently working* path. Confirm the repoint has
-   actually happened (check B-Pay-backend's own Task 41 note, point 3
-   of its "real remaining work" list) before changing anything here.
+`korapay-webhook/index.ts`'s `verifyKorapaySignature` replaced with
+`verifyGatewaySignature` — same HMAC-SHA256 + `timingSafeEqual` shape,
+but checks `MAVW_WEBHOOK_FORWARD_SECRET` against the
+`X-Gateway-Signature` header now, not `KORAPAY_SECRET_KEY` against
+`x-korapay-signature`. Deliberately verifies the **raw request body
+text** (`req.text()`, read once and reused for both verification and
+`JSON.parse`), not a re-serialized copy of the parsed object — this is
+a genuine improvement over the old code's approach, not just a
+like-for-like port: `webhookGateway.js#signForward` hashes
+`JSON.stringify(rawBody)` on the Node side and sends that exact string
+as the body, so hashing the literal bytes received guarantees
+byte-for-byte agreement, where re-stringifying after parsing would
+only "probably" match. `KORAPAY_SECRET_KEY` is no longer read anywhere
+in this function — Korapay's own signature isn't checked here at all
+anymore.
 
-**Once both are true:** replace `korapay-webhook`'s Korapay-signature
-check with an HMAC-SHA256 verification against
-`MAVW_WEBHOOK_FORWARD_SECRET`, matching exactly the scheme
-B-Pay-backend's `webhookGateway.js#signForward` uses (HMAC-SHA256 over
-`JSON.stringify(body)`, hex digest, `X-Gateway-Signature` header,
-`crypto.timingSafeEqual` comparison — copy the exact algorithm, not
-just "an HMAC", so the two sides actually agree byte-for-byte).
+Verified two ways: `npx tsc --noEmit` clean (`supabase/functions` is
+tsconfig-excluded, as established by this same file's prior sessions —
+Deno globals aren't valid under Node's checker); and a standalone Node
+script simulating both sides of the exchange end-to-end (gateway signs
+with the real algorithm, this function's real verification function
+checks it) — genuine match confirmed, plus correct rejection of a
+tampered body, a wrong secret, and a missing signature header, all
+four cases passing.
+
+**⚠️ Critical remaining step — NOT done by this patch, don't skip it:**
+applying this patch only updates the source file in git. Supabase Edge
+Functions are **not** auto-deployed by a `git push` — the function
+running live in Supabase is still the OLD code until explicitly
+redeployed, and the secret it needs is a Supabase secret, not (only) a
+Render env var. After `git am` + `git push` land this patch, run, from
+wherever the Supabase CLI is linked to this project (per this file's
+own "Supabase CLI workflow" section — the `/root/mavins-web`
+container clone):
+```
+supabase secrets set MAVW_WEBHOOK_FORWARD_SECRET=<the exact same value set on B-Pay-backend's Render dashboard> --project-ref atojskxrxfsbpeefigtm
+supabase functions deploy korapay-webhook --project-ref atojskxrxfsbpeefigtm
+```
+Until both of those run, live Korapay webhooks forwarded through the
+gateway will hit the **old** deployed code, which still checks for
+`KORAPAY_SECRET_KEY`/`x-korapay-signature` — meaning every forwarded
+webhook will fail signature verification and payments will stop
+updating `payment_sessions`, a real regression from the pre-Task-42
+working state, until the redeploy actually happens. Confirm both
+commands' output shows success before considering this task's real
+production behavior fixed, not just its source code.
 
 ---
 
