@@ -1,5 +1,46 @@
 # Handover — mavins-web
 
+> **▶ START HERE — read this box only, then go straight to work. Skip
+> everything else below unless you get stuck.**
+>
+> **Next task: Task 28, in THIS repo (mavins-web).** Jump to
+> `## Task 28` further down.
+>
+> **Full cross-repo status, as of this note:**
+> - **mavins-web** (this repo) — next: **Task 28**
+> - **B-Pay-backend** — next: **none currently unblocked.** "Korapay
+>   only" focus is active (waiting on API keys for the other three
+>   providers); everything Korapay-eligible is done. Remaining open
+>   tasks there either need those keys or are blocked on this repo's
+>   Task 29/32/33 below.
+> - **Velune** — next: **see `HANDOVER_CAMPAIGN.md` → "8. Not done /
+>   open"** in that repo. No numbered task queue there (different
+>   convention, established by that repo's own sessions — don't
+>   force one). Current real blocker: no live Supabase credentials
+>   wired in, so the built feature can't be tested end-to-end yet.
+>
+> **A session does not need to ask permission before cloning another
+> repo or switching context between the three** — if a task's real
+> subject is a different repo (this file has several, e.g. Task 33
+> below), just clone it and go. This project spans three GitHub repos
+> total: `Zapier-codes/Mavins-web` (this one, lowercase `mavins-web`
+> locally), `Zapier-codes/B-Pay-backend` (fork of
+> `Phoenix-Boss/B-PAY-backend`), and `Zapier-codes/Velune` (Android app;
+> the Mavins-relevant part lives in that repo's `HANDOVER_CAMPAIGN.md`,
+> not its `HANDOVER.md`, which is an unrelated EQ/DSP subsystem in the
+> same app).
+>
+> **Every session must update this box before ending** — whatever
+> task you just finished or left off at, update "Next task" above (and
+> the matching box in whichever other repo's file needs it) so the
+> next session, in any of the three repos, can orient in one glance
+> instead of reading this whole document. This box existing at all is
+> itself the fix for a real problem: multiple past sessions duplicated
+> work, and lost track of tasks, because the only way to know what was
+> next was reading a 1000+ line file end to end.
+
+---
+
 Running task list from the product owner's requests. Each session should:
 1. Read this file first.
 2. Pick the next `[ ]` unchecked task, in order, unless told otherwise.
@@ -1779,10 +1820,155 @@ a side effect of this task).
 
 ---
 
-- Full task list source: product owner's message combining ~12
-  distinct asks in one go. This file exists specifically so each one
-  gets a focused session instead of a rushed, everything-at-once
-  patch.
+## Task 28 — Skip fund-wallet/email step for already-authenticated users [ ]
+
+**Migrated from B-Pay-backend's own `handover.md` (that repo's Task
+17) — that repo's copy is now historical only; this is the real,
+active copy.** The guest-checkout flow (guest pays without an account
+→ account auto-created → session issued) is for people who don't have
+an account yet, so it collects email as part of payment. For a user
+who's **already logged in**, hitting insufficient funds should skip
+straight to the payment provider's checkout using the account's
+already-known email — not re-show the "fund your wallet, enter your
+email" guest flow. Find where the insufficient-funds → fund-wallet
+routing decision is made, branch it on auth state, and route logged-in
+users directly to checkout initialization instead.
+
+Not yet verified whether `fund-wallet/page.tsx`'s current
+`isAuthenticated` check (added incidentally across Tasks 25–27) already
+covers this, or whether it still shows the full guest-flow UI to a
+logged-in user, just without requiring the email field. Check before
+assuming this needs new code — it may be a smaller fix than it looks.
+
+---
+
+## Task 29 — Reconcile `TARGET_COUNTRIES` vs `COUNTRY_CURRENCY` into one source of truth [ ]
+
+**Migrated from B-Pay-backend's own `handover.md` (that repo's Task
+18) — that repo's copy is now historical only; this is the real,
+active copy.** `TARGET_COUNTRIES` (`src/lib/campaign/geoAffinity.ts`)
+and `COUNTRY_CURRENCY` (`src/app/promote/page.tsx`) should probably be
+the same list, or one should clearly be a documented superset of the
+other. As of B-Pay-backend's last check (cross-referenced directly
+against this repo, not from memory): `TARGET_COUNTRIES` has grown to
+25 entries (via this repo's own Task 23, a country-*targeting-pool*
+change, unrelated to currency), `COUNTRY_CURRENCY` is still the
+original 20-entry list, and the two now overlap on only 12 country
+codes. `TARGET_COUNTRIES` has 13 codes `COUNTRY_CURRENCY` doesn't (FR,
+DE, JM, NL, CI, SN, TZ, UG, EG, ES, IT, SE, KR); `COUNTRY_CURRENCY` has
+9 codes not in `TARGET_COUNTRIES` at all (EU, PK, BD, ID, PH, MY, SG,
+SA, TR — look like a leftover generic currency-conversion list,
+unrelated to campaign targeting).
+
+**This blocks two things directly:** B-Pay-backend's own Task 9b
+(pulling a real currency list into that repo's `getAmountFormat`
+helper) and this file's Task 30 below — both are stuck until this
+task produces one reconciled list. Whichever list ends up authoritative
+should also get cross-checked against Korapay's actual supported-currency
+list (`src/lib/currency/korapayDccCurrency.ts`'s own doc comment names
+the confirmed set: NGN, GHS, KES, ZAR, USD, XAF, XOF, EGP, TZS) — a
+country on the reconciled list whose currency Korapay can't actually
+convert to is a real gap to flag back to the product owner, not
+something to silently paper over.
+
+---
+
+## Task 30 — Route currency + payment method by geo [ ]
+
+**Migrated from B-Pay-backend's own `handover.md` (that repo's Task
+19) — that repo's copy is now historical only; this is the real,
+active copy.** Use `useGeo()` (Task 27's `GeoProvider`) to determine
+the user's country, then: for countries where Korapay supports
+mobile-money/bank-transfer (per B-Pay-backend's confirmed findings —
+check that repo's current state, it may have grown), route the
+checkout amount + currency + preferred method accordingly; for
+countries where Korapay has no local rails, fall back to USD.
+**Blocked on Task 29 above** (needs the reconciled currency list) and
+on B-Pay-backend's own Task 10 (provider routing) being further along
+than its current Korapay-only partial pass — check both before
+starting.
+
+---
+
+## Task 31 — No redundant "≈ local currency" display for USD-default users [ ]
+
+**Migrated from B-Pay-backend's own `handover.md` (that repo's Task
+20) — that repo's copy is now historical only; this is the real,
+active copy.** If the detected/selected currency is USD, don't show a
+converted "local" amount anywhere (the app's own internal base
+currency is already USD as of Task 26 — nothing to convert *from* for
+these users). Audit wherever a "≈ local currency" display exists
+(e.g. `promote/page.tsx`'s `localCurrency`, now sourced from
+`useGeo()` per Task 27) and make sure it's conditionally skipped for
+USD, not showing a redundant "≈ $X USD" next to the primary total.
+
+---
+
+## Task 32 — Confirm the real caller of B-Pay-backend: audit direct-call vs. edge-function architecture [ ]
+
+**Migrated from B-Pay-backend's own `handover.md` (that repo's Task
+23) — that repo's copy is now historical only; this is the real,
+active copy. Dependency direction corrected during migration — see
+note below.** B-Pay-backend's "Project owner decisions → Decision 1"
+says the intended architecture is: this app generates and owns the
+payment `reference` client-side, writes it to Supabase, and a
+**Supabase Edge Function** — not this app directly — calls
+B-Pay-backend's `POST /api/pay`, and also owns webhook reconciliation.
+
+**As of Task 26/27 (this session's own direct confirmation, not
+inherited from B-Pay-backend's notes): that intended architecture is
+NOT what's implemented.** `src/services/payment/korapay.service.ts`
+calls `RENDER_BACKEND_URL` (i.e. B-Pay-backend) **directly** from this
+Next.js app's own API route (`src/app/api/payments/initialize/route.ts`)
+— there is no Supabase Edge Function in this repo, and no evidence one
+exists anywhere in the project as of this note. **Corrected dependency
+direction:** B-Pay-backend's Task 23 (as originally written) assumed
+the edge function already existed and just needed auditing — it
+doesn't exist yet, so that audit can't happen until Task 33 below
+(which builds it) is done. This task, migrated, is really "build the
+edge function," not "audit it" — see Task 33, which now owns that
+work; this task's remaining scope is narrower: once Task 33 exists,
+confirm `POST /api/pay` still works correctly when the caller always
+supplies its own `reference` (the common case going forward), and
+decide whether B-Pay-backend's `generateReference()` own-reference
+fallback should stay as a defensive default or become a bug-signal log
+line. **Blocked on Task 33.**
+
+---
+
+## Task 33 — Wallet-crediting + first-time-vs-returning-user logic + Supabase Edge Function [ ]
+
+**Migrated from B-Pay-backend's own `handover.md` (that repo's Task
+24) — that repo's copy is now historical only; this is the real,
+active copy.** Three parts, per the product owner's decisions recorded
+in B-Pay-backend's `handover.md` ("Project owner decisions" section,
+Decisions 1–3) — split further if any one part is bigger than one
+session, same one-task-per-session rule as the rest of this file:
+
+1. **Client-side reference generation + Supabase write, and the
+   Supabase Edge Function that calls B-Pay-backend's `POST /api/pay`
+   with that reference.** This app should stop calling B-Pay-backend
+   directly once this exists (see Task 32 above — confirmed this
+   session that it currently does call it directly). This part
+   unblocks Task 32.
+2. **Wallet-balance computation on confirmed webhook** — full amount
+   minus platform fee, credited **only for returning users doing a
+   top-up**; first-time users who pay directly for a campaign should
+   see no wallet balance change, ever. **Partially covered already:**
+   Task 13 (`[x]`, this file) implemented an RPC that auto-credits the
+   wallet balance on a confirmed deposit webhook — but its own
+   write-up doesn't mention a first-time-vs-returning-user distinction
+   specifically, so this needs verification against that exact
+   requirement, not a full rebuild from scratch.
+3. **Shared user/admin success screen** with an animated
+   country-interconnection pipeline visualization (central hub node,
+   animated links out to each selected target country) shown on
+   confirmed payment. **Not started** — confirmed this session via
+   grep, nothing matching this description exists in `src/` yet.
+
+---
+
+
 - Always `git fetch origin && git reset --hard origin/main` before
   starting a session — multiple sessions/tools have been committing
   directly, so the remote is the source of truth, not any local
