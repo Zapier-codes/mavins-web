@@ -137,17 +137,28 @@
 > 2b) computes and deducts the 5% deposit fee itself
 > (`DEPOSIT_FEE_RATE = 0.05`, `creditDeposit()`), consistent with Task
 > 40's rule — nothing further needed there. **Task 36 (guest direct-pay
-> campaigns), Part 1 of 4, done this session:** new
-> `api/payments/initialize-campaign/route.ts` — guest-only campaign-
+> campaigns), Parts 1 and 2 of 4 now done:** Part 1 — new
+> `api/payments/initialize-campaign/route.ts`, guest-only campaign-
 > payment initiation, symmetric to Task 33 Part 1's wallet-topup
-> initiation. Parts 2-4 (webhook-side campaign creation,
-> `create/route.ts`'s 401 becoming a redirect, frontend wiring) not
+> initiation. **Part 2** — `korapay-webhook/index.ts` now creates the
+> `users` row + `track_campaigns` row directly on a confirmed direct-pay
+> payment, no wallet touched (see Task 36's own done-note for detail;
+> a prior sync issue briefly left this paragraph saying "Part 1 of 4"
+> even after Part 2's code had already landed elsewhere in this file —
+> fixed here, this is the correct, current status). Parts 3-4
+> (`create/route.ts`'s 401 becoming a redirect, frontend wiring) not
 > started — see Task 36's own section for the full 4-part breakdown.
-> **New Task 44 added, spec only, not implemented:** migrate the
-> static/hardcoded pricing tiers, duration slots, supported countries,
-> genre list, and genre-country affinity table (currently split across
-> `pricing.ts`, `geoAffinity.ts`, and two separate arrays inside
-> `promote/page.tsx` itself) into real Supabase tables, so the promote
+> **New rule, applied to both campaign-creation paths: no duplicate
+> campaign for the same link, multiple campaigns for different links
+> are fine** — see Task 36's own note for the full write-up, including
+> a verified finding that an existing DB constraint that looked like it
+> should cover this (`one_active_campaign_per_track`) actually never
+> fires in practice. **New Task 44 added, spec only, not implemented:**
+> migrate the static/hardcoded pricing tiers, duration slots, supported
+> countries, genre list, and genre-country affinity table (currently
+> split across `pricing.ts`, `geoAffinity.ts`, and two separate arrays
+> inside `promote/page.tsx` itself) into real Supabase tables, so the
+> promote
 > page has no static data driving what it shows or what it charges.
 > and 007 are now all confirmed applied to the live DB** (2026-08-28,
 > project owner's own terminal log via `supabase db push` from
@@ -2872,8 +2883,10 @@ owner call before touching it — don't assume either way.
 convention (this task was flagged "not startable in any partial form"
 by an earlier session's assessment — that was accurate for building
 the whole thing at once, but the dependencies below split cleanly once
-Task 33 Part 2b/2c landed code-complete). Only Part 1 done this
-session.**
+Task 33 Part 2b/2c landed code-complete). Parts 1 and 2 done; a sync
+issue between sessions briefly left this section (and the orientation
+box above) inconsistent about Part 2's status even after its code had
+landed — reconciled as of this note, Part 2 is genuinely done.**
 
 1. **[x] Part 1 — guest-only campaign-payment initiation route.**
    Symmetric to Task 33 Part 1's wallet-topup initiation: writes a
@@ -2883,7 +2896,7 @@ session.**
    `metadata.type = 'campaign_direct'`, then starts a Korapay checkout
    for exactly that campaign's cost. Does not touch the webhook or
    actually create any campaign — that's Part 2.
-2. **[ ] Part 2 — webhook-side campaign creation on confirmed
+2. **[x] Part 2 — webhook-side campaign creation on confirmed
    payment.** `korapay-webhook/index.ts` needs to recognize
    `metadata.type === 'campaign_direct'` (already explicitly excluded
    from `TOP_UP_TYPES`, so a payment of this type today would succeed
@@ -2979,6 +2992,63 @@ extending the wallet-topup route in place — avoids exactly the
 "speculative version that gets rebuilt" risk this note warned about,
 since nothing about the existing wallet-topup flow needed touching at
 all.
+
+**Part 2 done (commit `462ed70` on the current tree — originally
+`afb5393` in an earlier session; re-landed under a new hash after a
+sync issue meant the original commit never reached `origin/main`, see
+the note at the top of this section).** New `createDirectCampaign()`
+helper in `korapay-webhook/index.ts`, mirroring `create/route.ts`'s
+`track_campaigns` insert shape exactly. Wired into the main handler:
+`metadata.type === 'campaign_direct'` now creates the `users` row (via
+the existing `resolveOrCreateGuestUserId` — the same function the
+top-up path already used, so this is also the real answer to Task 37's
+own "is account creation tied to the right trigger" question, at least
+for this path — see Task 37's own note below) + `track_campaigns` row
+directly on a successful payment, reading the campaign/pricing
+snapshot back out of `session.metadata.campaign`. No wallet RPC is
+called anywhere in this path. Same before-status-write ordering as the
+existing `isTopUp` branch (crediting/creation happens before
+`payment_sessions.status` flips to `'success'`, so a failure keeps the
+row retryable instead of permanently stuck).
+
+**New rule, from the product owner directly, applied to BOTH
+campaign-creation paths this same session: a duplicate campaign for
+the same link is not allowed, but multiple campaigns for multiple
+different links are fine.** Not part of this task's original text —
+came up mid-session while building Part 2, applied everywhere
+campaigns get created (`create/route.ts` AND this new webhook path),
+not scoped narrowly to Task 36.
+- **Verified finding:** the schema's existing
+  `one_active_campaign_per_track UNIQUE (track_id, is_active)`
+  constraint does **not** actually enforce this in practice — neither
+  creation path ever sets `track_id` on insert (always `NULL`), and
+  Postgres treats every `NULL` as distinct from every other `NULL` in
+  a `UNIQUE` constraint, so any number of `NULL`-`track_id` rows
+  coexist regardless of `is_active`. The new check added this session
+  is genuine new enforcement, not a duplicate of something already
+  working — scoped to `source_url` (what's actually populated) rather
+  than `track_id` (what the DB constraint checks but nothing sets).
+- `create/route.ts` — new check before any wallet debit: reject with
+  `400` if the same artist already has an `is_active` campaign for the
+  same `source_url`. Checked pre-debit specifically so a rejected
+  duplicate never charges the wallet.
+- `korapay-webhook/index.ts`'s `createDirectCampaign()` — same check,
+  but genuinely can't reject-before-charging here: Korapay payment has
+  already succeeded by the time a webhook runs. Deliberately still
+  creates the campaign the guest already paid for rather than silently
+  dropping it or attempting an out-of-scope gateway refund; logs
+  loudly (`duplicate: true`) so there's a concrete signal for a future
+  session to build real refund-and-notify handling if this narrow race
+  (two concurrent checkout sessions for the same link/email) ever
+  actually fires in practice. Flagging this as a known, accepted gap
+  rather than something silently swept under — a future session should
+  not assume this edge case is fully handled.
+
+**Parts 3 and 4 still not started** — see the list at the top of this
+section for their scope. Part 3 (`create/route.ts`'s `401` becoming a
+redirect toward Part 1's route) is now genuinely unblocked (Part 2
+exists to redirect *to*); Part 4 (frontend wiring) depends on Part 3
+existing first.
 
 ---
 
