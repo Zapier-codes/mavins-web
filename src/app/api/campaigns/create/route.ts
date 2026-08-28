@@ -45,36 +45,42 @@ async function getWalletBalanceCents(admin: ReturnType<typeof createAdminClient>
   return wallet?.balance || 0;
 }
 
-async function debitWallet(
+/**
+ * Task 38 (handover.md): the primary wallet debit for campaign
+ * placement now goes through debit_wallet_balance() (migration 007) —
+ * atomic (row-locked balance check + write) and idempotent (same
+ * wallet_ledger reference-uniqueness migration 004 already added),
+ * replacing this route's own previous local `debitWallet()` helper,
+ * which did a non-atomic read-modify-write with no idempotency guard
+ * at all. That old helper was itself flagged in Task 34 as a THIRD
+ * independent direct-write path on users.wallet, alongside
+ * campaign.service.ts's updateWallet() — this call site is now fixed;
+ * that other one is Task 34's own remaining scope, not touched here.
+ *
+ * `p_reference` uses the campaign's own future id isn't known yet at
+ * debit time (insert hasn't happened), so a fresh UUID is minted here
+ * and threaded through to the insert below purely as the idempotency
+ * key for this one debit attempt — not the campaign's row id.
+ */
+async function debitWalletForCampaign(
   admin: ReturnType<typeof createAdminClient>,
   userId: string,
   amountCents: number,
-  description: string
-) {
-  const currentBalance = await getWalletBalanceCents(admin, userId);
-  const newBalance = Math.max(0, currentBalance - amountCents);
-
-  const { error: walletError } = await admin
-    .from('users')
-    .update({ wallet: { balance: newBalance, currency: 'USD' }, update_time: new Date().toISOString() })
-    .eq('id', userId);
-  if (walletError) throw walletError;
-
-  await admin.from('wallet_ledger').insert({
-    id: crypto.randomUUID(),
-    user_id: userId,
-    changeset: {
-      amount: -amountCents,
-      currency: 'USD',
-      type: 'debit',
-      description,
-      previous_balance: currentBalance,
-      new_balance: newBalance,
-    },
-    metadata: { source: 'campaign_service' },
-    create_time: new Date().toISOString(),
-    update_time: new Date().toISOString(),
+  reference: string
+): Promise<{ debited: boolean; newBalanceCents: number; errorCode: string | null }> {
+  const { data, error } = await admin.rpc('debit_wallet_balance', {
+    p_user_id: userId,
+    p_amount_cents: amountCents,
+    p_reference: reference,
+    p_reason: 'campaign_placement',
   });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    debited: !!row?.debited,
+    newBalanceCents: row?.new_balance_cents ?? 0,
+    errorCode: row?.error_code ?? null,
+  };
 }
 
 export async function POST(request: NextRequest) {
@@ -103,20 +109,33 @@ export async function POST(request: NextRequest) {
 
     const pricing = calculatePricing(body.viewCount);
 
+    // Reference for this debit attempt's idempotency key -- see
+    // debitWalletForCampaign's own comment for why this isn't the
+    // campaign's row id (doesn't exist yet at this point).
+    const debitReference = crypto.randomUUID();
+
     if (!callerIsAdmin) {
-      const balanceCents = await getWalletBalanceCents(admin, authUser.id);
-      if (balanceCents < pricing.totalCostCents) {
+      // debit_wallet_balance (migration 007) does its own atomic
+      // balance check internally now -- no separate pre-check read
+      // needed here, which also closes the old TOCTOU gap between
+      // this route's balance read and its since-removed local write.
+      const debitResult = await debitWalletForCampaign(
+        admin,
+        authUser.id,
+        pricing.totalCostCents,
+        debitReference
+      );
+      if (!debitResult.debited) {
+        // 'insufficient_balance' is the expected shape here per Task
+        // 38/36 -- surfaced as a normal 400, not a 500. Any other
+        // error_code the RPC might one day return still lands here
+        // too, on the same "couldn't debit, don't create the
+        // campaign" branch.
         return NextResponse.json(
           { success: false, error: 'Insufficient wallet balance. Please add funds.' },
           { status: 400 }
         );
       }
-      await debitWallet(
-        admin,
-        authUser.id,
-        pricing.totalCostCents,
-        `Campaign creation: ${body.sourceUrl.slice(0, 50)}`
-      );
     }
 
     const { data, error } = await admin
@@ -141,8 +160,44 @@ export async function POST(request: NextRequest) {
       // Non-admin wallet debit already happened above — if the insert
       // itself fails, refund it rather than leaving the artist charged
       // for a campaign that was never created.
+      //
+      // Deliberately NOT routed through debit_wallet_balance (that RPC
+      // only ever subtracts — p_amount_cents must be positive) or
+      // credit_wallet_deposit (built for actual deposits: its ledger
+      // entries are typed 'deposit' and it requires a p_source meant
+      // for payment providers, not "compensating refund"). Neither fits
+      // this credit-back cleanly, so this narrow, non-atomic local
+      // write is a known, flagged gap against Task 34's "RPC is the
+      // only writer" rule — this is a rare failure-path edge case (the
+      // debit already succeeded, then the very next insert failed),
+      // not the main money path Task 38 was scoped to fix. A future
+      // session closing out Task 34 should either add a small
+      // symmetric refund RPC or confirm this compensating-credit case
+      // is an accepted, narrow exception to the single-writer rule.
       if (!callerIsAdmin) {
-        await debitWallet(admin, authUser.id, -pricing.totalCostCents, `Refund: failed campaign creation`);
+        const balance = await getWalletBalanceCents(admin, authUser.id);
+        await admin
+          .from('users')
+          .update({
+            wallet: { balance: balance + pricing.totalCostCents, currency: 'USD' },
+            update_time: new Date().toISOString(),
+          })
+          .eq('id', authUser.id);
+        await admin.from('wallet_ledger').insert({
+          id: crypto.randomUUID(),
+          user_id: authUser.id,
+          changeset: {
+            amount: pricing.totalCostCents,
+            currency: 'USD',
+            type: 'credit',
+            description: 'Refund: failed campaign creation',
+            previous_balance: balance,
+            new_balance: balance + pricing.totalCostCents,
+          },
+          metadata: { source: 'campaign_service', reference: debitReference },
+          create_time: new Date().toISOString(),
+          update_time: new Date().toISOString(),
+        });
       }
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
