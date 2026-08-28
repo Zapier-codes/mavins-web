@@ -40,10 +40,19 @@
 > path and the higher-value fix), and (b) deciding what to do about
 > `create/route.ts`'s compensating refund-on-failed-insert, which is
 > still a narrow local non-atomic credit write, explicitly commented
-> in-code as a known exception pending Task 34. **Migration 007 not yet
-> applied to the live DB** — same project-owner-only `supabase db push`
-> hand-off as every prior migration; see "Supabase CLI workflow" near
-> the top of this file.
+> in-code as a known exception pending Task 34. **Migrations 004, 005,
+> and 007 are now all confirmed applied to the live DB** (2026-08-28,
+> project owner's own terminal log via `supabase db push` from
+> `/root/mavins-web` — 004/005 had been sitting unapplied since Task
+> 13, 007 is today's new one) — the push needed one recovery step
+> (a stale remote migration-history row for Task 33's
+> `payment_sessions` migration, whose timestamped file isn't checked
+> into git by design; fixed via `supabase migration repair --status
+> applied 20260828024711` after recreating that one file from its
+> untimestamped source). **Full recovery steps and exact commands are
+> in Task 38's own note below** — any future session hitting "Remote
+> migration versions not found" for that same timestamp should reuse
+> that fix directly, not re-investigate from scratch.
 >
 > **Full cross-repo status, as of this note:**
 > - **mavins-web** (this repo) — next: **hold, awaiting deploy +
@@ -902,6 +911,20 @@ files need to be run in the Supabase SQL Editor (004 then 005, order
 doesn't actually matter between them) — the RPC call sites will
 throw "function does not exist" until migration 004 is applied, same
 situation as Task 12's `get_wallet_balance`/`get_wallet_id` mystery.
+
+**Applied, 2026-08-28** — confirmed via the project owner's own
+terminal log, `supabase db push` from `/root/mavins-web` inside the
+`proot-distro` Ubuntu container (see "Supabase CLI workflow" near the
+top of this file), timestamped as `20260828041716_credit_wallet_deposit.sql`
+and `20260828041717_guest_account_columns.sql`. Applied in the same
+batch as Task 38's migration 007 below — see that task's own note for
+the one recovery step this run needed (a stale remote migration-history
+row for Task 33's `payment_sessions` migration, from before this
+container's clone was last reset, had to be repaired first). Both
+`credit_wallet_deposit` and the `profile_completed`/`is_guest_created`/
+`username`-derivation fixes are now live. **Still not end-to-end
+tested with a real Korapay webhook delivery** (deploying clean isn't
+the same as a live delivery actually working) — that's still open.
 
 Verified via `npx tsc --noEmit` — clean. Not verified: an actual live
 Korapay webhook delivery against the migrated DB (no sandbox network
@@ -2538,14 +2561,43 @@ itself for Task 34 to resolve (add a small symmetric refund RPC, or
 confirm this narrow case is an accepted exception to the single-writer
 rule) — not silently expanded into scope here.
 
-Verified via `npx tsc --noEmit` — clean. Not verified: the migration
-hasn't been applied to the live DB yet (same "Action required before
-this does anything live" situation as every prior migration in this
-file — needs `supabase db push` from the project owner's own
-environment, see "Supabase CLI workflow" near the top) and no live
-insufficient-balance/idempotent-retry test has been run against a real
-Supabase instance (no sandbox network access, same limitation as
-every RPC task before this one).
+Verified via `npx tsc --noEmit` — clean.
+
+**Applied to the live DB, 2026-08-28** — confirmed via the project
+owner's own terminal log, `supabase db push` from `/root/mavins-web`
+inside the `proot-distro` Ubuntu container, in the same batch as
+migrations 004/005 above (both had also been sitting unapplied).
+Timestamped as `20260828041718_debit_wallet_balance.sql`.
+
+**One recovery step this run needed, worth documenting for future
+sessions using this same container:** `supabase db push` initially
+failed with *"Remote migration versions not found in local migrations
+directory"* — the remote database's migration-history table still had
+a row for Task 33 Part 1's `20260828024711_payment_sessions.sql`, but
+that timestamped file itself was never checked into git (per this
+file's own documented pattern — only the untimestamped source, e.g.
+`supabase_migration_006_payment_sessions.sql`, is tracked), and this
+container's clone had since been `git reset --hard`'d, wiping the
+container's local copy of that transient file. Fixed by recreating the
+exact file that had actually gone live (`cp
+supabase_migration_006_payment_sessions.sql
+supabase/migrations/20260828024711_payment_sessions.sql`), then
+`supabase migration repair --status applied 20260828024711` (not
+`--status reverted`, which the CLI's own error message suggests —
+`reverted` would have told Supabase that migration never really
+happened, which is false; the `payment_sessions` table is live and in
+use). **Any future session hitting the same "Remote migration versions
+not found" error for this same timestamp should reach for this exact
+fix, not a fresh investigation** — it's a structural consequence of
+timestamped migration files being deliberately untracked, not a
+one-off fluke.
+
+**Still not verified:** no live insufficient-balance/idempotent-retry
+test has been run against the real Supabase instance yet (no sandbox
+network access, same limitation as every RPC task before this one) —
+worth a real test call (e.g. from the Supabase SQL editor or a quick
+server-side script) before trusting this in production for a real
+campaign placement.
 
 ---
 
