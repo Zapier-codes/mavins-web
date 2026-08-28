@@ -241,7 +241,16 @@ const PricingBreakdown = memo(function PricingBreakdown({
   localCurrency: { code: string; symbol: string; rate: number } | null;
 }) {
   const hourlyRate = Math.round(pricing.dailyDripRate / 24);
-  const localTotal = localCurrency ? Math.round(pricing.totalCostCents * localCurrency.rate) : null;
+  // Task 31: the primary total (formatCents, below) is always rendered
+  // in USD -- this app's own base currency as of Task 26. For a
+  // USD-default user (localCurrency.code === 'USD', e.g. US-based
+  // artists per COUNTRY_CURRENCY's `US` entry), showing "≈ $32 USD"
+  // right under a total that's already "$32.00" is a redundant
+  // same-currency conversion, not a helpful localization hint -- so
+  // skip computing/rendering it in that case rather than showing an
+  // identical number twice.
+  const showLocalEstimate = !!localCurrency && localCurrency.code !== 'USD';
+  const localTotal = showLocalEstimate ? Math.round(pricing.totalCostCents * localCurrency!.rate) : null;
 
   // Build the reach line: flags for every country the user actually picked,
   // falling back to the single auto-recommended top market when nothing's
@@ -319,8 +328,8 @@ const PricingBreakdown = memo(function PricingBreakdown({
           <span className="text-sm font-medium">Total</span>
           <div className="text-right">
             <p className="text-2xl font-bold text-[#1db954]">{formatCents(pricing.totalCostCents)}</p>
-            {localTotal !== null && localCurrency && (
-              <p className="text-xs text-[var(--subtle-foreground)]">≈ {localCurrency.symbol}{localTotal.toLocaleString()} {localCurrency.code}</p>
+            {showLocalEstimate && localTotal !== null && (
+              <p className="text-xs text-[var(--subtle-foreground)]">≈ {localCurrency!.symbol}{localTotal.toLocaleString()} {localCurrency!.code}</p>
             )}
           </div>
         </div>
