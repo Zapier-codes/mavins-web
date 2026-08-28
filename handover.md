@@ -30,6 +30,22 @@
 > top-ups on an existing campaign — needs its own product-owner call,
 > see that same note.
 >
+> **Checked Tasks 36/37 this session (traced the actual code, not just
+> the "hold" note) — both confirmed genuinely blocked on Task 33 Part
+> 2, not startable in any partial form:** `api/campaigns/create/route.ts`
+> requires an authenticated session unconditionally, so a guest cannot
+> reach campaign creation at all today; the existing guest-payment
+> infrastructure (`payments/initialize`) is wired for wallet top-ups
+> only, with no concept of "pay for this specific campaign" anywhere in
+> it. Building Task 36's direct-pay flow means extending exactly the
+> webhook-confirmation logic Part 2 owns — don't build a speculative
+> version ahead of that. One genuine, standalone finding did come out
+> of Task 37's audit though: its "wallet initialized" worry is **not**
+> a bug — `resolveOrCreateGuestAccount`'s omitted `wallet` column
+> safely defaults to `{}` (table-level `NOT NULL DEFAULT '{}'`) and
+> every reader already treats that as a 0 balance. See Task 37's own
+> note for detail — nothing to build there.
+>
 > **Next task: hold — Task 33 Part 1b (webhook receipt, new
 > `korapay-webhook` Edge Function) is done in code but NOT YET
 > DEPLOYED, and Korapay's dashboard webhook URL has NOT YET been
@@ -2607,6 +2623,29 @@ than building both in parallel.
   `createCampaign` itself currently has no such branch at all and
   needs one added.
 
+**Confirmed genuinely blocked this session, not just assumed —
+traced the actual code path rather than trusting the "hold" note at
+face value:** `api/campaigns/create/route.ts` requires an authenticated
+session unconditionally (`if (!authUser) return 401` before anything
+else runs) — a guest literally cannot reach campaign creation today,
+direct-pay or otherwise. The existing guest-payment infrastructure
+(`api/payments/initialize/route.ts`, which does support guest
+`guestEmail`-based checkout with no session) is wired specifically for
+**wallet top-ups** — it has no concept of "pay for this specific
+campaign" (no `sourceUrl`/`viewCount`/campaign fields anywhere in its
+body or in `payment_sessions`), and its confirmation path
+(`api/payments/verify/[reference]/route.ts`) always ends in
+`creditWalletTopUp`, never "create this campaign directly." Building a
+guest direct-pay-for-a-campaign flow means either extending
+`payment_sessions`/the webhook-confirmation logic to carry campaign
+details and branch on them, or a parallel path — and that confirmation
+logic is exactly Task 33 Part 2's territory, which is on hold pending
+the project owner's deploy + dashboard-repoint report (see the START
+HERE box). Don't build a speculative version of this ahead of that —
+Task 40's own note already flagged that Part 2 needs a
+`payments`-vs-`payment_sessions` reconciliation first, and guessing at
+that shape now risks getting rebuilt once Part 2 actually lands.
+
 ---
 
 ## Task 37 — Auto-provision `users` row + wallet on a guest's first campaign [ ]
@@ -2643,6 +2682,33 @@ wording:
   zero and stays at zero until their first actual deposit — confirm
   nothing accidentally credits campaign-payment proceeds into it at
   creation time.
+
+**Investigated this session — one bullet resolved (not a bug), one
+confirmed genuinely blocked on Task 36, not just assumed:**
+- **Wallet-initialization bullet: resolved, no fix needed.**
+  `resolveOrCreateGuestAccount()`'s `INSERT` doesn't explicitly set
+  `wallet` — but migration 004's own header comment confirms the live
+  column is `users.wallet jsonb NOT NULL DEFAULT '{}'`, so the omitted
+  column becomes `{}`, never `NULL`. Checked all three places that read
+  it afterward: `credit_wallet_deposit` (migration 004) uses
+  `COALESCE(wallet, '{}'::jsonb)` and
+  `COALESCE((wallet->>'balance')::bigint, 0)`; the client-side
+  `getWalletBalanceCents` (`src/lib/payments/wallet.ts`) does
+  `wallet?.balance || 0`; the server-side one
+  (`campaign.service.ts`) does the same. All three treat a
+  balance-less `{}` wallet as exactly 0, same as this task wants —
+  nothing to change here.
+- **Trigger-point bullet: confirmed a real mismatch, but it's coupled
+  to Task 36, not independently fixable.** `resolveOrCreateGuestAccount`
+  is currently only called from `api/payments/verify/[reference]/route.ts`
+  — i.e. account creation is tied to the **deposit/fund-wallet
+  confirmation** flow, exactly the "or does it happen earlier" case
+  this task's own bullet warned about, not to campaign placement at
+  all. But there is currently no code path where a guest pays directly
+  for a *specific campaign* (Task 36 doesn't exist yet — see that
+  task's own note on why it's blocked) for account creation to move
+  to. Moving this trigger only makes sense once Task 36's direct-pay
+  flow exists to move it *to* — don't attempt this bullet in isolation.
 
 ---
 
