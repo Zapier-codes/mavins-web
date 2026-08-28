@@ -98,6 +98,21 @@
 > — see Task 36's own Part 3 note for detail. Only Part 4 (frontend
 > wiring) remains on Task 36.
 >
+> **Also this session, while starting Part 4 — found and fixed a live
+> bug in the EXISTING guest wallet-topup flow, unrelated to Task 36
+> itself but directly in Part 4's path.** `/fund-wallet/verify/page.tsx`
+> still called `fetch()` + `.json()` against
+> `/api/payments/verify/[reference]`, which Task 33 Part 2a had already
+> rewritten to do a plain server-side redirect instead of returning
+> JSON — every single payment (success or failure) threw a
+> `SyntaxError` on that mismatch, stranding the guest on a broken
+> screen even when their payment had already gone through. Fixed
+> `checkout.ts` to navigate the browser straight to the verify route
+> instead of through that now-deleted intermediate page — see Task 36
+> Part 4's own note for the full writeup and what it simplifies about
+> the remaining Part 4 scope (no new verify page needed for campaign
+> payments either).
+>
 > **Also this session — a real, separate, cross-repo bug found and
 > fixed first, before continuing to 2c: references never actually
 > carried the `MAVW-` prefix the gateway (Task 41/42) routes on.**
@@ -2937,10 +2952,66 @@ landed — reconciled as of this note, Part 2 is genuinely done.
 4. **[ ] Part 4 — frontend wiring.** `promote/page.tsx`'s "Place
    Campaign" action branches on auth state: logged-in → existing
    `create/route.ts` wallet-debit call, unchanged; guest → Part 1's
-   route, redirect to the returned `checkout_url`, then land somewhere
-   sensible once Part 2's webhook confirms (a dedicated
-   `/campaign-payment/verify` page mirroring `fund-wallet/verify`,
-   most likely — not designed yet).
+   route, redirect to the returned `checkout_url`.
+
+   **Scope note, this session — found and fixed a real, live bug
+   while starting this part, before writing any of Part 4's own code:
+   don't build a new `/campaign-payment/verify` page mirroring
+   `fund-wallet/verify` — that page has been deleted, and nothing
+   should replace it.** Task 33 Part 2a (elsewhere in this file)
+   rewrote `/api/payments/verify/[reference]/route.ts` to do a plain
+   server-side `NextResponse.redirect(...)` instead of returning JSON
+   — but `fund-wallet/verify/page.tsx` was never updated to match, and
+   kept doing `fetch(...)` + `res.json()` against that route. `fetch`
+   follows redirects by default, so it landed on whichever HTML page
+   the route redirected to and threw a `SyntaxError` trying to `.json()`
+   it — on every single payment, success or failure. The guest stayed
+   stranded on a broken "confirming your payment" screen even when
+   their payment (and campaign, per Part 2 above) had already gone
+   through correctly server-side. This was a live regression affecting
+   the *existing* wallet-topup guest flow, not something specific to
+   this task — but Part 4's own instructions were about to have a
+   future session copy this exact broken pattern for campaign
+   payments, which is what surfaced it.
+
+   **Fixed:** `src/lib/payments/checkout.ts` (the shared
+   checkout-initialization helper both the wallet-topup and, once wired,
+   campaign-direct-pay flows use) now points Korapay's `redirect_url`
+   directly at `/api/payments/verify/[reference]` — a real browser
+   navigation straight to the route that already does the right thing
+   server-side — instead of at an intermediate page that re-fetches and
+   misparses it. Deleted `fund-wallet/verify/page.tsx` and its
+   now-pointless `mavins_pending_verify` sessionStorage fallback (that
+   fallback existed only to survive `reference` getting stripped from a
+   *query string*; it's a URL *path* segment now, immune to that same
+   failure mode). Verified: `npx tsc --noEmit` passes clean; grepped for
+   every remaining reference to confirm nothing else pointed at the
+   deleted page.
+
+   **What this means for the rest of Part 4:** the verify route is
+   already metadata-type-agnostic (it only ever reads
+   `payment_sessions.status` and redirects to whatever `redirect` query
+   param it was given) — it does not need to know or care that a
+   session is `campaign_direct` rather than a top-up. **No new verify
+   page or route is needed for the campaign-direct-pay flow at all** —
+   once `initializeCheckout` (or a call built the same way) is used for
+   Part 1's route, the existing fix above already covers it for free.
+   The actual remaining Part 4 work is narrower than originally scoped:
+   just the `promote/page.tsx` branch (call
+   `/api/payments/initialize-campaign` for a guest instead of
+   `/fund-wallet`, using Part 3's `redirectTo`/`code` signal from
+   `create/route.ts` to know when to do so) and deciding what
+   `redirectTo` a guest campaign payment should land on post-confirmation
+   (`/promote?campaign_created=1` or similar — not decided yet).
+
+   **Related, lower-priority, NOT fixed this session:** the verify
+   route's own failure/pending redirects are hardcoded to
+   `/fund-wallet?error=...`/`?info=...` regardless of what kind of
+   payment session this was — fine (if slightly generic) for a top-up,
+   probably not the ideal landing page for a failed *campaign* payment.
+   Worth a follow-up once Part 4's guest campaign flow actually exists
+   to have an opinion about where that should go instead — flagging,
+   not guessing at it now.
 
 **Ask, restated precisely:** a **direct campaign** (pay for this one
 campaign right now, no wallet involved) is how every guest/first-time

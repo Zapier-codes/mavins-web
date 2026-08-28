@@ -59,16 +59,18 @@ export async function initializeCheckout(params: {
       return data.error || 'Could not start checkout. Please try again.';
     }
 
-    if (guestEmail) {
-      // Guest fallback only — an authenticated user's session already
-      // carries them through verification without needing this.
-      try {
-        sessionStorage.setItem('mavins_pending_verify', JSON.stringify({
-          reference: data.reference,
-          redirect: redirectTo,
-        }));
-      } catch {}
-    }
+    // No sessionStorage fallback needed here: `reference` is a URL
+    // PATH segment on the target below (`/api/payments/verify/
+    // [reference]`), not a query param — the exact class of thing a
+    // return-URL rewrite might strip is `redirect_url`'s own query
+    // string, not its path, so `reference` survives even if `redirect`
+    // doesn't (the route's own `redirectPath = searchParams.get(...) ||
+    // '/'` already covers that gracefully). The old
+    // `mavins_pending_verify` sessionStorage write that used to live
+    // here existed only to work around that same risk for the
+    // now-deleted `/fund-wallet/verify` PAGE (see the comment on
+    // `verifyCallback` below for why that page is gone) — removed
+    // along with it rather than left as dead code nothing reads.
 
     // data.checkout_url can come back missing/malformed if the render
     // backend or Korapay itself hiccups upstream — without this
@@ -81,11 +83,28 @@ export async function initializeCheckout(params: {
       return 'Could not start checkout — the payment link we received was invalid. Please try again.';
     }
 
+    // Points DIRECTLY at the verify API route now, not at a
+    // `/fund-wallet/verify` page in between. That page used to
+    // `fetch()` this same route and `.json()`-parse the response — but
+    // Task 33 Part 2a (handover.md) rewrote this route to do a plain
+    // `NextResponse.redirect(...)` instead of returning JSON, and
+    // nothing updated that page to match. `fetch()` follows redirects
+    // by default, so it would land on whatever HTML page the route
+    // redirected to and `.json()` it — throwing a SyntaxError on every
+    // single payment, success or failure, leaving the guest stranded on
+    // a broken "confirming your payment" screen even though their
+    // payment (and, per Task 36 Part 2, their campaign) had already
+    // gone through server-side. Found and fixed this session, along
+    // with deleting that now-fully-dead page — see handover.md's
+    // "checkout.ts verify-callback" note (search Task 36 Part 4) for
+    // the full writeup. A real browser navigation here (not a fetch)
+    // is exactly what this server-redirect route wants and already
+    // correctly handles.
     const callbackParams = new URLSearchParams({ redirect: redirectTo });
-    const verifyCallback = `${window.location.origin}/fund-wallet/verify?reference=${encodeURIComponent(data.reference)}&${callbackParams.toString()}`;
+    const verifyCallback = `${window.location.origin}/api/payments/verify/${encodeURIComponent(data.reference)}?${callbackParams.toString()}`;
     // Some Korapay checkout configs read the return URL from a query
     // param; harmless to include even if the render-backend already
-    // set one, since ours is what our own verify page expects.
+    // set one, since ours is what our own verify route expects.
     checkoutUrl.searchParams.set('redirect_url', verifyCallback);
 
     window.location.href = checkoutUrl.toString();
