@@ -63,16 +63,33 @@
 > reminder of what to re-check if this ever regresses (a future
 > `git push` to that function without a matching redeploy).
 >
-> **Next task: hold — Task 33 Part 2c (metadata.type crediting gate)
-> is done in code (2026-08-28, this session), same as 2b before it,
-> and also NOT YET DEPLOYED — Part 2d (deploy + end-to-end
-> verification) is what's next once the project owner confirms.**
-> Needs the same `supabase functions deploy korapay-webhook
-> --project-ref atojskxrxfsbpeefigtm` command as every prior
-> `korapay-webhook` change — one deploy now covers both 2b and 2c
-> together, since neither shipped separately. Don't re-attempt the
-> deploy yourself from a sandbox session — no Supabase CLI/project
-> credentials exist here.
+> **Next task: no longer a hold — the product owner has confirmed ALL
+> pending deployments succeeded (2026-08-28, this session).** Both of
+> the previously-outstanding deploy steps are now live:
+> - `supabase functions deploy korapay-webhook --project-ref
+>   atojskxrxfsbpeefigtm` — covers Task 33 Part 2b (deposit crediting),
+>   Part 2c (`metadata.type` crediting gate), and Part 2 of Task 36
+>   (direct-pay campaign creation) in one deploy, since none of those
+>   shipped separately. **Task 33 Part 2d (deploy + end-to-end
+>   verification) is therefore done** — the full webhook chain (Korapay
+>   → B-Pay-backend gateway → this function → wallet credit /
+>   direct-pay campaign creation) is live end to end, not just
+>   code-complete.
+> - `supabase db push` — migration 008 (`credit_wallet_refund`, Task 34)
+>   is now applied to the live DB, joining migrations 004/005/007
+>   confirmed earlier. All eight tracked migrations in this repo are
+>   now live.
+>
+> No further "not yet deployed"/"awaiting deploy feedback" caveats
+> apply anywhere below in this file as of this confirmation — treat any
+> such wording found further down (there's a lot of it, accumulated
+> across sessions) as historical, not current. **Actual next
+> unblocked work:** Task 36 Parts 3-4 (redirect + frontend wiring, Part
+> 3 already noted below as unblocked now that Part 2 exists), Task 35's
+> two remaining open items (where the platform's cut gets recorded;
+> whether `add-funds` should carry the fee too — both still need a
+> product-owner call, not blocked on deploy), or Task 44 (spec-only,
+> not started). No task in this file is currently on hold.
 >
 > **Also this session — a real, separate, cross-repo bug found and
 > fixed first, before continuing to 2c: references never actually
@@ -83,10 +100,7 @@
 > Mavins-web payment was silently logged "unroutable" and never
 > forwarded here at all, regardless of how correct Part 1b/2a/2b's own
 > logic was. Fixed to `MAVW-WLT-<...>`/`MAVW-GST-<...>`. See Task 43
-> below for the full write-up. **This means the "Not yet deployed"
-> items above only matter once this fix is deployed too** — no
-> webhook could have reached this function in production before now,
-> independent of the crediting-gate work.
+> below for the full write-up.
 >
 > **Task group Tasks 34–40 (wallet crediting/debiting + fee +
 > first-timer-vs-returning-user spec) — Tasks 34, 38, 39 now done,
@@ -112,10 +126,11 @@
 > is worth reading in full before starting Task 35, 36, or Task 33
 > Part 2 above. **Recommended order now: 35 → 36 → 37**, same as
 > before minus 34/38/39. **Migration 008 (`credit_wallet_refund`) is
-> NOT yet applied to the live DB** — needs the exact same
-> `supabase db push` hand-off migrations 004/005/007 already went
-> through (see Task 38's note for the exact recovery-step command if
-> the same "Remote migration versions not found" error recurs).
+> now confirmed applied to the live DB** (see the deploy-confirmation
+> note at the very top of this box) — the "Remote migration versions
+> not found" recovery-step command in Task 38's note below is no
+> longer needed for this migration specifically, only useful as
+> reference if a *future* migration hits the same class of error.
 >
 > **Update, later session — Task 35's "remaining real work" flagged
 > above already exists now.** `korapay-webhook/index.ts` (Task 33 Part
@@ -147,21 +162,26 @@
 > migration versions not found" for that same timestamp should reuse
 > that fix directly, not re-investigate from scratch.
 >
-> **Full cross-repo status, as of this note:**
-> - **mavins-web** (this repo) — next: **hold, awaiting deploy
->   feedback on Task 33 Part 2b** (see above; 2a and 2b are both done
->   in code this session, only 2b's deploy is outstanding).
+> **Full cross-repo status, as of this note (stale wording below this
+> line predates several sessions of work — see the deploy-confirmation
+> note at the very top of this box for the current, correct status):**
+> - **mavins-web** (this repo) — next: **no hold — see the top of this
+>   box.** All deploys confirmed live; Task 36 Parts 3-4, Task 35's two
+>   open decisions, and Task 44 are the actual unblocked next work.
 > - **B-Pay-backend** — next: **Task 9b** (Task 29's
 >   reconciled `src/lib/currency/countryCurrency.ts` feeding
 >   `getAmountFormat`) — no other unblocked work in that repo's own
 >   queue right now, Task 41's gateway build is done. "Korapay
 >   only" focus is active (waiting on API keys for the other three
->   providers); everything else Korapay-eligible is done.
+>   providers); everything else Korapay-eligible is done. **Not
+>   re-verified this session** — check that repo's own handover.md for
+>   anything newer before trusting this line.
 > - **Velune** — next: **see `HANDOVER_CAMPAIGN.md` → "8. Not done /
 >   open"** in that repo. No numbered task queue there (different
 >   convention, established by that repo's own sessions — don't
 >   force one). Current real blocker: no live Supabase credentials
 >   wired in, so the built feature can't be tested end-to-end yet.
+>   **Not re-verified this session.**
 >
 > **A session does not need to ask permission before cloning another
 > repo or switching context between the three** — if a task's real
