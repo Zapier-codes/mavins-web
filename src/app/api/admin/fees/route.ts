@@ -46,6 +46,15 @@ import { requireAdmin } from '@/lib/auth/requireAdmin';
  * never trusted, so this column can't be spoofed to attribute a change
  * to a different admin than the one who actually made it.
  *
+ * Task 46b-e (this session): every successful POST now also writes an
+ * `admin_actions` row (migration 015 — new, minimal, built here since
+ * 46e's own fuller version didn't exist yet, per 46b-e's own
+ * "build the minimal version first" instruction) recording who, when,
+ * and the old/new fee values. Explicitly flagged mandatory for 46b to
+ * be considered shippable, not optional — see this route's own POST
+ * handler for why an audit-insert failure doesn't roll back the real
+ * fee change.
+ *
  * POST body: { campaignFeePercent, depositFeePercent } — both
  * required, both numbers, both required to satisfy 0 <= x <= 100 at
  * this layer too (not just the DB's CHECK) so a bad request gets a
@@ -88,6 +97,19 @@ export async function POST(request: NextRequest) {
   const depositFeePercent = validPercent(body.depositFeePercent, 'depositFeePercent');
   if ('error' in depositFeePercent) return NextResponse.json({ success: false, error: depositFeePercent.error }, { status: 400 });
 
+  // Task 46b-e: read the row this insert is about to supersede BEFORE
+  // inserting the new one, purely so admin_actions.old_value has
+  // something real to record. Not used for any decision here -- this
+  // route's own append-only design (46b-a) means the write below
+  // happens unconditionally regardless of what this read returns,
+  // same as it did before 46b-e added this line.
+  const { data: previous } = await context.admin
+    .from('platform_fee_settings')
+    .select('*')
+    .order('changed_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
   // Always an insert -- 46b-a's append-only design, see this file's
   // header comment. changed_by comes only from the verified session,
   // never the request body.
@@ -102,5 +124,31 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+
+  // Task 46b-e: audit trail, explicitly mandatory for this part (see
+  // migration 015's own header comment) -- logged AFTER the real
+  // write succeeds, not before, so a failed fee-settings insert never
+  // produces a misleading audit row claiming a change happened when it
+  // didn't. Deliberately does NOT roll back or fail the request if
+  // this insert itself fails (network blip, admin_actions table
+  // briefly unavailable, etc.) -- the fee change is real money and
+  // already committed at this point; losing the audit *record* of a
+  // real change is a lesser failure than losing the change itself by
+  // pretending it didn't happen. Logged loudly (not silently) so it's
+  // visible in server logs either way.
+  const { error: auditError } = await context.admin.from('admin_actions').insert({
+    admin_id: context.authUser.id,
+    action: 'fee_settings.update',
+    table_name: 'platform_fee_settings',
+    record_id: data.id,
+    old_value: previous
+      ? { campaignFeePercent: previous.campaign_fee_percent, depositFeePercent: previous.deposit_fee_percent }
+      : null,
+    new_value: { campaignFeePercent: campaignFeePercent.value, depositFeePercent: depositFeePercent.value },
+  });
+  if (auditError) {
+    console.error('admin/fees POST: fee change succeeded but admin_actions audit insert failed', auditError, { newRowId: data.id });
+  }
+
   return NextResponse.json({ success: true, feeSettings: data });
 }
