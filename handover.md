@@ -522,10 +522,12 @@
 > Supabase instance, or the Realtime/query-invalidation round-trip
 > reaching `promote/page.tsx` — same standing limitation every part of
 > this task has flagged. **Task 46a is now fully done** (backend +
-> Parts A/B-i/B-ii) — `[x]`. **Next: Task 46b, 46c, 46d, or 46e** — all
-> four are still `[ ]` and unstarted; 46b is flagged in its own entry
-> as the highest-stakes (fee arithmetic), so don't default to file
-> order without weighing that.
+> Parts A/B-i/B-ii) — `[x]`. **Next: Task 46b-a** — 46b (fee
+> arithmetic, the highest-stakes part) has been split into 46b-a
+> through 46b-e (schema → wire the one call site → admin API route →
+> admin UI → audit trail), documented in order under 46b's own entry
+> below, each depending on the one before it. Start with 46b-a
+> (schema) — this split is documentation only, no code written yet.
 
 ---
 
@@ -5657,6 +5659,90 @@ parallel fee calculation); log every change (old value, new value, who,
 when — see 46e); very likely want a confirmation step beyond a normal
 form submit (e.g. re-enter password, or a two-step confirm) given the
 blast radius of a typo here.
+
+**Split into 46b-a through 46b-e, this session — documentation only,
+no code written yet.** This part alone touches schema, the one
+fee-computing call site, a new admin API route, admin UI, and a
+mandatory audit trail — five genuinely different concerns, exactly the
+kind of scope this file's own "one task per session" rule exists to
+break apart, rather than one session trying to hold all of it at once.
+Do these **in order** — b/c/d/e each depend on a/b/c/d respectively,
+not parallelizable:
+
+#### 46b-a — Schema: fee-settings table with forward-only effective-dating [ ]
+New table (suggested name: `platform_fee_settings`, but check for a
+naming collision with anything Task 45 already created before
+committing to it) holding the current campaign-fee and deposit-fee
+percentages, structured so a change takes effect only for campaigns
+created *after* it — the confirmed "forward-only, never retroactive"
+invariant below needs real schema support, not just an application-
+level promise. Simplest shape that satisfies this: an
+append-only table (`id, campaign_fee_percent, deposit_fee_percent,
+changed_by, changed_at`), where "the current rate" is always just "the
+most recent row" — never an UPDATE-in-place on a single row, since
+that would make it structurally impossible to prove after the fact
+that an old campaign was priced under the rate that was actually
+current at its own creation time. RLS: readable by the app's normal
+service-role usage (same as pricing tiers), writable only via the new
+admin API route 46b-c builds, never directly. Migration file, numbered
+to follow whatever the last-used migration number actually is in this
+repo right now (check `supabase_migration_*.sql` file names directly
+— don't guess or reuse Task 45's number). **Not applied to the live
+DB** by this split alone — same `supabase db push` hand-off every
+prior migration in this file has needed; a session doing 46b-a should
+say so explicitly in its own done-note, not assume it happened.
+
+#### 46b-b — Wire the one fee-computing call site to read from the new table [ ]
+**Depends on 46b-a existing.** Per Task 40's own rule, there is
+exactly one place that computes campaign fee arithmetic and one place
+that computes deposit fee arithmetic — find both (Task 40's own entry
+above names them) and change each from reading the hardcoded constant
+to reading the latest row from 46b-a's table instead. This is the
+narrowest possible change on purpose: don't refactor the surrounding
+function, don't add caching/memoization speculatively, just swap the
+constant for a query. Confirm directly (read the code, don't assume)
+that nothing else in the codebase still reads
+`PLATFORM_FEE_PERCENT`/`DEPOSIT_FEE_RATE` as a second, parallel source
+of truth after this change — if something does, that's a real Task 40
+violation this part needs to fix, not route around.
+
+#### 46b-c — Admin API route: read + write the fee settings [ ]
+**Depends on 46b-a existing (46b-b can happen in parallel with this
+one, both only depend on 46b-a).** New route (suggested:
+`/api/admin/fees`), following `api/admin/dashboard/route.ts`'s
+existing server-side `isAdmin()` gating convention exactly (check the
+caller's own session server-side, never trust a client-side check) —
+same pattern 46d will need to replicate for every other admin route,
+so worth getting right here first as the reference example. `GET`
+returns the current (most recent) row from 46b-a's table; `POST`
+inserts a new row (never updates in place, per 46b-a's append-only
+design) after validating the new percentages are sane (e.g. reject
+negative or absurdly large values — a real product decision on exact
+bounds is worth a quick confirmation rather than picking arbitrary
+limits silently).
+
+#### 46b-d — Admin UI: type-to-confirm fee-change form [ ]
+**Depends on 46b-c existing.** The actual form in the admin dashboard
+— implements the already-confirmed UX decision below (type-to-confirm,
+not re-authentication): show the current rate, accept a new one, then
+require the admin to type the new number into a second field before
+the save button enables, same pattern as AWS's resource-deletion
+confirms. Until 46d (the broader admin dashboard buildout) exists,
+this can live as a new tab on the existing single `admin/page.tsx`,
+matching how 46a's pieces did — don't block this on 46d being done
+first, they're independent.
+
+#### 46b-e — Audit trail wiring for fee changes specifically [ ]
+**Depends on 46b-c existing, and on 46e's `admin_actions` table (or
+whatever it ends up named) existing.** Explicitly called out below as
+**mandatory for this part, not optional — don't ship 46b without this
+landing in the same body of work**, unlike 46a/46c's audit needs which
+46e can cover more generally. If 46e's table doesn't exist yet when
+this is reached, build the minimal version of it needed here first
+(old value, new value, who, when) rather than skipping the audit
+requirement — a fuller 46e can extend/rename it later if needed, but
+46b must never ship writable without an audit trail from day one,
+per the explicit rule below.
 
 ### 46c — Live-campaign admin overrides [ ]
 Per-campaign admin edits, on an already-`is_active`
