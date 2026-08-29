@@ -5885,6 +5885,41 @@ negative or absurdly large values — a real product decision on exact
 bounds is worth a quick confirmation rather than picking arbitrary
 limits silently).
 
+**In progress, split into 3 stages this session (2026-08-29) — same
+reasoning as Task 45 Part 4's own 3-stage split, applied here because
+this part's own text already names the risk asymmetry explicitly: GET
+is a plain read with no money risk, POST is "the single highest-stakes
+part of this whole task." Splitting keeps the risky half reviewable in
+isolation instead of landing both in one diff.**
+- **Stage 1 [x]** — `src/app/api/admin/fees/route.ts` created, `GET`
+  only. Gated through `requireAdmin()` (same helper every 46a route
+  already uses). Returns the latest row (`ORDER BY changed_at DESC
+  LIMIT 1`) via `.maybeSingle()` rather than `.single()` — a
+  should-be-impossible-post-migration-014 empty table returns
+  `{ success: true, feeSettings: null }` (a real state an admin UI can
+  render sensibly for) rather than a 500. Response shape matches the
+  46a routes' own raw-Supabase-row (snake_case) convention, not
+  `fetchReferenceData()`'s separate camelCase mapping (different
+  consumer, no reason to force one convention onto the other).
+  `npx tsc --noEmit` clean.
+- **Stage 2 [ ]** — not started. `POST` (insert a new row, append-only,
+  never update-in-place). **Blocked on one open product question this
+  part's own text already flags and this session did not unilaterally
+  answer:** exact sane-bounds for `campaign_fee_percent`/
+  `deposit_fee_percent` beyond the DB's own `CHECK (0-100)` — e.g. is
+  there a product-intended practical ceiling (say, nothing sane is ever
+  above 25%) worth rejecting at the API layer with a clear error,
+  distinct from the technical 0-100 range Postgres already enforces?
+  A session picking up stage 2 should get this confirmed rather than
+  picking a number silently, per this part's own explicit instruction.
+- **Stage 3 [ ]** — not started. Verification: confirm (by re-reading
+  the code, this sandbox has no live Supabase to actually call the
+  route against) that `requireAdmin()` gating is wired identically to
+  every 46a route, that `POST` never updates an existing row under any
+  input, and that `GET` genuinely always reflects `POST`'s most recent
+  insert (ordering, not an assumption). `npx tsc --noEmit` re-check
+  after stage 2's changes.
+
 #### 46b-d — Admin UI: type-to-confirm fee-change form [ ]
 **Depends on 46b-c existing.** The actual form in the admin dashboard
 — implements the already-confirmed UX decision below (type-to-confirm,
