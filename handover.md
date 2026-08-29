@@ -5949,6 +5949,45 @@ this can live as a new tab on the existing single `admin/page.tsx`,
 matching how 46a's pieces did — don't block this on 46d being done
 first, they're independent.
 
+**In progress, split into 3 stages this session (2026-08-29) — same
+risk-based reasoning as 46b-c's own split: stage 1 (read) carries none
+of this whole task's flagged risk, stage 2 (the actual write path) is
+where a mistake would matter.**
+- **Stage 1 [x]** — `src/components/admin/FeeSettingsPanel.tsx`
+  created, read-only: displays the current campaign/deposit fee
+  percentages and `changed_at`, sourced from `GET /api/admin/fees`
+  (46b-c). Wired into `admin/page.tsx` as a new `fees` tab, same
+  lazy-load-on-first-open pattern every other tab already uses —
+  `loadFeeSettings()` goes through the admin route rather than a
+  direct browser-client select like the five 46a tables do, since
+  "the current rate" needs the `ORDER BY changed_at DESC LIMIT 1` the
+  route already does server-side. Surfaces the forward-only invariant
+  ("changes apply only to campaigns created after the change") as a
+  standing note in the panel, not just documentation — the product
+  owner's own confirmed-decisions note called this "more important
+  than the confirmation UX itself." `changed_by` (a raw user UUID) is
+  deliberately NOT resolved to an admin name/email in this UI —
+  would need an extra users-table lookup out of this stage's scope;
+  46e's audit trail is the source of truth for "who," this panel only
+  needs to answer "what is the rate right now." `npx tsc --noEmit`
+  clean.
+- **Stage 2 [ ]** — not started. The actual editable form: an input
+  per fee percentage, a change summary ("Changing campaign fee from
+  10% to 12%") once a draft differs from the current value, and a
+  second field the admin must type the new number into (matching
+  exactly) before Save enables. Calls `POST /api/admin/fees` — always
+  sends both percentages together (the route requires both; an admin
+  editing only one field re-submits the other's current value
+  unchanged, which is a legitimate new append-only row per 46b-a's own
+  design, not a special case to avoid).
+- **Stage 3 [ ]** — not started. Verification + `refreshAfterWrite`-
+  equivalent integration: confirm a successful save both reloads this
+  panel's own local state AND invalidates
+  `REFERENCE_DATA_QUERY_KEY` (same integration this task's own intro
+  paragraph requires — a fee edit must reach the promote page without
+  a manual refresh, same as every 46a write already does). `npx tsc
+  --noEmit` re-check after stage 2's changes.
+
 #### 46b-e — Audit trail wiring for fee changes specifically [ ]
 **Depends on 46b-c existing, and on 46e's `admin_actions` table (or
 whatever it ends up named) existing.** Explicitly called out below as

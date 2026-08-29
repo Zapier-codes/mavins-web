@@ -9,6 +9,7 @@ import { formatCents, formatNumber } from '@/lib/campaign/pricing';
 import { cn } from '@/lib/utils/cn';
 import { AdminCrudTable, type AdminCrudColumn } from '@/components/admin/AdminCrudTable';
 import { AffinityMatrix, type AffinityRow } from '@/components/admin/AffinityMatrix';
+import { FeeSettingsPanel, type FeeSettingsRow } from '@/components/admin/FeeSettingsPanel';
 import { REFERENCE_DATA_QUERY_KEY } from '@/hooks/campaign/useReferenceData';
 import {
   Shield, Users, BarChart3, Wallet, Activity,
@@ -127,7 +128,7 @@ export default function AdminPage() {
   const [ledger, setLedger] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'users' | 'ledger' | 'pricing' | 'duration' | 'countries' | 'genres' | 'affinity'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'users' | 'ledger' | 'pricing' | 'duration' | 'countries' | 'genres' | 'affinity' | 'fees'>('overview');
 
   // Task 46a Part A — pricing_tiers / duration_slots raw rows. Loaded
   // lazily (only once their tab is first opened, see loadPricingTiers/
@@ -151,6 +152,15 @@ export default function AdminPage() {
   // other table on this page.
   const [affinityRows, setAffinityRows] = useState<AffinityRow[]>([]);
   const [affinityLoaded, setAffinityLoaded] = useState(false);
+  // Task 46b-d — platform_fee_settings, same lazy-load-on-first-tab-
+  // open pattern as every other table on this page. Unlike the five
+  // 46a tables, this one goes through the admin GET route (Task
+  // 46b-c) instead of a direct browser-client select -- "the current
+  // rate" needs an ORDER BY changed_at DESC LIMIT 1, which the route
+  // already does server-side, rather than duplicating that query
+  // shape here.
+  const [feeSettings, setFeeSettings] = useState<FeeSettingsRow | null>(null);
+  const [feeSettingsLoaded, setFeeSettingsLoaded] = useState(false);
 
   useEffect(() => {
     // Wait for the session to actually resolve before deciding anything —
@@ -253,6 +263,18 @@ export default function AdminPage() {
     setAffinityLoaded(true);
   }
 
+  // Task 46b-d — goes through the admin route (server-side
+  // requireAdmin() + the ORDER BY/LIMIT the route already does), not
+  // a direct browser-client select — see this file's own state
+  // declaration comment above for why this one table differs from
+  // the other five.
+  async function loadFeeSettings() {
+    const res = await fetch('/api/admin/fees');
+    const json = await res.json().catch(() => null);
+    if (res.ok && json?.success) setFeeSettings(json.feeSettings ?? null);
+    setFeeSettingsLoaded(true);
+  }
+
   useEffect(() => {
     if (activeTab === 'pricing' && !pricingTiersLoaded) loadPricingTiers();
     if (activeTab === 'duration' && !durationSlotsLoaded) loadDurationSlots();
@@ -267,7 +289,8 @@ export default function AdminPage() {
       if (!countriesLoaded) loadCountries();
       if (!affinityLoaded) loadAffinity();
     }
-  }, [activeTab, pricingTiersLoaded, durationSlotsLoaded, countriesLoaded, genresLoaded, affinityLoaded]);
+    if (activeTab === 'fees' && !feeSettingsLoaded) loadFeeSettings();
+  }, [activeTab, pricingTiersLoaded, durationSlotsLoaded, countriesLoaded, genresLoaded, affinityLoaded, feeSettingsLoaded]);
 
   // Task 46a Part A — after any successful write, re-read this page's
   // own local copy AND invalidate Task 45 Part 2's shared reference-
@@ -415,7 +438,7 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div className="flex gap-2 overflow-x-auto scrollbar-hide">
-          {(['overview', 'campaigns', 'users', 'ledger', 'pricing', 'duration', 'countries', 'genres', 'affinity'] as const).map((tab) => (
+          {(['overview', 'campaigns', 'users', 'ledger', 'pricing', 'duration', 'countries', 'genres', 'affinity', 'fees'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -424,7 +447,7 @@ export default function AdminPage() {
                 activeTab === tab ? 'bg-[#1db954] text-black' : 'glass-card text-[var(--muted-foreground)]'
               )}
             >
-              {tab === 'pricing' ? 'Pricing Tiers' : tab === 'duration' ? 'Duration Slots' : tab === 'affinity' ? 'Genre Affinity' : tab}
+              {tab === 'pricing' ? 'Pricing Tiers' : tab === 'duration' ? 'Duration Slots' : tab === 'affinity' ? 'Genre Affinity' : tab === 'fees' ? 'Platform Fees' : tab}
             </button>
           ))}
         </div>
@@ -687,6 +710,11 @@ export default function AdminPage() {
             onSave={saveAffinity}
             onClear={clearAffinity}
           />
+        )}
+
+        {/* Platform Fees Tab — Task 46b-d, stage 1 (read-only) */}
+        {activeTab === 'fees' && (
+          <FeeSettingsPanel feeSettings={feeSettings} isLoading={!feeSettingsLoaded} />
         )}
       </div>
     </div>
