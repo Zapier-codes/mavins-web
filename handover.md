@@ -498,6 +498,28 @@
 > itself the fix for a real problem: multiple past sessions duplicated
 > work, and lost track of tasks, because the only way to know what was
 > next was reading a 1000+ line file end to end.
+>
+> **This session (2026-08-29) — Task 46a UI, Part B-i done.**
+> `countries` + `genres` admin CRUD tabs, built after pulling latest
+> first (per direct instruction — this task's own numbering had
+> already shifted underneath Task 46a's own Part A UI commit landing in
+> between, a session that itself never updated this box — same class
+> of drift the paragraphs above already flagged more than once; found
+> it by reading Task 46a's own entry directly rather than trusting this
+> box alone, which is exactly why the box says to do that). Split Part
+> B (the three tables Part A's session left for later) into B-i
+> (`countries` + `genres`) and B-ii (`genre_country_affinity`, the
+> composite-key matrix table) per direct instruction, and built only
+> B-i — B-ii is explicitly deferred, not attempted. `AdminCrudTable`
+> generalized (not duplicated) with an `idKey` prop (`countries` is
+> keyed on `code`, not `id`) and a new `'text-array'` column type
+> (`countries.korapay_channels`, a real `string[] | null` column) —
+> both changes verified backward-compatible with Part A's own two
+> existing tabs. `npx tsc --noEmit` clean. See Task 46a's own entry for
+> the full write-up, including the one deliberate gap left open (no
+> cross-field validation between `korapay_default_channel` and
+> `korapay_channels`). **Next: Task 46a Part B-ii**, or re-check the
+> queue fresh — Task 46b–e are all still `[ ]` and unstarted.
 
 ---
 
@@ -5430,18 +5452,103 @@ split the remaining UI work into two parts and built only the first.**
   Wired into two new tabs on `admin/page.tsx` itself — no new page/
   route added, consistent with the rest of this file's admin surface
   living in that one page.
-- **Part B (not built, flagged for a future session):** `countries`
-  (extra Korapay-channel columns this task's own note already flags,
-  plus a real cascade-delete warning — deleting a country cascades
-  into `genre_country_affinity` via the FK, migration 010), `genres`
-  (simple on its own, just not reached this session), and
+- **Part B (superseded by this note — split further into B-i/B-ii per
+  direct instruction, see below):** `countries` (extra Korapay-channel
+  columns this task's own note already flags, plus a real
+  cascade-delete warning — deleting a country cascades into
+  `genre_country_affinity` via the FK, migration 010), `genres` (simple
+  on its own, just not reached this session), and
   `genre_country_affinity` (composite `(genre_id, country_code)` key,
   350 rows, upsert-not-strict-create semantics on its own API route —
   a fundamentally different UI shape from a flat table with an add
   row, more likely a filterable matrix/grid). `AdminCrudTable` as
-  built is NOT a fit for any of these three as-is — a future session
-  should expect to extend it or build bespoke UI, not assume it drops
-  in unchanged.
+  built (Part A) was NOT a fit for any of these three as-is — a future
+  session should expect to extend it or build bespoke UI, not assume
+  it drops in unchanged.
+
+**Part B-i (built, this session — commit pending): `countries` +
+`genres`.** Per direct instruction: pulled latest first (this session's
+own numbering had shifted underneath Part A's own "UI half" commit
+landing in between — same class of drift flagged in Part A's own
+note), then split Part B into B-i (`countries` + `genres`) and B-ii
+(`genre_country_affinity`, the composite-key matrix table) rather than
+attempting all three together, and built only B-i.
+
+- **`AdminCrudTable` generalized rather than duplicated** — two small,
+  additive changes, both backward-compatible with Part A's existing
+  two call sites (verified: `npx tsc --noEmit` clean on the whole
+  project, Part A's tabs untouched in behavior):
+  - **`idKey` prop** (defaults to `'id'`) — `countries` is keyed on
+    `code`, not `id`; every internal reference to `row.id` became
+    `row[idKey]`, and the generic constraint relaxed from
+    `T extends { id: string }` to `T extends Record<string, any>` to
+    allow it.
+  - **`'text-array'` column type** — `countries.korapay_channels` is a
+    real `string[] | null` DB column (migration 012), which the
+    previous `'text' | 'number' | 'textarea'` union had no way to
+    represent. Edited as a plain comma-separated text input; the
+    conversion to/from the real array happens only twice — once at
+    edit-start (array → joined string, populating draft) and once at
+    save (string → trimmed/filtered array, or `null` if empty) —
+    **deliberately not** re-converted on every keystroke, since a
+    naive split-and-rejoin approach would silently eat a trailing
+    comma the admin just typed to start entering the next channel
+    name, making it fiddly to type a list at all. Verified with a
+    throwaway script (deleted after): the round-trip is lossless for a
+    populated array, `null`, and `[]` (both empty cases collapse to
+    `null`, matching what the countries route itself treats as "no
+    confirmed Korapay coverage" per migration 012's own comment), and
+    confirmed a string mid-typed with a trailing comma is never
+    silently rewritten (draft only converts at save, not per
+    keystroke).
+- **`countries` tab**: `idKey="code"`, `deleteWarning` set to a
+  cascade-delete notice (shared with `genres` via one
+  `CASCADE_DELETE_WARNING` constant — both tables cascade into
+  `genre_country_affinity` via the same kind of FK, so one shared
+  message is accurate for both, not a coincidence worth two separate
+  strings). `korapay_default_channel` edited as a plain text field
+  (not a dropdown constrained to whatever's currently in
+  `korapay_channels`) — a real, deliberate gap: cross-field validation
+  (this value should be one of that array's entries) isn't attempted
+  here, matching Part A's own "deliberately shallow validation" note
+  above; a stricter UI (a `<select>` populated from the sibling
+  field's current draft value) is a reasonable follow-up, not built.
+- **`genres` tab**: uses the component's default `idKey="id"` — no
+  new capability needed here, it already fit Part A's original shape
+  exactly; genuinely just "not reached yet" as Part B's own note said,
+  not a hidden complication.
+- **`countryRowToBody`/`genreRowToBody`** — same snake_case-row →
+  camelCase-body mapping pattern as Part A's `tierRowToBody`/
+  `slotRowToBody`, matching `api/admin/countries/route.ts` and
+  `api/admin/genres/route.ts`'s own `fromBody()` field lists exactly
+  (both already existed from this task's backend half — not built this
+  session, just wired to).
+- **Integrates with Task 45 Part 2's shared cache**, same pattern and
+  same reasoning as Part A: `refreshAfterWrite` extended to cover
+  `'countries' | 'genres'` alongside the original two tables, calling
+  `queryClient.invalidateQueries({ queryKey: REFERENCE_DATA_QUERY_KEY })`
+  after every successful write.
+- **Not built this session — Part B-ii, explicitly deferred, not
+  attempted:** `genre_country_affinity`. Per this task's own earlier
+  note, its shape (composite key, 350 rows, upsert semantics) doesn't
+  fit `AdminCrudTable` even generalized — needs its own bespoke
+  filterable matrix/grid UI, a different-enough component that
+  building it inside this same session (after already generalizing
+  `AdminCrudTable` once) would have risked rushing a second, harder
+  UI design in the same sitting rather than giving it its own proper
+  attempt. Left as its own follow-up task.
+- **Verified:** `npx tsc --noEmit` clean on the whole project. A
+  throwaway Node script (deleted after use, not committed) confirmed
+  both new row-to-body mapping functions produce exactly the field set
+  each route's own doc comment documents, and that the `text-array`
+  draft/save conversion round-trips losslessly (populated array,
+  `null`, and `[]` all handled correctly) without re-normalizing on
+  every keystroke. **Not verified — no way to check from this
+  sandbox:** an actual authenticated admin write against a live
+  Supabase instance for either table, or the Realtime/query-
+  invalidation round-trip reaching `promote/page.tsx` end-to-end —
+  same standing limitation Part A's own note already flagged, not
+  re-solved here.
 - **A real, non-obvious wrinkle found while building Part A, worth
   flagging explicitly:** `useReferenceData()`'s own `PricingTier`/
   `DurationSlot` shapes (`src/lib/campaign/pricing.ts`) deliberately

@@ -5,61 +5,93 @@ import { cn } from '@/lib/utils/cn';
 import { Plus, Pencil, Trash2, X, Check, Loader2 } from 'lucide-react';
 
 /**
- * Task 46a (handover.md) — UI half, Part A of this session's own split
- * (see handover.md for the full A/B reasoning). Builds one reusable
- * admin create/edit/delete table, matching admin/page.tsx's existing
- * glass-card/table visual language rather than inventing a new one
- * (per that task's own note pointing at `frontend-design`'s guidance
- * on this being internal CRUD tooling, not greenfield brand design).
+ * Task 46a (handover.md) — UI half. Built in Part A of this session's
+ * own split scoped to `pricing_tiers`/`duration_slots` (single string
+ * `id` PK, every field a flat scalar). Generalized in Part B-i (a
+ * further split of the original Part B — see handover.md, Task 46a's
+ * own entry, for the full A/B/B-i/B-ii reasoning) to also cover
+ * `countries` (keyed on `code`, not `id` — see the new `idKey` prop)
+ * and `genres` (fits the original shape directly, `id`-keyed, just not
+ * reached in Part A). Two additions made specifically for that:
+ *   - `idKey` — which field is this row's primary key. Defaults to
+ *     `'id'` (Part A's two tables, and `genres`, all still work
+ *     unchanged); `countries`' tab passes `idKey="code"`.
+ *   - `'text-array'` column type — comma-separated editing for
+ *     `countries.korapay_channels` (a real `string[] | null` DB
+ *     column, migration 012). Draft state keeps this field as a raw
+ *     string the whole time it's being edited (never round-tripped
+ *     through an array mid-keystroke) specifically so typing a
+ *     trailing comma to start the next item doesn't get silently
+ *     collapsed away by a naive split-and-rejoin on every keystroke —
+ *     conversion to/from the real array only happens once, at
+ *     edit-start (array → string) and at save (string → array).
+ *   - `deleteWarning` — optional extra copy shown in the delete-
+ *     confirm step. Used by both `countries` and `genres` (deleting
+ *     either cascades into `genre_country_affinity` via migration
+ *     010's own FK — a real, non-obvious side effect this task's own
+ *     backend-half note already flagged as needing a UI warning).
  *
- * Deliberately scoped to the shape `pricing_tiers` and `duration_slots`
- * both share: a single string `id` primary key, and every other field
- * a flat scalar (text or number) with no cross-row relationships. This
- * is Part A's whole point — prove the end-to-end pattern (list, add,
- * inline edit, delete, wired to a real admin API route, integrated
- * with Task 45 Part 2's shared query cache) on the two tables where
- * that shape fits cleanly, rather than half-solving all five at once.
- *
- * NOT designed for `countries` (extra Korapay columns + a real
- * cascade-delete warning needed — Task 46a's own note flags this
- * explicitly), `genres` (simple, but not built here — Part B), or
- * `genre_country_affinity` (composite `(genre_id, country_code)` key,
- * 350 rows, upsert-not-strict-create semantics on its API route) — see
- * this session's handover.md note for why those three are Part B, not
- * an oversight.
+ * Still NOT designed for `genre_country_affinity` (composite
+ * `(genre_id, country_code)` key, 350 rows, upsert-not-strict-create
+ * semantics) — that's Part B-ii, deliberately not attempted here; a
+ * filterable matrix/grid is a different enough shape that forcing it
+ * through this same list-of-rows component would be the wrong fit, not
+ * a shortcut.
  */
 
 export interface AdminCrudColumn<T> {
   key: keyof T & string;
   label: string;
-  type: 'text' | 'number' | 'textarea';
+  type: 'text' | 'number' | 'textarea' | 'text-array';
   /** Shown in the table as a plain column; omit to keep a field
    * edit-only (rare for this component's two current use cases, but
    * available). */
   hideInTable?: boolean;
 }
 
-export interface AdminCrudTableProps<T extends { id: string }> {
+export interface AdminCrudTableProps<T extends Record<string, any>> {
   title: string;
   columns: AdminCrudColumn<T>[];
   rows: T[];
   isLoading: boolean;
   /** Row shape for a brand-new entry before the admin fills anything
    * in — every column should have a reasonable starting value here
-   * (empty string / 0), since this component doesn't know your
-   * business defaults. */
-  emptyRow: Omit<T, 'id'> & { id?: string };
+   * (empty string / 0 / null for a text-array column), since this
+   * component doesn't know your business defaults. */
+  emptyRow: Record<string, any>;
+  /** Which field is this row's primary key. Defaults to `'id'`
+   * (Part A's two tables, and `genres`) — `countries` passes
+   * `idKey="code"`. */
+  idKey?: keyof T & string;
+  /** Extra copy shown in the delete-confirm step, e.g. a cascade-delete
+   * warning. Omit for a plain "Delete?" prompt. */
+  deleteWarning?: string;
   onCreate: (row: Record<string, any>) => Promise<{ success: boolean; error?: string }>;
   onUpdate: (id: string, updates: Record<string, any>) => Promise<{ success: boolean; error?: string }>;
   onDelete: (id: string) => Promise<{ success: boolean; error?: string }>;
 }
 
-export function AdminCrudTable<T extends { id: string }>({
+function toDraftValue(type: AdminCrudColumn<any>['type'], value: any): any {
+  if (type === 'text-array') return Array.isArray(value) ? value.join(', ') : (value ?? '');
+  return value;
+}
+
+function fromDraftValue(type: AdminCrudColumn<any>['type'], value: any): any {
+  if (type === 'text-array') {
+    const arr = String(value ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    return arr.length ? arr : null;
+  }
+  return value;
+}
+
+export function AdminCrudTable<T extends Record<string, any>>({
   title,
   columns,
   rows,
   isLoading,
   emptyRow,
+  idKey = 'id' as keyof T & string,
+  deleteWarning,
   onCreate,
   onUpdate,
   onDelete,
@@ -75,8 +107,10 @@ export function AdminCrudTable<T extends { id: string }>({
 
   function startEdit(row: T) {
     setRowError(null);
-    setEditingId(row.id);
-    setDraft({ ...row });
+    setEditingId(String(row[idKey]));
+    const d: Record<string, any> = {};
+    for (const col of columns) d[col.key] = toDraftValue(col.type, row[col.key]);
+    setDraft(d);
     setIsCreating(false);
   }
 
@@ -84,7 +118,9 @@ export function AdminCrudTable<T extends { id: string }>({
     setRowError(null);
     setIsCreating(true);
     setEditingId(null);
-    setDraft({ ...emptyRow });
+    const d: Record<string, any> = {};
+    for (const col of columns) d[col.key] = toDraftValue(col.type, emptyRow[col.key]);
+    setDraft(d);
   }
 
   function cancel() {
@@ -95,13 +131,19 @@ export function AdminCrudTable<T extends { id: string }>({
   }
 
   function updateDraftField(key: string, type: AdminCrudColumn<T>['type'], value: string) {
+    // text-array deliberately stays a raw string in draft the whole
+    // time it's being edited — see this file's header comment for why
+    // (a naive split/rejoin on every keystroke would eat a trailing
+    // comma the admin just typed to start the next item).
     setDraft((prev) => ({ ...prev, [key]: type === 'number' ? (value === '' ? '' : Number(value)) : value }));
   }
 
   async function saveCreate() {
     setIsSaving(true);
     setRowError(null);
-    const result = await onCreate(draft);
+    const body: Record<string, any> = {};
+    for (const col of columns) body[col.key] = fromDraftValue(col.type, draft[col.key]);
+    const result = await onCreate(body);
     setIsSaving(false);
     if (!result.success) {
       setRowError(result.error || 'Failed to create');
@@ -114,7 +156,11 @@ export function AdminCrudTable<T extends { id: string }>({
     if (!editingId) return;
     setIsSaving(true);
     setRowError(null);
-    const { id, ...updates } = draft;
+    const updates: Record<string, any> = {};
+    for (const col of columns) {
+      if (col.key === idKey) continue;
+      updates[col.key] = fromDraftValue(col.type, draft[col.key]);
+    }
     const result = await onUpdate(editingId, updates);
     setIsSaving(false);
     if (!result.success) {
@@ -183,10 +229,11 @@ export function AdminCrudTable<T extends { id: string }>({
             ) : rows.length === 0 && !isCreating ? (
               <tr><td colSpan={visibleColumns.length + 1} className="px-4 py-8 text-center text-[var(--subtle-foreground)]">No rows yet.</td></tr>
             ) : (
-              rows.map((row) =>
-                editingId === row.id ? (
+              rows.map((row) => {
+                const rowId = String(row[idKey]);
+                return editingId === rowId ? (
                   <EditRow
-                    key={row.id}
+                    key={rowId}
                     columns={visibleColumns}
                     draft={draft}
                     onChange={updateDraftField}
@@ -195,18 +242,24 @@ export function AdminCrudTable<T extends { id: string }>({
                     isSaving={isSaving}
                   />
                 ) : (
-                  <tr key={row.id} className="border-b border-white/5 hover:bg-white/5">
-                    {visibleColumns.map((col) => (
-                      <td key={col.key} className="px-4 py-3 max-w-xs truncate">{String((row as any)[col.key] ?? '—')}</td>
-                    ))}
+                  <tr key={rowId} className="border-b border-white/5 hover:bg-white/5">
+                    {visibleColumns.map((col) => {
+                      const value = row[col.key];
+                      const display = col.type === 'text-array' && Array.isArray(value)
+                        ? (value.length ? value.join(', ') : '—')
+                        : String(value ?? '—');
+                      return (
+                        <td key={col.key} className="px-4 py-3 max-w-xs truncate">{display}</td>
+                      );
+                    })}
                     <td className="px-4 py-3">
-                      {pendingDeleteId === row.id ? (
+                      {pendingDeleteId === rowId ? (
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-rose-400">Delete?</span>
-                          <button onClick={() => confirmDelete(row.id)} disabled={isSaving} className="p-1 rounded hover:bg-rose-500/20 text-rose-400">
+                          <span className="text-xs text-rose-400">{deleteWarning || 'Delete?'}</span>
+                          <button onClick={() => confirmDelete(rowId)} disabled={isSaving} className="p-1 rounded hover:bg-rose-500/20 text-rose-400 flex-shrink-0">
                             <Check className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={() => setPendingDeleteId(null)} className="p-1 rounded hover:bg-white/10">
+                          <button onClick={() => setPendingDeleteId(null)} className="p-1 rounded hover:bg-white/10 flex-shrink-0">
                             <X className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -215,15 +268,15 @@ export function AdminCrudTable<T extends { id: string }>({
                           <button onClick={() => startEdit(row)} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors">
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={() => setPendingDeleteId(row.id)} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors text-rose-400">
+                          <button onClick={() => setPendingDeleteId(rowId)} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors text-rose-400">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       )}
                     </td>
                   </tr>
-                )
-              )
+                );
+              })
             )}
           </tbody>
         </table>
@@ -250,6 +303,7 @@ function EditRow<T>({
             type={col.type === 'number' ? 'number' : 'text'}
             value={draft[col.key] ?? ''}
             onChange={(e) => onChange(col.key, col.type, e.target.value)}
+            placeholder={col.type === 'text-array' ? 'comma, separated, values' : undefined}
             className="w-full px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-sm focus:border-[#1db954]/50 focus:ring-1 focus:ring-[#1db954]/20 transition-all"
           />
         </td>

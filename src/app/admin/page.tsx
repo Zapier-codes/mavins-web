@@ -79,6 +79,43 @@ const DURATION_SLOT_COLUMNS: AdminCrudColumn<DurationSlotRow>[] = [
   { key: 'description', label: 'Description', type: 'text' },
 ];
 
+// Task 46a Part B-i (handover.md) — countries/genres, the two of Part
+// B's three remaining tables that fit AdminCrudTable's generalized
+// shape (see that component's own header comment for the idKey/
+// text-array additions this required). genre_country_affinity (Part
+// B-ii) does not, and isn't attempted here.
+interface CountryRow {
+  code: string;
+  country: string;
+  flag: string;
+  sort_order: number;
+  korapay_channels: string[] | null;
+  korapay_default_channel: string | null;
+}
+
+interface GenreRow {
+  id: string;
+  label: string;
+  sort_order: number;
+}
+
+const COUNTRY_COLUMNS: AdminCrudColumn<CountryRow>[] = [
+  { key: 'code', label: 'Code', type: 'text' },
+  { key: 'country', label: 'Country', type: 'text' },
+  { key: 'flag', label: 'Flag', type: 'text' },
+  { key: 'sort_order', label: 'Order', type: 'number' },
+  { key: 'korapay_channels', label: 'Korapay Channels', type: 'text-array' },
+  { key: 'korapay_default_channel', label: 'Korapay Default', type: 'text' },
+];
+
+const GENRE_COLUMNS: AdminCrudColumn<GenreRow>[] = [
+  { key: 'id', label: 'ID', type: 'text' },
+  { key: 'label', label: 'Label', type: 'text' },
+  { key: 'sort_order', label: 'Order', type: 'number' },
+];
+
+const CASCADE_DELETE_WARNING = 'Delete? This also removes every genre-country affinity row for it.';
+
 export default function AdminPage() {
   const { isAuthenticated, isAdmin, isLoading: authLoading } = useAuth();
   const router = useRouter();
@@ -89,7 +126,7 @@ export default function AdminPage() {
   const [ledger, setLedger] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'users' | 'ledger' | 'pricing' | 'duration'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'users' | 'ledger' | 'pricing' | 'duration' | 'countries' | 'genres'>('overview');
 
   // Task 46a Part A — pricing_tiers / duration_slots raw rows. Loaded
   // lazily (only once their tab is first opened, see loadPricingTiers/
@@ -100,6 +137,12 @@ export default function AdminPage() {
   const [pricingTiersLoaded, setPricingTiersLoaded] = useState(false);
   const [durationSlots, setDurationSlots] = useState<DurationSlotRow[]>([]);
   const [durationSlotsLoaded, setDurationSlotsLoaded] = useState(false);
+  // Task 46a Part B-i — same lazy-load-on-first-tab-open pattern as
+  // Part A's two tables above.
+  const [countries, setCountries] = useState<CountryRow[]>([]);
+  const [countriesLoaded, setCountriesLoaded] = useState(false);
+  const [genres, setGenres] = useState<GenreRow[]>([]);
+  const [genresLoaded, setGenresLoaded] = useState(false);
 
   useEffect(() => {
     // Wait for the session to actually resolve before deciding anything —
@@ -175,10 +218,27 @@ export default function AdminPage() {
     setDurationSlotsLoaded(true);
   }
 
+  // Task 46a Part B-i — same "raw table via browser client, RLS
+  // already permits public SELECT" reasoning as loadPricingTiers/
+  // loadDurationSlots above (see this file's header comment).
+  async function loadCountries() {
+    const { data, error } = await supabase.from('countries').select('*').order('sort_order');
+    if (!error) setCountries(data ?? []);
+    setCountriesLoaded(true);
+  }
+
+  async function loadGenres() {
+    const { data, error } = await supabase.from('genres').select('*').order('sort_order');
+    if (!error) setGenres(data ?? []);
+    setGenresLoaded(true);
+  }
+
   useEffect(() => {
     if (activeTab === 'pricing' && !pricingTiersLoaded) loadPricingTiers();
     if (activeTab === 'duration' && !durationSlotsLoaded) loadDurationSlots();
-  }, [activeTab, pricingTiersLoaded, durationSlotsLoaded]);
+    if (activeTab === 'countries' && !countriesLoaded) loadCountries();
+    if (activeTab === 'genres' && !genresLoaded) loadGenres();
+  }, [activeTab, pricingTiersLoaded, durationSlotsLoaded, countriesLoaded, genresLoaded]);
 
   // Task 46a Part A — after any successful write, re-read this page's
   // own local copy AND invalidate Task 45 Part 2's shared reference-
@@ -189,9 +249,11 @@ export default function AdminPage() {
   // its own, but calling it directly here means the admin doesn't have
   // to wait on that round-trip for their OWN list to reflect what they
   // just did.
-  async function refreshAfterWrite(table: 'pricing_tiers' | 'duration_slots') {
+  async function refreshAfterWrite(table: 'pricing_tiers' | 'duration_slots' | 'countries' | 'genres') {
     if (table === 'pricing_tiers') await loadPricingTiers();
-    else await loadDurationSlots();
+    else if (table === 'duration_slots') await loadDurationSlots();
+    else if (table === 'countries') await loadCountries();
+    else await loadGenres();
     queryClient.invalidateQueries({ queryKey: REFERENCE_DATA_QUERY_KEY });
   }
 
@@ -244,6 +306,29 @@ export default function AdminPage() {
     };
   }
 
+  // Task 46a Part B-i — same snake_case-row -> camelCase-body mapping
+  // as tierRowToBody/slotRowToBody above, matching api/admin/countries/
+  // route.ts and api/admin/genres/route.ts's own fromBody() field lists
+  // exactly (see each route's header comment).
+  function countryRowToBody(row: Record<string, any>) {
+    return {
+      code: row.code,
+      country: row.country,
+      flag: row.flag,
+      sortOrder: row.sort_order,
+      korapayChannels: row.korapay_channels,
+      korapayDefaultChannel: row.korapay_default_channel,
+    };
+  }
+
+  function genreRowToBody(row: Record<string, any>) {
+    return {
+      id: row.id,
+      label: row.label,
+      sortOrder: row.sort_order,
+    };
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[var(--background)] flex items-center justify-center">
@@ -282,7 +367,7 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div className="flex gap-2 overflow-x-auto scrollbar-hide">
-          {(['overview', 'campaigns', 'users', 'ledger', 'pricing', 'duration'] as const).map((tab) => (
+          {(['overview', 'campaigns', 'users', 'ledger', 'pricing', 'duration', 'countries', 'genres'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -484,6 +569,61 @@ export default function AdminPage() {
             onDelete={async (id) => {
               const result = await callAdminRoute('/api/admin/duration-slots', 'DELETE', { id });
               if (result.success) await refreshAfterWrite('duration_slots');
+              return result;
+            }}
+          />
+        )}
+
+        {/* Countries Tab — Task 46a Part B-i */}
+        {activeTab === 'countries' && (
+          <AdminCrudTable<CountryRow>
+            title="Countries"
+            columns={COUNTRY_COLUMNS}
+            rows={countries}
+            isLoading={!countriesLoaded}
+            idKey="code"
+            deleteWarning={CASCADE_DELETE_WARNING}
+            emptyRow={{ code: '', country: '', flag: '', sort_order: countries.length, korapay_channels: null, korapay_default_channel: null }}
+            onCreate={async (row) => {
+              const result = await callAdminRoute('/api/admin/countries', 'POST', countryRowToBody(row));
+              if (result.success) await refreshAfterWrite('countries');
+              return result;
+            }}
+            onUpdate={async (code, updates) => {
+              const result = await callAdminRoute('/api/admin/countries', 'PATCH', countryRowToBody({ code, ...updates }));
+              if (result.success) await refreshAfterWrite('countries');
+              return result;
+            }}
+            onDelete={async (code) => {
+              const result = await callAdminRoute('/api/admin/countries', 'DELETE', { code });
+              if (result.success) await refreshAfterWrite('countries');
+              return result;
+            }}
+          />
+        )}
+
+        {/* Genres Tab — Task 46a Part B-i */}
+        {activeTab === 'genres' && (
+          <AdminCrudTable<GenreRow>
+            title="Genres"
+            columns={GENRE_COLUMNS}
+            rows={genres}
+            isLoading={!genresLoaded}
+            deleteWarning={CASCADE_DELETE_WARNING}
+            emptyRow={{ label: '', sort_order: genres.length }}
+            onCreate={async (row) => {
+              const result = await callAdminRoute('/api/admin/genres', 'POST', genreRowToBody(row));
+              if (result.success) await refreshAfterWrite('genres');
+              return result;
+            }}
+            onUpdate={async (id, updates) => {
+              const result = await callAdminRoute('/api/admin/genres', 'PATCH', genreRowToBody({ id, ...updates }));
+              if (result.success) await refreshAfterWrite('genres');
+              return result;
+            }}
+            onDelete={async (id) => {
+              const result = await callAdminRoute('/api/admin/genres', 'DELETE', { id });
+              if (result.success) await refreshAfterWrite('genres');
               return result;
             }}
           />
