@@ -5870,7 +5870,7 @@ is still no way for an admin to actually change it (that's 46b-c's and
 46b-d's job). Until those land, the table's only writer is this
 migration's own bootstrap seed row.
 
-#### 46b-c — Admin API route: read + write the fee settings [ ]
+#### 46b-c — Admin API route: read + write the fee settings [x]
 **Depends on 46b-a existing (46b-b can happen in parallel with this
 one, both only depend on 46b-a).** New route (suggested:
 `/api/admin/fees`), following `api/admin/dashboard/route.ts`'s
@@ -5885,13 +5885,13 @@ negative or absurdly large values — a real product decision on exact
 bounds is worth a quick confirmation rather than picking arbitrary
 limits silently).
 
-**In progress, split into 3 stages this session (2026-08-29) — same
+**Done, this session (2026-08-29), split into 3 stages — same
 reasoning as Task 45 Part 4's own 3-stage split, applied here because
 this part's own text already names the risk asymmetry explicitly: GET
 is a plain read with no money risk, POST is "the single highest-stakes
-part of this whole task." Splitting keeps the risky half reviewable in
+part of this whole task." Splitting kept the risky half reviewable in
 isolation instead of landing both in one diff.**
-- **Stage 1 [x]** — `src/app/api/admin/fees/route.ts` created, `GET`
+- **Stage 1** — `src/app/api/admin/fees/route.ts` created, `GET`
   only. Gated through `requireAdmin()` (same helper every 46a route
   already uses). Returns the latest row (`ORDER BY changed_at DESC
   LIMIT 1`) via `.maybeSingle()` rather than `.single()` — a
@@ -5901,24 +5901,42 @@ isolation instead of landing both in one diff.**
   46a routes' own raw-Supabase-row (snake_case) convention, not
   `fetchReferenceData()`'s separate camelCase mapping (different
   consumer, no reason to force one convention onto the other).
-  `npx tsc --noEmit` clean.
-- **Stage 2 [ ]** — not started. `POST` (insert a new row, append-only,
-  never update-in-place). **Blocked on one open product question this
-  part's own text already flags and this session did not unilaterally
-  answer:** exact sane-bounds for `campaign_fee_percent`/
-  `deposit_fee_percent` beyond the DB's own `CHECK (0-100)` — e.g. is
-  there a product-intended practical ceiling (say, nothing sane is ever
-  above 25%) worth rejecting at the API layer with a clear error,
-  distinct from the technical 0-100 range Postgres already enforces?
-  A session picking up stage 2 should get this confirmed rather than
-  picking a number silently, per this part's own explicit instruction.
-- **Stage 3 [ ]** — not started. Verification: confirm (by re-reading
-  the code, this sandbox has no live Supabase to actually call the
-  route against) that `requireAdmin()` gating is wired identically to
-  every 46a route, that `POST` never updates an existing row under any
-  input, and that `GET` genuinely always reflects `POST`'s most recent
-  insert (ordering, not an assumption). `npx tsc --noEmit` re-check
-  after stage 2's changes.
+- **Stage 2** — `POST` added. **The open product question from stage 1
+  was put to the product owner directly, not guessed at:** confirmed
+  no API-level ceiling tighter than the DB's own 0-100 `CHECK` —
+  `validPercent()` enforces exactly that range, nothing narrower.
+  Always an `INSERT`, never an `UPDATE` — matches 46b-a's append-only
+  design; there is no code path in this route that can mutate an
+  existing row. `changed_by` is populated ONLY from
+  `requireAdmin()`'s own `authUser.id` (the verified session) — a
+  client-supplied `changedBy` in the POST body is never read, so this
+  column cannot be spoofed to attribute a fee change to a different
+  admin than the one who actually made it. Body fields
+  (`campaignFeePercent`/`depositFeePercent`) follow the same
+  camelCase-in/snake_case-out convention as every 46a route's own
+  `fromBody()`.
+- **Stage 3** — verification. Confirmed by grep (not assumed) that
+  this route is the ONLY writer of `platform_fee_settings` anywhere in
+  the repo — `referenceData.ts`, `useReferenceData.ts`, and
+  `korapay-webhook/index.ts` all only ever `.select()` from it, never
+  `.insert()`/`.update()`. A throwaway Node script (written, run,
+  deleted, not committed — this project's own convention) mirrored
+  `validPercent()`'s exact logic against 11 cases: both boundaries (0
+  and 100) inclusive-valid, just past both boundaries invalid,
+  missing/`null`, non-numeric, `NaN`, and a numeric string (matches
+  every 46a route's own `Number(...)` coercion convention) — all 11
+  passed. `npx tsc --noEmit` clean after both stages.
+
+**Not independently confirmed against a live Supabase instance** — no
+live credentials in this sandbox, same limitation every prior
+Supabase-touching task in this file has noted. A session with deploy
+access should do one real end-to-end check (call the route as an
+actual admin session, confirm the row lands and `GET` reflects it)
+before treating `requireAdmin()`'s gating and the insert path as fully
+proven in production, not just correct by code review.
+
+**Next: 46b-d** (admin UI — type-to-confirm fee-change form), which
+depends on this route existing and now can start.
 
 #### 46b-d — Admin UI: type-to-confirm fee-change form [ ]
 **Depends on 46b-c existing.** The actual form in the admin dashboard
