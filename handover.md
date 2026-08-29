@@ -418,6 +418,21 @@
 > the hardcoded admin-password rotation should happen first, standalone
 > — see Task 46's own sequencing recommendation.
 >
+> **This session (2026-08-29, later still) — Task 30a done, research
+> only, no code.** Sourced directly from Korapay's own current docs
+> (developers.korapay.com) — full write-up, with a sourced table and
+> two explicitly-flagged genuine ambiguities (South Africa, Senegal)
+> left unmapped rather than guessed, in Task 30a's own entry below.
+> 6 of the 25 target countries got a confirmed channel mapping; the
+> other 19 (17 with no Korapay coverage at all + 2 flagged ambiguities)
+> fall back to Korapay's own default selection.
+>
+> **Next task, unambiguously now: Task 30b** (extend the Supabase
+> `countries` table + `fetchReferenceData` pipeline with the channel
+> data 30a just produced — see 30b's own entry for the recommended
+> approach, already written up two sessions ago). This supersedes the
+> "Next task: Task 30a" paragraph above.
+>
 > **A session does not need to ask permission before cloning another
 > repo or switching context between the three** — if a task's real
 > subject is a different repo (this file has several, e.g. Task 33
@@ -2542,16 +2557,85 @@ above this one assumed:**
 **Split into 5 parts, this session, same one-part-per-session
 convention as every other multi-part task in this file:**
 
-### 30a — Research: confirm Korapay's real per-country channel availability [ ]
-Check Korapay's actual docs/dashboard (developers.korapay.com) for
-which of the four channel strings (`bank_transfer`, `card`,
-`pay_with_bank`, `mobile_money`) are genuinely available for each of
-the 25 countries in the `countries` table (migration 010). Produces a
-documented, sourced mapping — not code yet, and not a guess. Follow
-the same discipline already established for South Africa/EFT on the
-B-Pay-backend side: where availability for a given country genuinely
-isn't confirmable from Korapay's own docs, leave it unmapped (falls
-back to Korapay's own default channel selection) rather than assuming.
+### 30a — Research: confirm Korapay's real per-country channel availability [x]
+
+**Done, this session.** Sourced directly from Korapay's own current
+docs (developers.korapay.com/docs/accept-payments — the general
+Pay-ins overview, which states per-channel country/currency coverage
+plainly — cross-checked against developers.korapay.com/docs/
+checkout-redirect for the actual `payment_method` values a real
+transaction reports, and against Korapay's own support-site articles
+for the two channels whose exact scope needed a second source). Not
+guessed, not inferred from the channel-string names alone.
+
+**Confirmed channel coverage, by currency (not by country name — see
+mapping to this app's 25 target countries below):**
+- `card` — Nigeria (NGN) only.
+- `bank_transfer` — Nigeria (NGN) only.
+- `pay_with_bank` — Nigeria (NGN) only. **Do not confuse with South
+  Africa's "EFT"** (see flagged ambiguity below) — Korapay's own docs
+  list these as two separately-named things, "Pay with Bank: Nigeria
+  (NGN)" and "EFTs: South Africa (ZAR)," even though `pay_with_bank`
+  is the only EFT-like string in the checkout API's own documented
+  four-value channel/`payment_method` enum.
+- `mobile_money` — Kenya (KES), Ghana (GHS), Cameroon (XAF), Ivory
+  Coast (XOF), Egypt (EGP), Tanzania (TZS). **Discrepancy worth
+  flagging, not silently resolved:** the `checkout-redirect` page's own
+  webhook example comments `payment_method` as "can be bank_transfer,
+  card, pay_with_bank" — three values, `mobile_money` **not listed** —
+  while separate, dedicated docs pages (`mobile-money-checkouts`,
+  `mobile-money-apis`) clearly describe mobile money as a real,
+  working option *within* Checkout. Most likely just an incomplete
+  code-comment on one example rather than mobile money being
+  unavailable through Checkout Redirect specifically, but flagging
+  the direct contradiction rather than quietly picking one source
+  over the other — worth a quick support@korapay.com confirmation
+  before 30d ships, not a hard blocker on 30b/30c.
+
+**Mapped to this app's 25 target countries (migration 010's
+`countries` table, `code` column) — 6 confirmed, 2 explicitly left
+unmapped as genuine ambiguities (not guessed), 17 have no Korapay
+channel coverage at all today:**
+
+| Code | Country | Currency | Channels |
+|---|---|---|---|
+| NG | Nigeria | NGN | `card`, `bank_transfer`, `pay_with_bank` |
+| GH | Ghana | GHS | `mobile_money` |
+| KE | Kenya | KES | `mobile_money` |
+| CI | Côte d'Ivoire | XOF | `mobile_money` |
+| TZ | Tanzania | TZS | `mobile_money` |
+| EG | Egypt | EGP | `mobile_money` |
+| ZA | South Africa | ZAR | **unmapped** — see flag below |
+| SN | Senegal | XOF | **unmapped** — see flag below |
+| US, GB, FR, DE, IN, BR, JM, CA, AE, NL, UG, MX, ES, IT, AU, SE, KR | (17 countries) | various | none — no Korapay channel coverage found for any of these currencies; falls back to Korapay's own default selection, same fallback philosophy `korapayDccCurrency.ts` already uses for its own DCC-ineligible countries |
+
+**The two deliberately-unmapped flags, same discipline B-Pay-backend's
+own note already established for this exact South Africa case —
+noting rather than guessing:**
+- **ZA (South Africa):** Korapay's docs describe "EFTs: South Africa
+  (ZAR)" as its own named channel, separately from "Pay with Bank:
+  Nigeria (NGN)" — but the checkout API's actual four-value channel
+  enum has no `eft` string, only `pay_with_bank`. Whether South
+  Africa's EFT is actually selected via the `pay_with_bank` channel
+  string, a country-inferred value with no explicit string at all, or
+  isn't exposed through this same Checkout Redirect API at all, isn't
+  confirmable from the docs found this session. Left unmapped.
+- **SN (Senegal):** shares the XOF currency with Côte d'Ivoire (both
+  are in the WAEMU/UEMOA currency union), and Korapay's mobile-money
+  coverage is stated by currency (XOF), which would suggest Senegal
+  should work identically to Côte d'Ivoire — but Korapay's own docs
+  only ever literally name "Ivory Coast (XOF)," never Senegal
+  specifically. Currency-sharing is a reasonable inference, not a
+  confirmation of country-level product availability (Korapay could
+  easily support the currency broadly but gate mobile-money telco
+  integrations per-country, e.g. only having onboarded Ivorian mobile
+  network operators). Left unmapped rather than assumed identical.
+
+Both flags, plus the `mobile_money`-in-checkout-redirect discrepancy
+above, are good candidates for a single support@korapay.com email
+before 30d ships (three concrete, specific questions, not a vague
+"what do you support" ask) — not required to unblock 30b/30c, which
+only need the 6 confirmed rows above to proceed.
 
 ### 30b — Storage: extend the Supabase-backed reference-data pipeline, not a new hardcoded file [ ]
 **Recommendation, not yet built:** extend migration 010's `countries`
