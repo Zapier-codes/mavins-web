@@ -4477,6 +4477,40 @@ precise here rather than left as a general preference.
 **Depends on Parts 1-3 all being done and verified — this is the
 highest-risk part (deletion), done last and in isolation on purpose.**
 
+**In progress, split into 3 stages this session (2026-08-29) to keep
+each increment independently verifiable, same reasoning as this
+task's own 5-part split above — not a deviation from it:**
+- **Stage 1 [x]** — `promote/page.tsx` re-pointed at Part 2's
+  `useReferenceData()` store (props threaded into `GenreChips`,
+  `GeoTargetingSection`, `DurationSlotsGrid`, `SelectedCountriesStack`,
+  `PricingBreakdown`; loading gate added around the New Campaign card;
+  local `GENRES`/`TIERS` deleted). Old arrays in `pricing.ts`/
+  `geoAffinity.ts` deliberately left in place as a safety net.
+  `npx tsc --noEmit` clean.
+- **Stage 2 [x]** — `PRICING_TIERS`/`DURATION_SLOTS` deleted from
+  `pricing.ts`; `TARGET_COUNTRIES`/`GENRE_COUNTRY_AFFINITY` deleted
+  from `geoAffinity.ts`; `campaign.service.ts`'s stale `calculatePricing`
+  import removed (kept the `PricingResult` type import, per Part 1's
+  own note that it was never actually called). **One real call site
+  this task's own grep (both here and in Part 1's) missed:**
+  `src/lib/currency/countryCurrency.ts` imported `TARGET_COUNTRIES`
+  directly for a dev-time drift guard comparing its `COUNTRY_CURRENCY`
+  map's keys against it. Fixed by converting that guard from a
+  module-load-time side effect into an exported function,
+  `checkCountryCurrencyDrift(countries)`, called once from
+  `promote/page.tsx` in a `useEffect` after `referenceData` resolves
+  (dev-only, same as before). `npx tsc --noEmit` clean; confirmed via
+  grep that every remaining reference to the four deleted export names
+  anywhere in `src/` is in a comment, not live code.
+- **Stage 3 [ ]** — not started. Still owes this part's own two
+  "Verify" items: (1) confirm by inspection/manual interaction that
+  dragging the promote page's slider triggers zero network requests
+  (the end-to-end proof of this whole task's premise), and (2)
+  manually exercise the full promote-page flow and confirm every
+  displayed number matches what Part 1's byte-for-byte comparison
+  script already proved the pipeline produces. This part's own
+  checkbox above stays unchecked until stage 3 closes both out.
+
 - Delete `PRICING_TIERS`/`DURATION_SLOTS` from `pricing.ts`,
   `TARGET_COUNTRIES`/`GENRE_COUNTRY_AFFINITY` from `geoAffinity.ts`,
   and `GENRES`/`TIERS` from `promote/page.tsx` — all four call sites

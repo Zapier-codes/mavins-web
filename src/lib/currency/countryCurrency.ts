@@ -13,12 +13,15 @@
  * leftover generic currency list from before this app had a real
  * target-country concept.
  *
- * TARGET_COUNTRIES is the authoritative list (it's what
- * GeoTargetingSection and the genre-affinity engine actually target).
- * This file exists solely to give every one of those 25 countries a
- * currency for display purposes -- it is keyed 1:1 with
- * TARGET_COUNTRIES and nothing else. The dev-time check at the bottom
- * makes future drift loud (a console.warn) instead of silent.
+ * TARGET_COUNTRIES was the authoritative list (it's what
+ * GeoTargetingSection and the genre-affinity engine actually target;
+ * as of Task 45 Part 4 stage 2 those 25 countries live in Supabase,
+ * migration 010's `countries` table, not that now-deleted module
+ * constant). This file exists solely to give every one of those 25
+ * countries a currency for display purposes -- it is keyed 1:1 with
+ * that countries list and nothing else. checkCountryCurrencyDrift()
+ * below makes future drift loud (a console.warn) instead of silent --
+ * call it once wherever the countries list is actually available.
  *
  * IMPORTANT — what `rate` is and isn't: a static, hand-entered,
  * approximate NGN → local-currency conversion factor, for display only
@@ -45,7 +48,7 @@
  * app adding a second payment provider for those markets (Task 30).
  */
 
-import { TARGET_COUNTRIES } from '@/lib/campaign/geoAffinity';
+import type { TargetCountry } from '@/lib/campaign/geoAffinity';
 import { getKorapayDccCurrency } from './korapayDccCurrency';
 
 export interface CountryCurrency {
@@ -100,15 +103,23 @@ export function isKorapayDccEligible(countryCode: string | null | undefined): bo
   return getKorapayDccCurrency(countryCode) !== null;
 }
 
-// Dev-time drift guard: TARGET_COUNTRIES is the authoritative list this
-// file is keyed against. If a future session adds a country there
-// without adding a matching entry here, fail loud in dev instead of
-// silently falling back to no currency hint for that country.
-if (process.env.NODE_ENV !== 'production') {
-  const missing = TARGET_COUNTRIES.map((c) => c.code).filter((code) => !COUNTRY_CURRENCY[code]);
+// Dev-time drift guard: this file's COUNTRY_CURRENCY is keyed 1:1
+// against the countries list, which used to be the TARGET_COUNTRIES
+// module constant this file imported directly. Task 45 Part 4 (stage
+// 2) deleted that constant (geoAffinity.ts's countries now live in
+// Supabase, migration 010) — there is no longer a synchronous,
+// always-available list to check against at module-load time here.
+// Converted into a function callers invoke once they actually have a
+// countries list (e.g. promote/page.tsx, once useReferenceData()
+// resolves) instead of a top-level side effect. Same warning
+// behavior as before, just no longer able to run itself
+// automatically on import.
+export function checkCountryCurrencyDrift(countries: TargetCountry[]): void {
+  if (process.env.NODE_ENV === 'production') return;
+  const missing = countries.map((c) => c.code).filter((code) => !COUNTRY_CURRENCY[code]);
   if (missing.length > 0) {
     console.warn(
-      `[countryCurrency] TARGET_COUNTRIES has ${missing.length} code(s) with no ` +
+      `[countryCurrency] reference-data countries has ${missing.length} code(s) with no ` +
       `currency entry: ${missing.join(', ')}. Add them to COUNTRY_CURRENCY in ` +
       `src/lib/currency/countryCurrency.ts to keep the two lists reconciled.`
     );

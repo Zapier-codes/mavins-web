@@ -13,7 +13,7 @@ import { getRecommendedGeographies, getGeoTargetingPool, scoreLabel } from '@/li
 import type { TargetCountry, GeoReferenceData } from '@/lib/campaign/geoAffinity';
 import { useReferenceData } from '@/hooks/campaign/useReferenceData';
 import { getKorapayDccCurrency } from '@/lib/currency/korapayDccCurrency';
-import { COUNTRY_CURRENCY } from '@/lib/currency/countryCurrency';
+import { COUNTRY_CURRENCY, checkCountryCurrencyDrift } from '@/lib/currency/countryCurrency';
 import { initializeCheckout, initializeCampaignCheckout } from '@/lib/payments/checkout';
 import { getWalletBalanceCents } from '@/lib/payments/wallet';
 import { cn } from '@/lib/utils/cn';
@@ -426,6 +426,16 @@ export default function PromotePage() {
   // that explicitly rather than assuming it's always present the way
   // the old module-level constants were.
   const { data: referenceData } = useReferenceData();
+
+  // Task 45 Part 4 (stage 2) — countryCurrency.ts's own dev-time drift
+  // guard used to run itself automatically at module-load time against
+  // the (now-deleted) TARGET_COUNTRIES constant; it's a plain function
+  // now, called here once the store's own countries list is available.
+  // Dev-only, same as the guard always was -- a no-op in production.
+  useEffect(() => {
+    if (!referenceData) return;
+    checkCountryCurrencyDrift(referenceData.countries);
+  }, [referenceData]);
 
   // Task 36 Part 4 — a guest lands back here from Korapay checkout via
   // /api/payments/verify/[reference]?redirect=/promote%3Fcampaign_created%3D1

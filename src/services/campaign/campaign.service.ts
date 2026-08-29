@@ -1,6 +1,6 @@
 // src/services/campaign/campaign.service.ts
 import { supabase } from '@/lib/supabase/client';
-import { calculatePricing, type PricingResult } from '@/lib/campaign/pricing';
+import { type PricingResult } from '@/lib/campaign/pricing';
 
 interface CreateCampaignInput {
   sourceUrl: string;

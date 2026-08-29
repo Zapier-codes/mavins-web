@@ -14,21 +14,21 @@
  * contexts later (server route, Edge Function, client store) against
  * whichever copy of the reference data each one has — one engine,
  * multiple data sources, not three implementations that can drift.
- * PRICING_TIERS/DURATION_SLOTS themselves are UNCHANGED and still
- * exported here (Part 4 is what deletes them, once Parts 2/3 give
- * every call site something else to pass instead) — every existing
- * call site in this session's own grep
- * (initialize-campaign/route.ts, create/route.ts, promote/page.tsx;
- * campaign.service.ts imports calculatePricing but was found this
- * session to never actually call it — a stale import, not a real call
- * site, left as-is) now passes `{ tiers: PRICING_TIERS, durationSlots:
- * DURATION_SLOTS }` explicitly at the call site instead of the
- * function reading them as globals. Zero behavior change — verified
- * via a throwaway script (this project's own convention: write it,
- * run it, delete it, don't commit it) comparing every tier-boundary
- * view count's full output, byte-for-byte, against the pre-refactor
- * function.
+ *
+ * Task 45 Part 4 (stage 2) — PRICING_TIERS/DURATION_SLOTS themselves
+ * are DELETED as of this session. All three real call sites now pass
+ * `PricingReferenceData` sourced elsewhere: `create/route.ts` and
+ * `initialize-campaign/route.ts` read it server-side via
+ * `referenceDataCache.ts` (Part 3); `promote/page.tsx` reads it
+ * client-side via `useReferenceData()` (Part 2, wired in Part 4 stage
+ * 1). `initialize/route.ts` still doesn't call this function at all
+ * (a flat wallet top-up amount, price-irrelevant). The seed values
+ * these two arrays used to hold now live in
+ * `supabase_migration_010_static_data_tables.sql`'s `pricing_tiers`/
+ * `duration_slots` tables instead — this file is genuinely arithmetic
+ * only now, no longer also the data source.
  */
+
 
 export interface PricingTier {
   minViews: number;
@@ -38,16 +38,13 @@ export interface PricingTier {
   description: string;
 }
 
-// Realistic playlist push pricing (per 1,000 views/streams)
-// Based on industry averages: $0.80-$3.50 per 1K depending on volume
-export const PRICING_TIERS: PricingTier[] = [
-  { minViews: 1000, maxViews: 10000, pricePer1K: 350, label: 'Starter', description: 'Entry-level push' },
-  { minViews: 10001, maxViews: 50000, pricePer1K: 280, label: 'Growth', description: 'Building momentum' },
-  { minViews: 50001, maxViews: 100000, pricePer1K: 220, label: 'Scale', description: 'Serious traction' },
-  { minViews: 100001, maxViews: 500000, pricePer1K: 180, label: 'Pro', description: 'Chart contender' },
-  { minViews: 500001, maxViews: 1000000, pricePer1K: 150, label: 'Enterprise', description: 'Viral potential' },
-  { minViews: 1000001, maxViews: 10000000, pricePer1K: 120, label: 'Legend', description: 'Global domination' },
-];
+// Realistic playlist push pricing (per 1,000 views/streams):
+// $0.80-$3.50 per 1K depending on volume. Task 45 Part 4 (stage 2) —
+// the hardcoded PRICING_TIERS array that used to live here is
+// deleted; these values now live as seed data in
+// supabase_migration_010_static_data_tables.sql's `pricing_tiers`
+// table (server-side reads via referenceDataCache.ts, client-side via
+// useReferenceData()) — see this file's header comment.
 
 /**
  * Duration slots are FIXED. The user cannot choose weeks directly.
@@ -65,13 +62,9 @@ export interface DurationSlot {
   badge: string;
 }
 
-export const DURATION_SLOTS: DurationSlot[] = [
-  { id: '1w', label: '1 Week', weeks: 1, days: 7, maxDailyDrip: 1500, maxViews: 10500, description: 'Fast burst campaign', badge: 'Quick' },
-  { id: '2w', label: '2 Weeks', weeks: 2, days: 14, maxDailyDrip: 1500, maxViews: 21000, description: 'Steady growth curve', badge: 'Standard' },
-  { id: '4w', label: '1 Month', weeks: 4, days: 28, maxDailyDrip: 1500, maxViews: 42000, description: 'Natural organic feel', badge: 'Popular' },
-  { id: '16w', label: '4 Months', weeks: 16, days: 112, maxDailyDrip: 1500, maxViews: 168000, description: 'Sustained long-term push', badge: 'Serious' },
-  { id: '32w', label: '8 Months', weeks: 32, days: 224, maxDailyDrip: 1500, maxViews: 336000, description: 'Maximum reach campaign', badge: 'Legend' },
-];
+// Task 45 Part 4 (stage 2) — the hardcoded DURATION_SLOTS array that
+// used to live here is deleted; same reasoning and same replacement
+// (migration 010's `duration_slots` table) as PRICING_TIERS above.
 
 // Task 45 Part 1 — mirrors migration 010's `pricing_tiers`/
 // `duration_slots` table shapes exactly, so a later Supabase read
