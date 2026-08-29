@@ -3,28 +3,36 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest session (2026-08-29) — Task 46b-a done: `platform_fee_settings`
-> table (migration 014), schema only, not yet pushed to the live DB.**
-> This is schema/spec work continuing on from Task 46a (reference-data
-> CRUD, already `[x]`) — Task 46b (admin-editable fee arithmetic) was
-> split into 46b-a through 46b-e last session, dependency-ordered
-> (a→b→c→d→e), and this session did exactly 46b-a: the append-only
-> table itself, seeded with the current confirmed 10%/5% rates as a
-> bootstrap row (not a rate change). **Nothing downstream touched** —
-> `PLATFORM_FEE_PERCENT`/`DEPOSIT_FEE_RATE` are still the live source
-> of truth for actual fee computation; this table isn't read by any
-> app code yet. **See Task 46b-a's own done-note (below, under Task 46)
-> for full detail**, including a representation gap flagged for
-> whoever picks up 46b-b next (the new table stores both rates as
-> 0-100 percent; the existing `DEPOSIT_FEE_RATE` constant is a 0-1
-> fraction — the swap needs a /100, not a direct read).
+> **Newest session (2026-08-29) — Task 46b-b done: both fee-computing
+> call sites now read from `platform_fee_settings` (migration 014)
+> instead of a hardcoded constant.** Product owner confirmed migration
+> 014 was live before this started. `PLATFORM_FEE_PERCENT` (campaign
+> side, `pricing.ts`) and `DEPOSIT_FEE_RATE` (deposit side,
+> `korapay-webhook/index.ts`) are both deleted — the DB is now the only
+> source of truth for either rate. **Behavior is unchanged** (both
+> arithmetic paths still produce 10%/5% today, verified against
+> hand-calculated expected values, not just eyeballed) — this session
+> made the rate *readable* from the DB, nothing is admin-*editable*
+> yet, that's 46b-c/46b-d's job next. Also added `platform_fee_settings`
+> to the client store's Realtime subscription list, so a future admin
+> edit reaches a logged-in user's promote page live, not just on
+> reload. **See Task 46b-b's own done-note (below, under Task 46) for
+> full detail.**
 >
-> **Next task: 46b-b — wire the one fee-computing call site to read
-> from the new table.** Confirm migration 014 was actually pushed to
-> the live DB first (`supabase db push` — project-owner step, not yet
-> done as of this note) before assuming the table is queryable. Do NOT
-> skip ahead to 46b-c/d/e — they depend on 46b-b existing, same
-> explicit ordering 46b's own intro paragraph lays out.
+> **Next task: 46b-c — admin API route to read + write the fee
+> settings.** This is the first part of this chain that actually lets
+> anyone change the rate — treat it with the stakes this whole part
+> (46b) has been flagged with since it was split out: real money, every
+> transaction, silently, until someone notices a mistake. Suggested
+> route `/api/admin/fees`, `requireAdmin()`-gated (Task 46a's own
+> shared helper), `POST` inserts a new row (never updates in place, per
+> 46b-a's append-only design) after validating the new percentages are
+> sane — exact bounds are a product-owner call worth a quick
+> confirmation, not something to pick silently. 46b-d (the actual
+> type-to-confirm UI) depends on this route existing; 46b-e (audit
+> trail) depends on this route too and is explicitly mandatory for 46b
+> as a whole, not optional — don't consider 46b done without it even if
+> 46b-c/d ship first.
 >
 > **This session (2026-08-29) — Task 37 closed out, verification-only,
 > no code changes.** Last session flagged that Task 37's "trigger-point"
@@ -5762,7 +5770,7 @@ live DB until the migration above is pushed). A session starting 46b-b
 should confirm the migration was actually pushed before assuming the
 table is queryable, not just that this file says it exists.
 
-#### 46b-b — Wire the one fee-computing call site to read from the new table [ ]
+#### 46b-b — Wire the one fee-computing call site to read from the new table [x]
 **Depends on 46b-a existing.** Per Task 40's own rule, there is
 exactly one place that computes campaign fee arithmetic and one place
 that computes deposit fee arithmetic — find both (Task 40's own entry
@@ -5775,6 +5783,92 @@ that nothing else in the codebase still reads
 `PLATFORM_FEE_PERCENT`/`DEPOSIT_FEE_RATE` as a second, parallel source
 of truth after this change — if something does, that's a real Task 40
 violation this part needs to fix, not route around.
+
+**Done, this session (2026-08-29) — migration 014 confirmed pushed to
+the live DB by the product owner before this started (per this part's
+own instruction to check, not assume).** Both call sites found by grep
+first, confirmed genuinely singular (no second/parallel reader of
+either constant anywhere else in the codebase) exactly as this part's
+own instruction required before touching anything:
+- **Campaign side (`calculatePricing()`, `src/lib/campaign/pricing.ts`):**
+  `PLATFORM_FEE_PERCENT` deleted. `PricingReferenceData` (the same
+  object `tiers`/`durationSlots` already live on) gained a
+  `campaignFeePercent` field — `calculatePricing()` stays fully
+  synchronous/pure (Task 45 Part 1's own explicit design goal); the fee
+  percent is fetched alongside tiers/durationSlots by
+  `fetchReferenceData()`, not queried by `calculatePricing()` itself.
+  This is the "narrowest possible change" this part asked for in the
+  most literal sense available — the fee percent joins data that was
+  already being threaded through every call site, rather than adding a
+  new one.
+- **Deposit side (`creditDeposit()`,
+  `supabase/functions/korapay-webhook/index.ts`):** `DEPOSIT_FEE_RATE`
+  deleted, replaced with a new `getDepositFeeRate()` that queries
+  `platform_fee_settings` directly — a separate, small query rather
+  than importing `fetchReferenceData()`, since this is a different
+  (Deno) runtime that doesn't share code with the Node-side file, and
+  only needs one column, not the whole five-plus-fee-percent bundle
+  the Node side fetches.
+- **Representation gap (flagged in 46b-a's own done-note) resolved
+  correctly, not just noted:** both DB columns are 0-100 percent;
+  `getDepositFeeRate()` does the `/100` conversion at read time so
+  `creditDeposit()`'s existing `(1 - depositFeeRate)` arithmetic
+  (written expecting a 0-1 fraction) needed zero changes downstream of
+  that one line.
+- **`src/lib/campaign/referenceData.ts`** — `fetchReferenceData()`
+  extended with a sixth query (`platform_fee_settings`, `.select('campaign_fee_percent')`
+  only — not `deposit_fee_percent` too, since nothing on the Node/
+  browser side ever needs it, and fetching it anyway would itself be
+  the speculative over-fetch this part's spec says not to do). An
+  empty result here throws loudly rather than falling back to a
+  default — unlike the other five tables, zero rows in an append-only,
+  migration-seeded table means something is actually wrong (migration
+  not applied, RLS misconfigured), not a legitimate empty state. Same
+  posture, same reasoning, applied identically in
+  `getDepositFeeRate()` above for the Deno side.
+- **`src/hooks/campaign/useReferenceData.ts`** — `platform_fee_settings`
+  added to the Realtime `postgres_changes` subscription list (was
+  scoped to migration 010's original five tables only). Without this,
+  a future admin fee edit (46b-c/46b-d) would only reach a logged-in
+  user's promote page on their next full reload, not live — the exact
+  failure mode 46a's own spec called out for reference-data edits in
+  general, worth getting right here given this table's stakes are
+  higher than a display label.
+- **All three real `calculatePricing()` call sites** (`create/route.ts`,
+  `initialize-campaign/route.ts`, `promote/page.tsx`) updated from
+  manually picking `{ tiers, durationSlots }` out of the fetched
+  reference data to passing the whole object through directly — a
+  smaller diff than adding a third named field to each pick, and the
+  natural consequence of `PricingReferenceData` gaining a new required
+  field structurally.
+- **The now-orphaned "fee rate flip-flopped twice" warning** that used
+  to sit directly above the deleted `PLATFORM_FEE_PERCENT` constant
+  was moved, not deleted — same spot in the file, now explaining why
+  the lesson still applies to 46b-c/d's future admin-write path even
+  though the specific literal accident (editing the wrong hardcoded
+  number) can no longer happen once there's no constant left to edit.
+
+**Verified, this session:** `npx tsc --noEmit` clean after all edits.
+A throwaway script (written, run, deleted — not committed, this
+project's own convention) called `calculatePricing()` directly with a
+hand-built `referenceData` object (`campaignFeePercent: 10`, tiers/
+durationSlots copied from migration 010's own seed values) at three
+view counts spanning tier boundaries (5000/25000/75000) and confirmed
+`platformFeesCents`/`totalCostCents` match hand-calculated expected
+values exactly (e.g. 5000 views at the Starter tier: subtotal 1750¢,
+10% fee = 175¢, total 1925¢ — matched). The Deno-side
+`getDepositFeeRate()`/`creditDeposit()` edit could not be run directly
+(no Deno runtime in this sandbox, same limitation Task 33/42's own
+Edge Function work already noted) — verified by careful manual
+re-read instead, plus a parens/braces-balance sanity check on the full
+file.
+
+**Not yet done — 46b-c is next, and genuinely nothing is admin-
+editable yet.** This part only made the fee percent DB-backed instead
+of hardcoded — reading the live value now flows correctly, but there
+is still no way for an admin to actually change it (that's 46b-c's and
+46b-d's job). Until those land, the table's only writer is this
+migration's own bootstrap seed row.
 
 #### 46b-c — Admin API route: read + write the fee settings [ ]
 **Depends on 46b-a existing (46b-b can happen in parallel with this

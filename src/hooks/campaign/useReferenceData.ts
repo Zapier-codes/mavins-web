@@ -10,7 +10,8 @@
 // etc.) that was never server data to begin with — not used here.
 //
 // Resync mechanism: Supabase Realtime (`postgres_changes`) on the five
-// migration-010 tables, per Part 2's own recommendation — not the
+// migration-010 tables (plus `platform_fee_settings`, migration 014,
+// added Task 46b-b), per Part 2's own recommendation — not the
 // documented version-check fallback. On any INSERT/UPDATE/DELETE
 // event, invalidate this hook's query key so TanStack Query refetches
 // exactly once; no attempt to patch the changed row into the cache by
@@ -35,6 +36,14 @@ export const REFERENCE_DATA_QUERY_KEY = ['campaign-reference-data'] as const;
 
 const REALTIME_TABLES = [
   'pricing_tiers', 'duration_slots', 'countries', 'genres', 'genre_country_affinity',
+  // Task 46b-b — added. Without this, an admin fee change (once 46b-c/
+  // 46b-d exist) would only reach a logged-in user's promote page on
+  // their next full reload, not live — the exact "quietly fails its
+  // own purpose" failure mode 46a's own spec explicitly called out for
+  // reference-data edits in general, and one this table's higher
+  // stakes (real money, not a display label) make worse, not better,
+  // to get wrong.
+  'platform_fee_settings',
 ] as const;
 
 export function useReferenceData() {

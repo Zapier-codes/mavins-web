@@ -69,9 +69,23 @@ export interface DurationSlot {
 // Task 45 Part 1 — mirrors migration 010's `pricing_tiers`/
 // `duration_slots` table shapes exactly, so a later Supabase read
 // (Part 2/3) maps onto this with no reshaping logic needed.
+//
+// Task 46b-b — `campaignFeePercent` added. Per this whole file's
+// "one engine, multiple data sources" design (see the header comment
+// above), the fee percent joins `tiers`/`durationSlots` as just
+// another field on the SAME already-fetched reference-data object,
+// not a second, separate fetch calculatePricing() has to make itself
+// -- calculatePricing() stays fully synchronous and pure (Part 1's
+// own explicit design goal), and every existing caller (promote/
+// page.tsx's useMemo, create/route.ts, initialize-campaign/route.ts)
+// already passes this object in, so none of them need a second change
+// beyond whatever already threads referenceData through -- which,
+// per Task 45 Part 2/3, all three already do via useReferenceData()/
+// getServerReferenceData().
 export interface PricingReferenceData {
   tiers: PricingTier[];
   durationSlots: DurationSlot[];
+  campaignFeePercent: number;
 }
 
 export interface CampaignPricing {
@@ -95,14 +109,31 @@ export interface CampaignPricing {
  */
 export type PricingResult = CampaignPricing;
 
-const PLATFORM_FEE_PERCENT = 10; // 10% platform fee on campaigns (NOT 15 — see
-// handover.md Task 35's "second correction" note: an earlier session
-// wrongly "corrected" this from 10 back up to 15, citing a product-owner
-// confirmation that turned out to be stale/incorrect. The product owner
-// re-confirmed directly, a second time, that 10% campaign / 5% deposit
-// (15% only when summed across both, never one flat rate) is correct.
-// Don't change this back to 15 without a fresh, explicit product-owner
-// confirmation referencing this exact comment.
+// Task 46b-b — PLATFORM_FEE_PERCENT (the hardcoded constant this
+// comment used to sit above) is DELETED. The campaign fee percent now
+// comes from `platform_fee_settings` (migration 014, Task 46b-a) via
+// `PricingReferenceData.campaignFeePercent` (see that field's own doc
+// comment above) -- read once per `fetchReferenceData()` call
+// (referenceData.ts), same as tiers/durationSlots, not queried
+// separately here.
+//
+// PRESERVING THE HISTORY THIS COMMENT USED TO CARRY, since the
+// specific accident it was warning against (a session editing the
+// wrong hardcoded number) can no longer literally happen once there's
+// no constant left to edit -- but the underlying lesson fully carries
+// over to the new risk this task (46b) explicitly exists to guard
+// against instead: this fee rate has already flip-flopped twice in
+// this file's own history purely from miscommunication between
+// sessions (10 -> wrongly "corrected" to 15, citing a stale
+// confirmation -> re-confirmed back to 10, twice). Confirmed, current,
+// as of the bootstrap row this session's migration seeded: **10%
+// campaign / 5% deposit.** Task 46b's own intro paragraph names
+// exactly why making this admin-editable (which is what 46b as a
+// whole is for) raises this same stakes further, not lower them --
+// see that task's own "treat it that way" framing, and 46b-d's
+// planned type-to-confirm UI, which exists specifically to make an
+// accidental edit here as hard to do by mistake as an accidental
+// comment-edit already was.
 
 // ==================================================
 // Task 45 Part 1 — the modifier-pipeline extension point.
@@ -184,9 +215,10 @@ const subtotalStep: PricingStep = (ctx) => {
   return { ...ctx, costPerView, subtotalCents };
 };
 
-// Step 4/6 -- platform fee (our margin).
+// Step 4/6 -- platform fee (our margin). Task 46b-b: reads the
+// admin-editable rate off referenceData now, not a module constant.
 const platformFeeStep: PricingStep = (ctx) => {
-  const platformFeesCents = Math.round(ctx.subtotalCents! * (PLATFORM_FEE_PERCENT / 100));
+  const platformFeesCents = Math.round(ctx.subtotalCents! * (ctx.referenceData.campaignFeePercent / 100));
   const totalCostCents = ctx.subtotalCents! + platformFeesCents;
   return { ...ctx, platformFeesCents, totalCostCents };
 };
@@ -256,7 +288,7 @@ export function calculatePricing(viewCount: number, referenceData: PricingRefere
     tierLabel: ctx.tier!.label,
     savingsPercent: ctx.savingsPercent!,
     platformFeesCents: ctx.platformFeesCents!,
-    platformFeePercent: PLATFORM_FEE_PERCENT,
+    platformFeePercent: ctx.referenceData.campaignFeePercent,
     subtotalCents: ctx.subtotalCents!,
   };
 }

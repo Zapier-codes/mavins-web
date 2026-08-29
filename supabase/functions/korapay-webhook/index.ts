@@ -189,14 +189,44 @@ async function resolveOrCreateGuestUserId(supabase: any, email: string): Promise
 // dollars, confirmed by that migration's own header comment), so this
 // also does the base-unit-to-cents conversion migration 004's callers
 // are all expected to do themselves.
-const DEPOSIT_FEE_RATE = 0.05;
+//
+// Task 46b-b: the 5% no longer lives as a hardcoded constant here --
+// read from platform_fee_settings (migration 014, Task 46b-a) below,
+// same table src/lib/campaign/referenceData.ts reads
+// campaign_fee_percent from on the Node/browser side. This function
+// (a Deno Edge Function) doesn't share code with that Node-side file,
+// so this is its own small, separate query rather than an import --
+// deliberately NOT reusing/duplicating fetchReferenceData()'s
+// broader five-table fetch, since this needs exactly one column from
+// one table, not the whole reference-data bundle create/route.ts or
+// promote/page.tsx need. Stored as a 0-100 percent in the DB (see
+// migration 014's own REPRESENTATION NOTE) -- converted to a 0-1
+// fraction here, at the one spot that was already written expecting
+// a fraction, rather than rewriting the arithmetic below to expect a
+// percent instead.
+async function getDepositFeeRate(supabase: any): Promise<number> {
+  const { data, error } = await supabase
+    .from('platform_fee_settings')
+    .select('deposit_fee_percent')
+    .order('changed_at', { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  const row = data?.[0];
+  // Same posture as referenceData.ts's own fee-settings read: no rows
+  // means something is genuinely wrong (migration not applied, RLS
+  // misconfigured), not a valid empty state to fall back from quietly
+  // -- there is no safe default fee percent to assume instead.
+  if (!row) throw new Error('platform_fee_settings has no rows — migration 014 may not be applied yet');
+  return row.deposit_fee_percent / 100;
+}
 
 async function creditDeposit(
   supabase: any,
   params: { userId: string; grossAmount: number; currency: string; reference: string },
 ): Promise<{ credited: boolean; newBalanceCents: number | null }> {
+  const depositFeeRate = await getDepositFeeRate(supabase);
   const grossAmountCents = Math.round(params.grossAmount * 100);
-  const netAmountCents = Math.round(params.grossAmount * (1 - DEPOSIT_FEE_RATE) * 100);
+  const netAmountCents = Math.round(params.grossAmount * (1 - depositFeeRate) * 100);
   const gatewayFeeCents = grossAmountCents - netAmountCents;
 
   const { data, error } = await supabase.rpc('credit_wallet_deposit', {

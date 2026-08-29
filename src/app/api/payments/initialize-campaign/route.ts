@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
     // further below for the payment_sessions insert, is not a second
     // real client.
     const referenceData = await getServerReferenceData(createAdminClient());
-    const pricing = calculatePricing(viewCount, { tiers: referenceData.tiers, durationSlots: referenceData.durationSlots });
+    const pricing = calculatePricing(viewCount, referenceData);
 
     // Settlement currency hardcoded to USD, same reasoning/limitation
     // as /api/payments/initialize/route.ts (see that file's own header

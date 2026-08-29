@@ -504,7 +504,7 @@ export default function PromotePage() {
   // calculatePricing> | null` rather than needing its own fallback
   // value the way currentTier does below.
   const pricing = useMemo(
-    () => referenceData ? calculatePricing(viewCount, { tiers: referenceData.tiers, durationSlots: referenceData.durationSlots }) : null,
+    () => referenceData ? calculatePricing(viewCount, referenceData) : null,
     [viewCount, referenceData]
   );
   // Unlike `pricing` above, this always returns a real (if

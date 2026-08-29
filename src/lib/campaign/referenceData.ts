@@ -32,23 +32,51 @@ export type AllReferenceData = PricingReferenceData & GeoReferenceData & {
 
 // Table/column names match migration 010 exactly — see
 // supabase_migration_010_static_data_tables.sql for the schema this
-// reads against.
+// reads against. `platform_fee_settings` (migration 014, Task 46b-a)
+// added below, Task 46b-b: same batched Promise.all, same error-check
+// loop, same shape-into-interface pattern as the original five —
+// deliberately not a special case despite being append-only/latest-row
+// rather than "the whole table," since the shaping step (take the one
+// row, not the array) is the only real difference.
 export async function fetchReferenceData(client: SupabaseClient): Promise<AllReferenceData> {
-  const [tiersRes, slotsRes, countriesRes, genresRes, affinityRes] = await Promise.all([
+  const [tiersRes, slotsRes, countriesRes, genresRes, affinityRes, feeSettingsRes] = await Promise.all([
     client.from('pricing_tiers').select('id, min_views, max_views, price_per_1k_cents, label, description').order('sort_order'),
     client.from('duration_slots').select('id, label, weeks, days, max_daily_drip, max_views, description, badge').order('sort_order'),
     client.from('countries').select('code, country, flag, korapay_channels, korapay_default_channel').order('sort_order'),
     client.from('genres').select('id, label').order('sort_order'),
     client.from('genre_country_affinity').select('genre_id, country_code, score'),
+    // Only campaign_fee_percent -- deposit_fee_percent is read
+    // separately, directly by korapay-webhook/index.ts (a different
+    // Deno runtime this Node-side file doesn't share code with), and
+    // nothing on this side ever needs it -- selecting it here too
+    // would be exactly the speculative over-fetch 46b-b's own spec
+    // says not to do.
+    client.from('platform_fee_settings').select('campaign_fee_percent').order('changed_at', { ascending: false }).limit(1),
   ]);
 
   for (const [name, res] of [
     ['pricing_tiers', tiersRes], ['duration_slots', slotsRes], ['countries', countriesRes],
-    ['genres', genresRes], ['genre_country_affinity', affinityRes],
+    ['genres', genresRes], ['genre_country_affinity', affinityRes], ['platform_fee_settings', feeSettingsRes],
   ] as const) {
     if (res.error) {
       throw new Error(`fetchReferenceData: ${name} read failed — ${res.error.message}`);
     }
+  }
+
+  // Unlike the other five tables, an empty result here is never a
+  // legitimate "no data yet" state to fall back on quietly -- the
+  // migration seeds exactly one bootstrap row and the table is
+  // append-only (never deleted from), so zero rows means something is
+  // genuinely wrong (RLS misconfigured, wrong project, the migration
+  // never actually applied) rather than an empty-but-valid table.
+  // calculatePricing() has no sane default fee percent to fall back
+  // to that wouldn't risk silently mispricing every campaign, so this
+  // throws loudly instead, same posture as a missing tiers/duration
+  // slot match already has via calculatePricing()'s own fallback-to-
+  // last-element logic -- except here there's no safe fallback at all.
+  const feeSettingsRow = feeSettingsRes.data?.[0];
+  if (!feeSettingsRow) {
+    throw new Error('fetchReferenceData: platform_fee_settings has no rows — migration 014 may not be applied yet');
   }
 
   const tiers: PricingTier[] = (tiersRes.data ?? []).map((r) => ({
@@ -100,5 +128,5 @@ export async function fetchReferenceData(client: SupabaseClient): Promise<AllRef
     (genreCountryAffinity[row.genre_id] ??= {})[row.country_code] = row.score;
   }
 
-  return { tiers, durationSlots, countries, genres, genreCountryAffinity };
+  return { tiers, durationSlots, countries, genres, genreCountryAffinity, campaignFeePercent: feeSettingsRow.campaign_fee_percent };
 }

@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
     // even had a number to tamper with here (only viewCount, an input,
     // not a price).
     const referenceData = await getServerReferenceData(admin);
-    const pricing = calculatePricing(body.viewCount, { tiers: referenceData.tiers, durationSlots: referenceData.durationSlots });
+    const pricing = calculatePricing(body.viewCount, referenceData);
 
     // Product-owner rule, this session: a duplicate campaign for the
     // SAME link is not allowed, but multiple campaigns for multiple
