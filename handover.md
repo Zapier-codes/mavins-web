@@ -96,6 +96,19 @@
 > (Parts 1–4 all complete, see below). No task in this file is
 > currently on hold.
 >
+> **New this session — Task 46 added (SPEC ONLY, not started): full
+> admin control unit.** Product owner request, written up in full
+> detail as its own task below rather than started blind, split into
+> 5 parts (46a–46e) — reference-data CRUD, platform-fee arithmetic
+> control, live-campaign admin overrides, the actual dashboard UI, and
+> an audit trail. This directly resolves Task 44's long-open
+> "admin-editing UI question." **Not inserted ahead of Task 45 Part 4
+> above as the default next task** — Part 4 was already in progress
+> and lower-risk; Task 46 also has several embedded product questions
+> (see its own "possibly missed" section) that need answers before
+> 46b/46c specifically should be started. Whichever gets picked up
+> next is the product owner's call, not assumed by this note.
+>
 > **This session — Task 45 Part 3 done.** Both real server call sites
 > (`create/route.ts`, `initialize-campaign/route.ts`) now read
 > reference data via a new server-side TTL cache
@@ -4515,5 +4528,183 @@ intermediate state that changes).
   own work or still explicitly open and flagged as such in this file —
   don't let this task's own done-note quietly imply they were fixed if
   they weren't.
+
+---
+
+## Task 46 — Full admin control unit: reference-data CRUD, fee arithmetic, live-campaign overrides, and a real admin dashboard (SPEC ONLY, not started) [ ]
+
+**This directly answers Task 44's long-open "admin-editing UI
+question"** (see that task's own note, and Task 45 Part 5's checklist
+item referencing it) — the product owner has now confirmed, in detail,
+that a real admin-facing editing surface is wanted, not just "a human
+could edit the tables via the Supabase dashboard in the meantime."
+Written up this session (2026-08-29) as a spec only — same convention
+Task 45 used (see its own "(SPEC ONLY)" tag) — because this is large
+enough that scoping it correctly matters more than starting to type
+code immediately, and because several of the parts below touch live
+money/campaign state where a wrong guess is expensive to unwind.
+
+**Current state, confirmed by reading the actual code (not assumed):**
+the entire admin surface today is `src/app/admin/page.tsx` (one page)
+and `src/app/api/admin/dashboard/route.ts` (one route) — both
+**read-only**. `isAdmin()` (`src/lib/auth/isAdmin.ts`) is the single
+source of truth for "is this user an admin": a DB `role === 'admin'`
+column check, with a hardcoded fallback email/password pair in that
+same file as a bootstrap admin. There is no admin write path anywhere
+in the app today — Task 46 is building that from zero, not extending
+an existing one.
+**Flagged, adjacent but NOT part of this task's 5 parts below:** that
+hardcoded admin password lives in plaintext in this file, in the git
+history, on every clone. Worth its own separate security cleanup
+(env var at minimum, proper credential rotation ideally) — raising it
+here so it isn't lost, not folding it into this task's scope since
+it's a different kind of problem (security hygiene, not admin
+capability).
+
+**Split into 5 parts, per the product owner's own request — one part
+per session, same convention as every multi-part task in this file:**
+
+### 46a — Reference-data CRUD (countries, pricing tiers, duration slots, genres, demographic/genre-country affinity) [ ]
+Full create/edit/delete admin UI + API routes for every table Task 45
+Part 1-3 already made the app read dynamically:
+`pricing_tiers`, `duration_slots`, `countries`, `genres`,
+`genre_country_affinity` (migration 010 — see
+`src/lib/campaign/referenceData.ts` for the exact columns each table
+has today). This covers, explicitly, everything the product owner
+listed that maps to *reference* data rather than a *live campaign*:
+adding a new country, adding/editing/removing a pricing tier (which
+also covers "increase or reduce the views count" when read as
+adjusting a tier's `min_views`/`max_views` bounds — see 46c below for
+the *other* reading, a live campaign's own delivered-view count),
+editing a genre's demographic priority score
+(`genre_country_affinity.score` — this is literally what "demographic
+priority" already means in this codebase's own data model, per
+`geoAffinity.ts`; nothing new to invent conceptually, just an editing
+surface for a number that already exists and already drives targeting
+today).
+**Must integrate with Task 45 Part 2's client cache** — an edit here
+needs to actually reach logged-in users' `promote` page without a
+manual refresh, or this whole feature quietly fails its own purpose
+the first time an admin changes a price and support gets a "why is it
+still showing the old price" ticket. Task 45 Part 2's own "resync-only-
+on-change" design (TanStack Query + Realtime) is exactly the mechanism
+to hook into — confirm it actually fires on an admin write, don't
+assume it does without checking, per this whole file's own "confirm,
+don't assert" convention.
+
+### 46b — Platform-fee arithmetic control (campaign %, deposit %) [ ]
+Move `PLATFORM_FEE_PERCENT` (`src/lib/campaign/pricing.ts`, currently
+`10`) and `DEPOSIT_FEE_RATE` (`supabase/functions/korapay-webhook/
+index.ts`, currently `0.05`) from hardcoded source constants into
+something an admin can change without a code deploy — most likely a
+new row (or two) in a settings/config table, read the same
+store-backed way Task 45 built for pricing tiers, rather than a third,
+different mechanism.
+**This is the single highest-stakes part of this whole task — treat it
+that way.** Task 40's entire rule (fee arithmetic lives in exactly ONE
+place, nowhere else does math) exists because this fee rate has
+already flip-flopped in this file's own history (see the top box's
+own "Fee rate flip-flopped twice" note) purely from miscommunication
+between sessions — making the rate itself admin-editable raises the
+stakes further, not lower them: a wrong or accidental edit here changes
+real money on every transaction from that moment forward, for every
+user, silently, until someone notices. Whatever this part builds MUST:
+keep Task 40's "one place computes it" invariant (the admin-editable
+value should be the ONE input that one place reads, not a second
+parallel fee calculation); log every change (old value, new value, who,
+when — see 46e); very likely want a confirmation step beyond a normal
+form submit (e.g. re-enter password, or a two-step confirm) given the
+blast radius of a typo here.
+
+### 46c — Live-campaign admin overrides [ ]
+Per-campaign admin edits, on an already-`is_active`
+`track_campaigns` row, without breaking Task 39's "campaign goes live
+immediately" invariant or Task 38's wallet-deduction accounting:
+- **Delivered view/stream counts** — `total_streams`/`real_streams`/
+  `seeded_streams` (see `supabase_schema.sql`'s own `track_campaigns`
+  definition for the exact columns) — the *other* reading of "increase
+  or reduce the views count" from 46a's tier-bounds reading; this one
+  is a live campaign's own progress number, likely for fraud
+  correction or manual reconciliation, not a pricing change.
+- **Demographic priority for a live campaign** — `target_countries`/
+  `target_genres` (same table) — explicitly called out by the product
+  owner as something admin needs to change **even during a live
+  campaign**, not just at creation time. Check whether anything
+  currently reads these columns as fixed-at-creation (e.g. a cached
+  copy elsewhere, a running job that snapshotted them at start) before
+  assuming a live edit here takes effect immediately — don't guess,
+  trace the actual read path per this file's own convention.
+- **Pause/resume, cancel** — `is_paused`/`is_active` already exist as
+  columns; confirm whether an admin-initiated pause/cancel needs to
+  reuse `api/campaigns/cancel/route.ts`'s existing refund-math (Task 35
+  — the platform keeps its 10% fee, only the 90% subtotal refunds) or
+  whether an admin override should behave differently (e.g. no refund
+  at all for a fraud-driven admin cancellation) — this is a real
+  product decision, not an implementation detail, and needs its own
+  confirmation before building.
+
+### 46d — Admin dashboard buildout (routes, pages, navigation, icons) [ ]
+The actual UI surface for 46a/46b/46c above — today's single
+`admin/page.tsx` needs to become a real multi-page dashboard: a nav
+structure (sidebar or top-nav, matching this app's existing
+`src/components/layout/` conventions rather than a one-off admin-only
+layout), a dedicated route per concern (e.g. `/admin/countries`,
+`/admin/pricing`, `/admin/fees`, `/admin/campaigns`, plausibly
+`/admin/users` too — see "possibly missed" list below), appropriate
+icons/empty-states/loading-states matching this app's existing design
+system (check `frontend-design` conventions already established
+elsewhere in this codebase rather than inventing a new visual language
+for just the admin section), and route-level `isAdmin()` gating
+consistent with how `api/admin/dashboard/route.ts` already does it
+(check the caller's own session, not just trust a client-side
+`isAdmin()` check, which is trivially bypassable from devtools — every
+new admin API route in 46a/46b/46c needs the same server-side check
+that route already has, not a weaker one).
+
+### 46e — Audit trail + safety rails across all of the above [ ]
+Every mutation from 46a/46b/46c needs: who made it, when, and the
+before/after value — a new `admin_actions` (or similarly named) table,
+written to on every admin write, not just the money-sensitive ones
+(46b/46c) — a changed country flag or a changed pricing label is worth
+auditing too, just lower-stakes than a changed fee percentage. Also:
+confirmation dialogs for destructive or high-impact changes (deleting
+a country/tier a live campaign might reference; editing the platform
+fee; overriding a live campaign's view count) — not every edit needs
+one (renaming a genre's label doesn't), but this part should establish
+the pattern/component once so 46a-46c don't each invent their own.
+
+**Possibly missed, worth raising with the product owner before/during
+46d's route planning rather than silently added or silently
+skipped:**
+- **User management** — the product owner's "full control of the
+  whole web app" plausibly extends to admin being able to view/manage
+  individual users (not just campaigns/pricing) — e.g. manually
+  adjusting a user's wallet balance for a support case, or handling
+  the withdrawal requests `api/withdrawal/request/route.ts` already
+  creates (is there an admin approval surface for those today? confirmed
+  not found in this session's grep of `src/app/admin/` — if withdrawals
+  need admin approval to actually pay out, that's currently missing
+  entirely, not just missing a UI).
+- **Currency/exchange-rate data** — `src/lib/currency/
+  countryCurrency.ts` and `korapayDccCurrency.ts` are the same kind of
+  "static data a human maintains by hand" Task 44/45 moved pricing
+  data away from; if exchange rates are meant to be admin-editable too
+  (rather than provider-sourced live rates), that's a natural sibling
+  to 46a, not something to assume out of scope without asking.
+- **Multi-admin / permission granularity** — today's model is a single
+  boolean (`role === 'admin'` or the hardcoded email) with no concept
+  of *which* admin capabilities a given admin has. If more than one
+  person will ever hold admin access, or if some admin actions (46b
+  especially) should be restricted to a smaller set of people than
+  "any admin," that's a real design question for the product owner,
+  not something to assume either way while building 46a-46e.
+
+Given the number and weight of open product questions embedded in
+46b/46c/46d above (fee-edit confirmation UX, live-campaign-edit refund
+semantics, whether withdrawals need admin approval, multi-admin
+permissions), **the next session should not silently assume answers
+to any of them while implementing** — confirm with the product owner
+first, the same standard this whole file already holds itself to for
+Task 40's fee-rate history and Task 35's refund-exclusion rule.
 
 ---
