@@ -3,36 +3,41 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest session (2026-08-29) — Task 46b-b done: both fee-computing
-> call sites now read from `platform_fee_settings` (migration 014)
-> instead of a hardcoded constant.** Product owner confirmed migration
-> 014 was live before this started. `PLATFORM_FEE_PERCENT` (campaign
-> side, `pricing.ts`) and `DEPOSIT_FEE_RATE` (deposit side,
-> `korapay-webhook/index.ts`) are both deleted — the DB is now the only
-> source of truth for either rate. **Behavior is unchanged** (both
-> arithmetic paths still produce 10%/5% today, verified against
-> hand-calculated expected values, not just eyeballed) — this session
-> made the rate *readable* from the DB, nothing is admin-*editable*
-> yet, that's 46b-c/46b-d's job next. Also added `platform_fee_settings`
-> to the client store's Realtime subscription list, so a future admin
-> edit reaches a logged-in user's promote page live, not just on
-> reload. **See Task 46b-b's own done-note (below, under Task 46) for
-> full detail.**
+> **Newest session (2026-08-29) — Task 46b closed out entirely.** All
+> five sub-parts (46b-a through 46b-e) are now done, checked off
+> individually and at 46b's own top-level header — see each part's own
+> done-note under Task 46 below for full detail; not repeated here.
+> Summary: `platform_fee_settings` (migration 014, append-only) is the
+> sole source of truth for both fee rates, read by both arithmetic call
+> sites (`pricing.ts`/`korapay-webhook/index.ts`), writable only via
+> `POST /api/admin/fees` (`requireAdmin()`-gated, validates 0-100,
+> `changed_by` always from the verified session), with a type-to-
+> confirm admin UI (`FeeSettingsPanel.tsx`) and — this session's own
+> addition — an `admin_actions` audit table (migration 015) logging
+> every fee change's old/new value and who made it, closing 46b-e's
+> explicit "mandatory for 46b, not optional" requirement.
 >
-> **Next task: 46b-c — admin API route to read + write the fee
-> settings.** This is the first part of this chain that actually lets
-> anyone change the rate — treat it with the stakes this whole part
-> (46b) has been flagged with since it was split out: real money, every
-> transaction, silently, until someone notices a mistake. Suggested
-> route `/api/admin/fees`, `requireAdmin()`-gated (Task 46a's own
-> shared helper), `POST` inserts a new row (never updates in place, per
-> 46b-a's append-only design) after validating the new percentages are
-> sane — exact bounds are a product-owner call worth a quick
-> confirmation, not something to pick silently. 46b-d (the actual
-> type-to-confirm UI) depends on this route existing; 46b-e (audit
-> trail) depends on this route too and is explicitly mandatory for 46b
-> as a whole, not optional — don't consider 46b done without it even if
-> 46b-c/d ship first.
+> **This session also caught this box itself going stale:** the
+> paragraph that used to be here still said "Next task: 46b-c" after
+> 46b-c, 46b-d, AND 46b-e had already landed in separate sessions —
+> each of those sessions updated Task 46's own section correctly but
+> never came back up to refresh this top summary, so it silently drifted
+> for three sessions in a row before this one caught it. Worth
+> remembering for future sessions: a task's own done-note being correct
+> doesn't guarantee this box is — check the two don't contradict each
+> other before trusting either alone, the way this session had to.
+>
+> **Next task:** of Task 46's five remaining sub-parts (46c, 46d, 46e's
+> broader scope — see that part's own status note), none has an
+> obviously-next ordering the way 46b-a through 46b-e did — 46c (live-
+> campaign overrides) has its own open product-decision (does an admin
+> cancel refund the same way a user cancel does, or not at all — see
+> that part's own text), 46d (dashboard buildout) depends on 46a/46b/46c
+> existing as real routes first(mostly true now), and 46e's remaining
+> scope (46a/46c write-coverage, confirmation dialogs) is cross-cutting
+> rather than a single buildable unit. **A session picking up Task 46
+> next should read 46c/46d/46e's own text and pick based on what's
+> genuinely unblocked, not assume file order == priority order.**
 >
 > **This session (2026-08-29) — Task 37 closed out, verification-only,
 > no code changes.** Last session flagged that Task 37's "trigger-point"
@@ -5667,7 +5672,7 @@ B-ii all complete.** No further sub-parts remain open on this task.
   `promote/page.tsx` end-to-end — same limitation the backend commit
   above already flagged.
 
-### 46b — Platform-fee arithmetic control (campaign %, deposit %) [ ]
+### 46b — Platform-fee arithmetic control (campaign %, deposit %) [x]
 Move `PLATFORM_FEE_PERCENT` (`src/lib/campaign/pricing.ts`, currently
 `10`) and `DEPOSIT_FEE_RATE` (`supabase/functions/korapay-webhook/
 index.ts`, currently `0.05`) from hardcoded source constants into
@@ -6017,17 +6022,36 @@ not optional, and depends on 46e's `admin_actions` table existing
 (build the minimal version here first if 46e hasn't landed yet, per
 46b-e's own note).
 
-#### 46b-e — Audit trail wiring for fee changes specifically [ ]
-**Depends on 46b-c existing, and on 46e's `admin_actions` table (or
-whatever it ends up named) existing.** Explicitly called out below as
-**mandatory for this part, not optional — don't ship 46b without this
-landing in the same body of work**, unlike 46a/46c's audit needs which
-46e can cover more generally. If 46e's table doesn't exist yet when
-this is reached, build the minimal version of it needed here first
-(old value, new value, who, when) rather than skipping the audit
-requirement — a fuller 46e can extend/rename it later if needed, but
-46b must never ship writable without an audit trail from day one,
-per the explicit rule below.
+#### 46b-e — Audit trail wiring for fee changes specifically [x]
+
+**Done this session (commit `efc4cfb`).** New
+`supabase_migration_015_admin_actions.sql` — minimal audit table (who,
+when, action, table_name, record_id, old_value, new_value), since
+46e's own fuller version didn't exist yet (checked via grep across
+migrations 001-014 first, confirmed, not assumed) — this IS the
+"build the minimal version here first" table this note called for, not
+a placeholder. Deliberately generic (JSONB old/new value,
+dot-namespaced `action` like `'fee_settings.update'`), not
+fee-specific, so 46a's and 46c's own future admin writes can reuse it
+rather than needing a second table or a later rename/widen migration.
+`service_role`-only RLS, same posture as migration 011's
+`platform_revenue`.
+
+`/api/admin/fees/route.ts`'s `POST` now reads the current row before
+inserting the new one (purely so `old_value` has something real to
+log), then writes an `admin_actions` row after the real insert
+succeeds, with the authenticated admin's own id — never client-
+supplied. Deliberately does not roll back the fee change if the audit
+insert itself fails (the money change is already committed and real;
+losing the audit record of it is the lesser failure) — logged loudly
+via `console.error` either way.
+
+Verified via `npx tsc --noEmit` — clean. Not independently confirmed
+against a live Supabase instance — same limitation every prior
+Supabase-touching task in this file has noted.
+
+**With this, all five of 46b-a through 46b-e are done — Task 46b as a
+whole is closed.**
 
 ### 46c — Live-campaign admin overrides [ ]
 Per-campaign admin edits, on an already-`is_active`
@@ -6075,6 +6099,18 @@ new admin API route in 46a/46b/46c needs the same server-side check
 that route already has, not a weaker one).
 
 ### 46e — Audit trail + safety rails across all of the above [ ]
+
+**Status, this session — the table exists now, this part's broader
+scope doesn't yet.** `admin_actions` (migration 015) was built by
+46b-e (see that part's own done-note above) rather than here, per
+46b-e's explicit "build the minimal version first" instruction — don't
+create a second table or rename this one without checking that note
+first. What's still genuinely open, unchanged by 46b-e's work: 46a's
+and 46c's own writes don't call `admin_actions` yet (only
+`/api/admin/fees`'s `POST` does, since that was 46b-e's own narrow
+scope), and the confirmation-dialogs pattern described below hasn't
+been built at all.
+
 Every mutation from 46a/46b/46c needs: who made it, when, and the
 before/after value — a new `admin_actions` (or similarly named) table,
 written to on every admin write, not just the money-sensitive ones
