@@ -8,6 +8,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { formatCents, formatNumber } from '@/lib/campaign/pricing';
 import { cn } from '@/lib/utils/cn';
 import { AdminCrudTable, type AdminCrudColumn } from '@/components/admin/AdminCrudTable';
+import { AffinityMatrix, type AffinityRow } from '@/components/admin/AffinityMatrix';
 import { REFERENCE_DATA_QUERY_KEY } from '@/hooks/campaign/useReferenceData';
 import {
   Shield, Users, BarChart3, Wallet, Activity,
@@ -126,7 +127,7 @@ export default function AdminPage() {
   const [ledger, setLedger] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'users' | 'ledger' | 'pricing' | 'duration' | 'countries' | 'genres'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'users' | 'ledger' | 'pricing' | 'duration' | 'countries' | 'genres' | 'affinity'>('overview');
 
   // Task 46a Part A — pricing_tiers / duration_slots raw rows. Loaded
   // lazily (only once their tab is first opened, see loadPricingTiers/
@@ -143,6 +144,13 @@ export default function AdminPage() {
   const [countriesLoaded, setCountriesLoaded] = useState(false);
   const [genres, setGenres] = useState<GenreRow[]>([]);
   const [genresLoaded, setGenresLoaded] = useState(false);
+  // Task 46a Part B-ii — genre_country_affinity, all 350 rows loaded at
+  // once (cheap — 14 genres x 25 countries) and filtered client-side by
+  // AffinityMatrix's own genre selector, rather than re-querying per
+  // genre switch. Same lazy-load-on-first-tab-open pattern as every
+  // other table on this page.
+  const [affinityRows, setAffinityRows] = useState<AffinityRow[]>([]);
+  const [affinityLoaded, setAffinityLoaded] = useState(false);
 
   useEffect(() => {
     // Wait for the session to actually resolve before deciding anything —
@@ -233,12 +241,33 @@ export default function AdminPage() {
     setGenresLoaded(true);
   }
 
+  // Task 46a Part B-ii — genre_country_affinity, RLS already permits
+  // public SELECT (migration 010, same as every other table on this
+  // page), no scoping by genre server-side since 350 rows is cheap to
+  // load whole and filter client-side (see AffinityMatrix.tsx's own
+  // header comment for why genre-at-a-time was chosen for the UI shape
+  // itself, independent of this decision).
+  async function loadAffinity() {
+    const { data, error } = await supabase.from('genre_country_affinity').select('genre_id, country_code, score');
+    if (!error) setAffinityRows(data ?? []);
+    setAffinityLoaded(true);
+  }
+
   useEffect(() => {
     if (activeTab === 'pricing' && !pricingTiersLoaded) loadPricingTiers();
     if (activeTab === 'duration' && !durationSlotsLoaded) loadDurationSlots();
     if (activeTab === 'countries' && !countriesLoaded) loadCountries();
     if (activeTab === 'genres' && !genresLoaded) loadGenres();
-  }, [activeTab, pricingTiersLoaded, durationSlotsLoaded, countriesLoaded, genresLoaded]);
+    // Affinity tab needs genres + countries for its own selector/list,
+    // in addition to the affinity rows themselves — load all three if
+    // an admin opens this tab directly without visiting Genres/
+    // Countries first.
+    if (activeTab === 'affinity') {
+      if (!genresLoaded) loadGenres();
+      if (!countriesLoaded) loadCountries();
+      if (!affinityLoaded) loadAffinity();
+    }
+  }, [activeTab, pricingTiersLoaded, durationSlotsLoaded, countriesLoaded, genresLoaded, affinityLoaded]);
 
   // Task 46a Part A — after any successful write, re-read this page's
   // own local copy AND invalidate Task 45 Part 2's shared reference-
@@ -249,11 +278,12 @@ export default function AdminPage() {
   // its own, but calling it directly here means the admin doesn't have
   // to wait on that round-trip for their OWN list to reflect what they
   // just did.
-  async function refreshAfterWrite(table: 'pricing_tiers' | 'duration_slots' | 'countries' | 'genres') {
+  async function refreshAfterWrite(table: 'pricing_tiers' | 'duration_slots' | 'countries' | 'genres' | 'genre_country_affinity') {
     if (table === 'pricing_tiers') await loadPricingTiers();
     else if (table === 'duration_slots') await loadDurationSlots();
     else if (table === 'countries') await loadCountries();
-    else await loadGenres();
+    else if (table === 'genres') await loadGenres();
+    else await loadAffinity();
     queryClient.invalidateQueries({ queryKey: REFERENCE_DATA_QUERY_KEY });
   }
 
@@ -329,6 +359,24 @@ export default function AdminPage() {
     };
   }
 
+  // Task 46a Part B-ii — api/admin/genre-country-affinity/route.ts's
+  // own POST body is { genreId, countryCode, score } (camelCase, same
+  // convention as the other four routes' fromBody()), and its POST is
+  // an upsert — no separate PATCH, so "save" always calls the same
+  // route regardless of whether this (genre, country) pair already had
+  // a row. DELETE body is { genreId, countryCode }.
+  async function saveAffinity(genreId: string, countryCode: string, score: number) {
+    const result = await callAdminRoute('/api/admin/genre-country-affinity', 'POST', { genreId, countryCode, score });
+    if (result.success) await refreshAfterWrite('genre_country_affinity');
+    return result;
+  }
+
+  async function clearAffinity(genreId: string, countryCode: string) {
+    const result = await callAdminRoute('/api/admin/genre-country-affinity', 'DELETE', { genreId, countryCode });
+    if (result.success) await refreshAfterWrite('genre_country_affinity');
+    return result;
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[var(--background)] flex items-center justify-center">
@@ -367,7 +415,7 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div className="flex gap-2 overflow-x-auto scrollbar-hide">
-          {(['overview', 'campaigns', 'users', 'ledger', 'pricing', 'duration', 'countries', 'genres'] as const).map((tab) => (
+          {(['overview', 'campaigns', 'users', 'ledger', 'pricing', 'duration', 'countries', 'genres', 'affinity'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -376,7 +424,7 @@ export default function AdminPage() {
                 activeTab === tab ? 'bg-[#1db954] text-black' : 'glass-card text-[var(--muted-foreground)]'
               )}
             >
-              {tab === 'pricing' ? 'Pricing Tiers' : tab === 'duration' ? 'Duration Slots' : tab}
+              {tab === 'pricing' ? 'Pricing Tiers' : tab === 'duration' ? 'Duration Slots' : tab === 'affinity' ? 'Genre Affinity' : tab}
             </button>
           ))}
         </div>
@@ -626,6 +674,18 @@ export default function AdminPage() {
               if (result.success) await refreshAfterWrite('genres');
               return result;
             }}
+          />
+        )}
+
+        {/* Genre Affinity Tab — Task 46a Part B-ii */}
+        {activeTab === 'affinity' && (
+          <AffinityMatrix
+            genres={genres}
+            countries={countries}
+            affinityRows={affinityRows}
+            isLoading={!affinityLoaded || !genresLoaded || !countriesLoaded}
+            onSave={saveAffinity}
+            onClear={clearAffinity}
           />
         )}
       </div>

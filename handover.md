@@ -499,27 +499,33 @@
 > work, and lost track of tasks, because the only way to know what was
 > next was reading a 1000+ line file end to end.
 >
-> **This session (2026-08-29) — Task 46a UI, Part B-i done.**
-> `countries` + `genres` admin CRUD tabs, built after pulling latest
-> first (per direct instruction — this task's own numbering had
-> already shifted underneath Task 46a's own Part A UI commit landing in
-> between, a session that itself never updated this box — same class
-> of drift the paragraphs above already flagged more than once; found
-> it by reading Task 46a's own entry directly rather than trusting this
-> box alone, which is exactly why the box says to do that). Split Part
-> B (the three tables Part A's session left for later) into B-i
-> (`countries` + `genres`) and B-ii (`genre_country_affinity`, the
-> composite-key matrix table) per direct instruction, and built only
-> B-i — B-ii is explicitly deferred, not attempted. `AdminCrudTable`
-> generalized (not duplicated) with an `idKey` prop (`countries` is
-> keyed on `code`, not `id`) and a new `'text-array'` column type
-> (`countries.korapay_channels`, a real `string[] | null` column) —
-> both changes verified backward-compatible with Part A's own two
-> existing tabs. `npx tsc --noEmit` clean. See Task 46a's own entry for
-> the full write-up, including the one deliberate gap left open (no
-> cross-field validation between `korapay_default_channel` and
-> `korapay_channels`). **Next: Task 46a Part B-ii**, or re-check the
-> queue fresh — Task 46b–e are all still `[ ]` and unstarted.
+> **This session (2026-08-29) — Task 46a Part B-ii done, closing out
+> Task 46a's UI entirely.** New `src/components/admin/AffinityMatrix.tsx`
+> for `genre_country_affinity` — deliberately NOT forced through
+> `AdminCrudTable` (confirmed, per that component's own header comment
+> and Part B-i's note, that its flat-list shape genuinely doesn't fit a
+> composite-key/upsert table). Picked a genre-at-a-time list (one
+> `<select>` + a filterable country list below it) over a full 14x25
+> grid — one axis on screen at a time, no simultaneous 350-input mount.
+> An unset (genre, country) pair is a real, valid state — confirmed by
+> reading `geoAffinity.ts` directly: `table[code] ?? 20`, a safe
+> baseline fallback, not missing data — which is why "Clear" (DELETE,
+> not "set to 0") is offered as its own distinct action from "Save."
+> Wired into `admin/page.tsx` as a new `affinity` tab, reusing the
+> already-loaded `genres`/`countries` state from Part B-i and loading
+> all 350 `genre_country_affinity` rows once (cheap), filtered
+> client-side per genre selection rather than re-queried per switch.
+> `npx tsc --noEmit` clean; a throwaway Node script (deleted after use)
+> verified the dirty-check and 0-100 score-validation logic against 12
+> cases, all correct. **Not verified — no way to check from this
+> sandbox:** an actual authenticated admin write against a live
+> Supabase instance, or the Realtime/query-invalidation round-trip
+> reaching `promote/page.tsx` — same standing limitation every part of
+> this task has flagged. **Task 46a is now fully done** (backend +
+> Parts A/B-i/B-ii) — `[x]`. **Next: Task 46b, 46c, 46d, or 46e** — all
+> four are still `[ ]` and unstarted; 46b is flagged in its own entry
+> as the highest-stakes (fee arithmetic), so don't default to file
+> order without weighing that.
 
 ---
 
@@ -5316,7 +5322,7 @@ capability).
 **Split into 5 parts, per the product owner's own request — one part
 per session, same convention as every multi-part task in this file:**
 
-### 46a — Reference-data CRUD (countries, pricing tiers, duration slots, genres, demographic/genre-country affinity) [ ]
+### 46a — Reference-data CRUD (countries, pricing tiers, duration slots, genres, demographic/genre-country affinity) [x]
 Full create/edit/delete admin UI + API routes for every table Task 45
 Part 1-3 already made the app read dynamically:
 `pricing_tiers`, `duration_slots`, `countries`, `genres`,
@@ -5528,27 +5534,75 @@ attempting all three together, and built only B-i.
   `'countries' | 'genres'` alongside the original two tables, calling
   `queryClient.invalidateQueries({ queryKey: REFERENCE_DATA_QUERY_KEY })`
   after every successful write.
-- **Not built this session — Part B-ii, explicitly deferred, not
-  attempted:** `genre_country_affinity`. Per this task's own earlier
-  note, its shape (composite key, 350 rows, upsert semantics) doesn't
-  fit `AdminCrudTable` even generalized — needs its own bespoke
-  filterable matrix/grid UI, a different-enough component that
-  building it inside this same session (after already generalizing
-  `AdminCrudTable` once) would have risked rushing a second, harder
-  UI design in the same sitting rather than giving it its own proper
-  attempt. Left as its own follow-up task.
+- **Verified (Part B-i):** `npx tsc --noEmit` clean on the whole
+  project. A throwaway Node script (deleted after use, not committed)
+  confirmed both new row-to-body mapping functions produce exactly the
+  field set each route's own doc comment documents, and that the
+  `text-array` draft/save conversion round-trips losslessly (populated
+  array, `null`, and `[]` all handled correctly) without re-normalizing
+  on every keystroke.
+
+**Part B-ii (built, this session — closes out Task 46a's UI entirely):
+`genre_country_affinity`.** New
+`src/components/admin/AffinityMatrix.tsx` — deliberately NOT forced
+through `AdminCrudTable`, confirming (not just re-asserting) Part B-i's
+own note that this table's composite-key/upsert shape genuinely
+doesn't fit a flat-list component.
+
+- **Shape chosen: genre-at-a-time, not a full 14×25 grid.** One
+  `<select>` picks a genre; below it, every country gets one row with
+  an inline score input, filterable by a country search box. One axis
+  on screen at a time — avoids either constant two-directional
+  scrolling on mobile or mounting 350 number inputs simultaneously.
+  Matches how an admin actually thinks about this task ("tune
+  Afrobeats' markets"), and satisfies this task's own "filterable"
+  requirement via the country search rather than a fixed always-visible
+  grid.
+- **An unset (genre, country) pair is a real, valid state, confirmed by
+  reading `geoAffinity.ts` directly** — `getRecommendedGeographies()`
+  does `table[code] ?? 20`, a safe baseline fallback, not a crash or
+  undefined behavior. This is why "Clear" (an explicit DELETE via
+  `api/admin/genre-country-affinity`'s own DELETE verb) is offered as
+  its own distinct action from "Save," rather than only supporting
+  "set to some number" — reverting to "no override, use the baseline"
+  is a legitimate, intended end state, not a workaround.
+- **Data loading:** reuses Part B-i's already-loaded `genres`/
+  `countries` state directly (no duplicate fetch) and loads all 350
+  `genre_country_affinity` rows once via the browser Supabase client
+  (RLS already permits public `SELECT`, same as every other table on
+  this page), filtered client-side by the selected genre — cheap at
+  this row count, avoids a re-query on every genre switch. If an admin
+  opens the Affinity tab directly without visiting Countries/Genres
+  first, all three loads are triggered together (see the `activeTab
+  === 'affinity'` branch in the lazy-load effect).
+- **Save/Clear wired through `api/admin/genre-country-affinity/route.ts`
+  exactly as that route documents itself** — POST (upsert, body
+  `{genreId, countryCode, score}`) for save, DELETE (body `{genreId,
+  countryCode}`) for clear; no PATCH exists for this table and none was
+  needed. `refreshAfterWrite` extended to accept
+  `'genre_country_affinity'` alongside the other four tables, same
+  reload-local-state-then-invalidate-shared-cache pattern as every
+  other write path on this page.
+- **Per-row dirty-check** (`isDirty`) so Save is disabled unless the
+  draft actually differs from what's persisted for the currently
+  selected genre — prevents an accidental no-op save, and drafts reset
+  to match whatever's actually persisted every time the genre selection
+  changes (so a half-typed edit under one genre doesn't linger,
+  looking unsaved, after switching to another genre and back).
 - **Verified:** `npx tsc --noEmit` clean on the whole project. A
-  throwaway Node script (deleted after use, not committed) confirmed
-  both new row-to-body mapping functions produce exactly the field set
-  each route's own doc comment documents, and that the `text-array`
-  draft/save conversion round-trips losslessly (populated array,
-  `null`, and `[]` all handled correctly) without re-normalizing on
-  every keystroke. **Not verified — no way to check from this
-  sandbox:** an actual authenticated admin write against a live
-  Supabase instance for either table, or the Realtime/query-
-  invalidation round-trip reaching `promote/page.tsx` end-to-end —
-  same standing limitation Part A's own note already flagged, not
-  re-solved here.
+  throwaway Node script (deleted after use) mirrored `isDirty()` against
+  5 cases (untouched-no-row, typed-where-none-existed, matches-
+  persisted, edited, cleared-but-not-yet-submitted) and the 0-100 score
+  guard against 7 cases (valid boundaries 0/50/100, invalid 101/-1,
+  empty string, non-numeric) — all 12 correct. **Not verified — no way
+  to check from this sandbox:** an actual authenticated admin write
+  against a live Supabase instance, or the Realtime/query-invalidation
+  round-trip reaching `promote/page.tsx` end-to-end — same standing
+  limitation every part of this task has flagged, not re-solved here.
+
+**Task 46a is now fully done — backend half + UI Parts A, B-i, and
+B-ii all complete.** No further sub-parts remain open on this task.
+
 - **A real, non-obvious wrinkle found while building Part A, worth
   flagging explicitly:** `useReferenceData()`'s own `PricingTier`/
   `DurationSlot` shapes (`src/lib/campaign/pricing.ts`) deliberately
