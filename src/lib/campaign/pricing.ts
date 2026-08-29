@@ -123,6 +123,13 @@ const PLATFORM_FEE_PERCENT = 10; // 10% platform fee on campaigns (NOT 15 — se
 // pipeline definition, deliberately NOT wired into PRICING_PIPELINE)
 // for proof this actually holds, not just an assertion.
 //
+// Task 45 Part 5 — narrated version of that same proof, plus how to
+// add a new *data* row (a tier, country, genre, etc. — a pure
+// Supabase change, zero code touched), lives in this directory's
+// CONTRIBUTING.md. Read that first if you're extending either the
+// data or the arithmetic; this file's own comments stay focused on
+// what the code does, not why the shape is what it is.
+//
 // Fields are typed optional on PricingContext (except the two inputs
 // every step can already rely on) because each step only fills in
 // what it's responsible for -- by the time the full pipeline has run,
