@@ -27,17 +27,29 @@
 > doesn't guarantee this box is — check the two don't contradict each
 > other before trusting either alone, the way this session had to.
 >
-> **Next task:** of Task 46's five remaining sub-parts (46c, 46d, 46e's
-> broader scope — see that part's own status note), none has an
-> obviously-next ordering the way 46b-a through 46b-e did — 46c (live-
-> campaign overrides) has its own open product-decision (does an admin
-> cancel refund the same way a user cancel does, or not at all — see
-> that part's own text), 46d (dashboard buildout) depends on 46a/46b/46c
-> existing as real routes first(mostly true now), and 46e's remaining
-> scope (46a/46c write-coverage, confirmation dialogs) is cross-cutting
-> rather than a single buildable unit. **A session picking up Task 46
-> next should read 46c/46d/46e's own text and pick based on what's
-> genuinely unblocked, not assume file order == priority order.**
+> **Newest session (2026-08-29, after the above) — Task 46d done.**
+> The old 745-line `admin/page.tsx` monolith (one component, one
+> `activeTab` state) is now ten real routes with server-side
+> `isAdmin()` gating in a new `admin/layout.tsx` (redirect-before-
+> render, closing the old client-side-only gating gap this task's text
+> called out) — see 46d's own done-note under Task 46 below for full
+> detail. **Task 46's remaining two sub-parts, 46c and 46e's broader
+> scope, are both still genuinely blocked/open, not silently
+> skippable:** 46c (live-campaign overrides) has its own explicit open
+> product-decision (does an admin cancel refund the same way a user
+> cancel does, or not at all); 46e's remaining scope (46a/46c write-
+> coverage, confirmation dialogs beyond the type-to-confirm pattern
+> 46b already has) is cross-cutting, not a single buildable unit. Task
+> 46's own top-level checkbox correctly stays `[ ]` — 46a/46b/46d done,
+> 46c/46e not.
+>
+> **One open question this session did NOT resolve, flagged rather
+> than silently decided:** 46d's own "possibly missed" note asks
+> whether admin user-management should extend beyond a read-only list
+> to actually acting on a user (e.g. manually adjusting a wallet
+> balance for a support case). `/admin/users` is still exactly the
+> read-only table it already was — untouched, not a regression, but
+> also not an answer to that open question.
 >
 > **This session (2026-08-29) — Task 37 closed out, verification-only,
 > no code changes.** Last session flagged that Task 37's "trigger-point"
@@ -6080,7 +6092,7 @@ immediately" invariant or Task 38's wallet-deduction accounting:
   product decision, not an implementation detail, and needs its own
   confirmation before building.
 
-### 46d — Admin dashboard buildout (routes, pages, navigation, icons) [ ]
+### 46d — Admin dashboard buildout (routes, pages, navigation, icons) [x]
 The actual UI surface for 46a/46b/46c above — today's single
 `admin/page.tsx` needs to become a real multi-page dashboard: a nav
 structure (sidebar or top-nav, matching this app's existing
@@ -6097,6 +6109,74 @@ consistent with how `api/admin/dashboard/route.ts` already does it
 `isAdmin()` check, which is trivially bypassable from devtools — every
 new admin API route in 46a/46b/46c needs the same server-side check
 that route already has, not a weaker one).
+
+**Done this session.** The single 745-line `admin/page.tsx` monolith
+(one component, one `activeTab` state) is now ten real routes: `/admin`
+(overview), `/admin/campaigns`, `/admin/users`, `/admin/ledger`,
+`/admin/pricing`, `/admin/duration`, `/admin/countries`,
+`/admin/genres`, `/admin/affinity`, `/admin/fees` — exactly the list
+this task's own text named, `/admin/users` included.
+- **New `admin/layout.tsx`** — server-side `isAdmin()` gating,
+  `redirect()`-before-render, using `createServerSupabaseClient()` +
+  `isAdmin()` directly (not `requireAdmin()` as-is, which returns a
+  `NextResponse` shaped for Route Handlers — a layout needs
+  `redirect()` instead). Closes the exact gap this task's text called
+  out: the old monolith's own gating ran client-side in a `useEffect`
+  after first paint, so a non-admin briefly saw the page shell before
+  being redirected. Now the redirect happens before any admin markup
+  is served at all.
+- **Verified, not assumed, the second half of this task's ask**
+  ("every new admin API route in 46a/46b/46c needs the same
+  server-side check") — checked all seven admin API routes
+  (`pricing-tiers`, `duration-slots`, `countries`, `genres`,
+  `genre-country-affinity`, `fees`, `dashboard`) via grep: every one
+  already calls `requireAdmin()`. Nothing needed fixing there; this
+  task's remaining real gap was the page-level (not API-level) gating,
+  which the new layout closes.
+- **New `AdminNav.tsx`** — same horizontal pill-bar visual (this app's
+  existing convention, not a new one invented for admin) as the old
+  monolith's tab bar, converted from `setActiveTab()` to real `<Link>`s
+  with `usePathname()`-driven active state.
+- **New `src/lib/admin/adminHelpers.ts`** and
+  **`src/components/admin/StatCard.tsx`** — shared types/columns/
+  row-mappers/`callAdminRoute()`/`StatCard`, extracted from the
+  monolith so the ten new pages import one shared copy instead of each
+  reimplementing its own.
+- **New `useAdminDashboardData.ts`** — Overview/Campaigns/Users/Ledger
+  share this one hook rather than duplicating the same
+  `/api/admin/dashboard` fetch+parse four times. Deliberately not a
+  cross-route cache (navigating between the four re-fetches, same as
+  this app already does elsewhere, e.g. `/promote` ↔ `/earnings`) —
+  wiring this through TanStack Query would avoid the re-fetch but is a
+  performance nice-to-have outside this task's own scope, flagged not
+  built.
+- Pricing/Duration/Countries/Genres/Affinity/Fees each own their own
+  load+refresh logic directly rather than sharing a hook — in the
+  split architecture each page only ever needs its own table, so
+  there's nothing left to usefully share beyond `adminHelpers.ts`.
+
+**Verification approach, worth naming explicitly:** cross-checked every
+function/state/interface in the original 745-line file (via `grep` for
+every top-level and component-body declaration) against a backup taken
+before deleting it — confirmed each one has a new home, nothing
+silently dropped, rather than assuming the split was complete after
+writing it.
+
+Verified via `npx tsc --noEmit` — clean. **Not independently confirmed
+in a browser** — no live Supabase session in this sandbox to actually
+click through the new routes as a real admin; recommend a quick
+click-through after deploying, same caveat every prior admin-UI task
+in this file has carried.
+
+**Did not touch the "possibly missed" user-management question**
+(this task's own text, further down this section) — `/admin/users`
+is still exactly the read-only table the old monolith already had
+(name, email, genre, joined date), same as before this session, not a
+regression. Whether admin user-management should grow into something
+that can actually act on a user (e.g. manually adjust a wallet balance
+for a support case) is still an open product-owner question this
+session didn't answer either way — flagging again here so a future
+session doesn't assume the route split settled it.
 
 ### 46e — Audit trail + safety rails across all of the above [ ]
 
