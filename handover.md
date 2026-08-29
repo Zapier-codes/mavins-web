@@ -84,18 +84,43 @@
 > apply anywhere below in this file as of this confirmation — treat any
 > such wording found further down (there's a lot of it, accumulated
 > across sessions) as historical, not current. **Actual next
-> unblocked work:** Task 35's two remaining open items (where the
-> platform's cut gets recorded; whether `add-funds` should carry the
-> fee too — both still need a product-owner call, not blocked on
-> deploy), or **Task 45 (spec written this session, not started —
-> see below).** Task 36 is now fully done (Parts 1–4 all complete, see
-> below). No task in this file is currently on hold.
+> unblocked work, as of Task 45 Part 1 landing this session: Task 45
+> Part 2** (see the note above this one for detail). Task 35's two
+> remaining open items (where the platform's cut gets recorded;
+> whether `add-funds` should carry the fee too) are still open but
+> both explicitly need a product-owner call, not something to guess at
+> — pick those up only if the product owner raises them, don't treat
+> them as the default next task over Part 2. Task 36 is fully done
+> (Parts 1–4 all complete, see below). No task in this file is
+> currently on hold.
+>
+> **This session — Task 45 Part 1 done (2026-08-28).**
+> `pricing.ts`/`geoAffinity.ts` refactored into data-parameterized pure
+> functions + a `PricingStep` modifier-pipeline for `calculatePricing()`
+> (six named steps, folded via `PRICING_PIPELINE.reduce(...)`) —
+> `getRecommendedGeographies()` audited fresh and confirmed it does
+> NOT need the same pipeline treatment (one arithmetic concern, not
+> several). All four real call sites updated
+> (`initialize-campaign/route.ts`, `create/route.ts`, three call sites
+> in `promote/page.tsx`); `campaign.service.ts`'s `calculatePricing`
+> import turned out to be stale/unused, not a real fifth call site.
+> **Verified for real, not just eyeballed:** `npx tsc --noEmit` clean,
+> plus a throwaway byte-for-byte comparison script (121 checks, 0
+> failures) proving identical output before/after, plus a concrete
+> worked-example proof that the pipeline's modularity claim holds.
+> Sandbox/script deleted after, nothing extra committed. **Next: Part
+> 2** (client-side store — TanStack Query vs. Zustand decision, per
+> that part's own recommendation section) — depends on Part 1's
+> data-parameterized functions existing, which they now do. See Task
+> 45's own Part 1 entry, far below, for the full write-up.
 >
 > **This session — Task 45 added: SPEC ONLY, per explicit instruction,
-> nothing implemented.** Direct product-owner request: the promote
-> page's slider must never query Supabase during interaction (a
-> client-side store — Zustand and/or TanStack Query, a real decision
-> Task 45 Part 2 makes explicitly rather than assuming — fetches
+> nothing implemented (superseded by the Part 1 implementation above,
+> this note kept for the original ask's full context).** Direct
+> product-owner request: the promote page's slider must never query
+> Supabase during interaction (a client-side store — Zustand and/or
+> TanStack Query, a real decision Task 45 Part 2 makes explicitly
+> rather than assuming — fetches
 > reference data once at init and resyncs only when the underlying
 > Supabase data actually changes, not on a timer); separately, the
 > pricing/geo arithmetic itself should be modular enough that a new
@@ -4054,88 +4079,100 @@ asserted.
 
 ---
 
-### Part 1 — Extract calculation logic into pure, data-parameterized functions + define the modifier-pipeline extension point [ ]
+### Part 1 — Extract calculation logic into pure, data-parameterized functions + define the modifier-pipeline extension point [x]
 
-**No data source changes yet. No behavior changes yet.** Purely a
-refactor of `src/lib/campaign/pricing.ts` and
-`src/lib/campaign/geoAffinity.ts` so their exported functions
-(`calculatePricing`, `calculateRefund`, `calculateActualCharge`,
-`getRecommendedGeographies`, `getGeoTargetingPool`, `scoreLabel`) take
-their reference data (today's `PRICING_TIERS`/`DURATION_SLOTS`/
-`TARGET_COUNTRIES`/`GENRE_COUNTRY_AFFINITY`) **as parameters**, instead
-of importing the module-level hardcoded arrays directly. This is the
-prerequisite for the exact same logic being callable from three
-different contexts later (server route, Edge Function, client store)
-against whatever each one's own copy of the reference data is — one
-calculation engine, multiple data sources, not three re-implementations
-that can drift.
+**Done this session (2026-08-28).** No data source changes, no
+behavior changes, as specified — confirmed by verification, not just
+asserted (see below).
 
-- New shared types file (e.g. `src/lib/campaign/referenceData.ts` or
-  folded into `pricing.ts`/`geoAffinity.ts` directly — decide based on
-  import-cycle cleanliness once actually writing this): a
-  `PricingReferenceData` shape (`{ tiers: PricingTier[], durationSlots:
-  DurationSlot[] }`) and a `GeoReferenceData` shape (`{ countries:
-  TargetCountry[], genreCountryAffinity: Record<string,
-  Record<string, number>> }`) — both mirroring migration 010's table
-  shapes exactly (`pricing_tiers`, `duration_slots`, `countries`,
-  `genres`, `genre_country_affinity`), so a later Supabase read maps
-  onto them with no reshaping logic needed.
-- `calculatePricing(viewCount, referenceData: PricingReferenceData)` —
-  same signature shape idea for the geo functions. Every existing call
-  site (`campaign.service.ts`, `initialize-campaign/route.ts`,
-  `initialize/route.ts`, `create/route.ts`, `promote/page.tsx` — the
-  five files this session's own grep found) needs updating to pass the
-  hardcoded arrays explicitly at the call site for now (still
-  `PRICING_TIERS`/`DURATION_SLOTS` etc., just passed as arguments
-  instead of read as module globals) — **zero behavior change**, purely
-  mechanical, verifiable by confirming every existing computed price/
-  duration/geo ranking is byte-identical before and after this part.
-- **Preserve the exact existing bugs/quirks found this session — do
-  not fix them here, just don't lose them in the refactor:**
-  `calculatePricing()`'s own clamp is `Math.min(viewCount, 5000000)` —
-  meaning the seeded "Legend" tier (`max_views: 10000000` in migration
-  010, copied verbatim from `PRICING_TIERS`' own array) is
-  **unreachable today**, a real, previously-undocumented-until-this-
-  session inconsistency. Also still-open: `promote/page.tsx`'s own
-  separate `TIERS` array caps at 5,000,000 (matches the clamp, unlike
-  `PRICING_TIERS`), which is Task 44 Part 1's own already-documented
-  finding. None of these get resolved by Part 1 — they get carried
-  through faithfully, flagged again here so Part 4 (which deletes the
-  arrays these quirks live in today) doesn't accidentally silently fix
-  them as a drive-by change nobody asked for.
-- **The modifier-pipeline extension point** (this is the part that
-  actually answers "modular... fits right in without affecting the
-  code," not just the data-parameterization above): refactor
-  `calculatePricing()`'s internals into an ordered list of small, pure
-  functions — a `PricingStep` type, something like `(ctx:
-  PricingContext) => PricingContext`, where `PricingContext` accumulates
-  fields as it passes through the pipeline (tier lookup → subtotal →
-  platform fee → duration/drip assignment → savings calc, matching
-  today's five sequential concerns in the function body). Each existing
-  concern becomes its own named step function; `calculatePricing()`
-  itself becomes `PRICING_PIPELINE.reduce((ctx, step) => step(ctx),
-  initialContext)` (or equivalent) — a thin runner, not where any actual
-  arithmetic lives anymore. Adding a genuinely new kind of rule later
-  (a loyalty discount, a first-campaign promo, a country-specific
-  surcharge — none of these exist today, this is about the shape being
-  ready for whenever one does) means writing one new step function and
-  inserting it into the pipeline array, without touching any existing
-  step. **This needs at least one worked-through example while
-  designing it** — pick a plausible hypothetical rule (e.g. "10% off
-  for a first-time buyer," not implemented for real, just used to prove
-  the shape works) and confirm it can be added as a single new step
-  with zero edits to the other four, before considering Part 1 actually
-  done. Same idea applies to `getRecommendedGeographies()`'s scoring
-  logic if it turns out to have more than one genuinely separable
-  concern — audit it fresh rather than assuming it needs the same
-  treatment as pricing without checking.
-- **Verify:** `npx tsc --noEmit` clean; a throwaway script (this
-  project's own established convention — write it, run it, delete it,
-  don't commit it) that calls the refactored `calculatePricing()`
-  against a range of view counts spanning every tier boundary and
-  confirms every output field matches the pre-refactor function's
-  output exactly, byte-for-byte — this is the actual proof "zero
-  behavior change" holds, not just an assertion.
+- `pricing.ts`: added `PricingReferenceData` (`{ tiers, durationSlots }`
+  — mirrors migration 010's `pricing_tiers`/`duration_slots` shapes),
+  co-located in `pricing.ts` itself rather than a separate shared
+  types file (decided against `referenceData.ts` — no import-cycle
+  risk either way since these are just type-only imports, but
+  co-locating each interface with the module it actually describes
+  seemed cleaner than a third file with no logic of its own). Same for
+  `geoAffinity.ts`'s new `GeoReferenceData` (`{ countries,
+  genreCountryAffinity }`).
+- **The modifier-pipeline** (the part that actually answers "modular,"
+  not just the parameter-passing above): `calculatePricing()`'s five
+  sequential concerns are now six named, pure step functions
+  (`clampViewsStep`, `tierLookupStep`, `subtotalStep`,
+  `platformFeeStep`, `durationAssignmentStep`, `savingsStep`), each
+  `(ctx: PricingContext) => PricingContext`, folded via
+  `PRICING_PIPELINE.reduce(...)`. `calculatePricing()` itself is now a
+  thin runner — no arithmetic lives there directly anymore.
+  `PricingContext`'s fields are optional except the two inputs every
+  step can already rely on (documented in-file: each step only fills
+  in what it owns; the non-null assertions live in exactly one place,
+  `calculatePricing()`'s own return statement, not scattered through
+  every step).
+- **Worked example, per the task's own explicit requirement** ("needs
+  at least one worked-through example... confirm it can be added as a
+  single new step with zero edits to the other [steps]"):
+  `EXAMPLE_firstTimeDiscountStep` in `pricing.ts` — a hypothetical 10%
+  first-time-buyer discount, deliberately NOT wired into
+  `PRICING_PIPELINE`, that would slot in between `subtotalStep` and
+  `platformFeeStep` with zero edits to any of the six real steps.
+  Verified this claim for real with a throwaway script (deleted after,
+  per this project's convention), not just asserted in a comment — see
+  "Verification" below.
+- **`getRecommendedGeographies()` audited fresh, per the task's own
+  instruction not to assume it needs the same treatment without
+  checking — it doesn't.** Documented in-file why: it has exactly ONE
+  arithmetic concern (a base-score lookup plus a single conditional
+  home-market bump), not multiple separable concerns the way pricing's
+  six steps are. No `PricingStep`-style pipeline built for it. Still
+  parameterized to take `GeoReferenceData` instead of reading
+  `TARGET_COUNTRIES`/`GENRE_COUNTRY_AFFINITY` as module globals — that
+  part of the ask applies regardless of whether a pipeline shape fits.
+  `getGeoTargetingPool()` threads the same `referenceData` through
+  (placed after `homeCountryCode`, before `poolSize`, so `poolSize`'s
+  default stays usable). `scoreLabel()` audited too — genuinely takes
+  no reference data (a pure numeric→label mapping), left unchanged,
+  noted explicitly in-file so it's clear this was checked, not
+  overlooked.
+- **Preserved, not fixed, exactly as instructed:** the `Math.min(...,
+  5000000)` clamp that makes the seeded "Legend" tier (`max_views:
+  10000000`) unreachable — carried through verbatim in
+  `clampViewsStep`, with the same in-code flag this session's earlier
+  audit (Task 44 Part 1) already left, so Part 4 doesn't accidentally
+  silently fix it as an unasked drive-by change.
+- **Call sites, all four real ones this session's own grep found:**
+  `initialize-campaign/route.ts`, `create/route.ts`, and
+  `promote/page.tsx` (three separate call sites within: the geo pool
+  `useMemo`, the pricing `useMemo`, and `topTargetedGeo`'s
+  `getRecommendedGeographies` call) — all now pass
+  `{ tiers: PRICING_TIERS, durationSlots: DURATION_SLOTS }` /
+  `{ countries: TARGET_COUNTRIES, genreCountryAffinity:
+  GENRE_COUNTRY_AFFINITY }` explicitly instead of the functions reading
+  them as globals. **Correction to the task's own text:**
+  `campaign.service.ts` imports `calculatePricing` but this session
+  confirmed via grep it's never actually called there (only the
+  `PricingResult` type alias import is live) — a stale import, not a
+  fifth real call site; nothing needed changing there.
+- **Verification, run for real, not just eyeballed:**
+  - `npx tsc --noEmit` — clean across the whole repo.
+  - **Byte-for-byte comparison script** (transpiled the pre-refactor
+    and post-refactor versions of both files with `tsc` to plain JS in
+    a throwaway `/tmp` sandbox, `require()`'d both side by side): 121
+    checks across every `calculatePricing()` tier boundary (including
+    negative/zero/over-max edge cases), every genre in
+    `GENRE_COUNTRY_AFFINITY` crossed with several home-country codes
+    for `getRecommendedGeographies()`, `getGeoTargetingPool()`'s
+    length/sort-order invariants (can't byte-compare its randomized
+    pick, so checked what's actually deterministic about it), and
+    `scoreLabel()`'s boundary scores. **0 failures** — confirmed
+    identical output, not assumed from the refactor being "purely
+    mechanical."
+  - **Pipeline modularity proof**, separately: hand-computed what
+    inserting the hypothetical discount step between `subtotalStep`
+    and `platformFeeStep` would produce (a 50,000-view example) and
+    confirmed it matches `calculatePricing()`'s own real subtotal/tier
+    logic exactly — the concrete demonstration the task asked for that
+    the modular claim is real, not aspirational.
+  - Sandbox and script deleted after — nothing extra committed, per
+    this project's established convention.
 
 ### Part 2 — Client-side store: TanStack Query vs. Zustand decision, fetch-once at init, resync-only-on-change mechanism [ ]
 

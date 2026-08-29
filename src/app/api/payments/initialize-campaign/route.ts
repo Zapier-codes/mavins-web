@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { checkRateLimit, getClientIp } from '@/lib/security/rateLimit';
-import { calculatePricing } from '@/lib/campaign/pricing';
+import { calculatePricing, PRICING_TIERS, DURATION_SLOTS } from '@/lib/campaign/pricing';
 
 const GUEST_RATE_LIMIT = 5; // checkout attempts
 const GUEST_RATE_WINDOW_MS = 10 * 60 * 1000; // per 10 minutes per IP
@@ -110,8 +110,10 @@ export async function POST(request: NextRequest) {
 
     // Same calculatePricing() used by create/route.ts's authenticated/
     // wallet-debit path -- one pricing engine, not a second copy of
-    // the tier logic for the guest path.
-    const pricing = calculatePricing(viewCount);
+    // the tier logic for the guest path. Task 45 Part 1: reference
+    // data now passed explicitly rather than read as module globals --
+    // still PRICING_TIERS/DURATION_SLOTS, zero behavior change.
+    const pricing = calculatePricing(viewCount, { tiers: PRICING_TIERS, durationSlots: DURATION_SLOTS });
 
     // Settlement currency hardcoded to USD, same reasoning/limitation
     // as /api/payments/initialize/route.ts (see that file's own header

@@ -58,8 +58,6 @@ export const TARGET_COUNTRIES: TargetCountry[] = [
   { code: 'KR', country: 'South Korea', flag: '🇰🇷' },
 ];
 
-const COUNTRY_CODES = TARGET_COUNTRIES.map((c) => c.code);
-
 // Score 0-100: how strongly a genre typically resonates in that market.
 // Deliberately conservative and roughly-banded (not falsely precise).
 export const GENRE_COUNTRY_AFFINITY: Record<string, Record<string, number>> = {
@@ -79,6 +77,15 @@ export const GENRE_COUNTRY_AFFINITY: Record<string, Record<string, number>> = {
   Dancehall:    { JM: 96, GB: 50, US: 45, NG: 40, GH: 35, ZA: 25, CA: 35, DE: 15, FR: 18, NL: 20, AE: 15, BR: 22, IN: 10, KE: 20, CI: 18, SN: 15, TZ: 12, UG: 10, EG: 8, MX: 22, ES: 20, IT: 18, AU: 25, SE: 15, KR: 10 },
 };
 
+// Task 45 Part 1 -- mirrors migration 010's `countries`/`genres`/
+// `genre_country_affinity` table shapes, same reasoning as
+// PricingReferenceData in pricing.ts (see that file for the fuller
+// comment).
+export interface GeoReferenceData {
+  countries: TargetCountry[];
+  genreCountryAffinity: Record<string, Record<string, number>>;
+}
+
 export interface GeoRecommendation extends TargetCountry {
   score: number;
   isHomeMarket: boolean;
@@ -88,17 +95,33 @@ export interface GeoRecommendation extends TargetCountry {
  * Rank markets for a given genre. If the artist's own detected country is
  * known, it gets a small relevance bump (home-market audiences convert
  * fastest) — capped so it can't override a genuinely poor genre fit.
+ *
+ * Task 45 Part 1 -- takes `referenceData` instead of reading
+ * TARGET_COUNTRIES/GENRE_COUNTRY_AFFINITY as module globals (same
+ * reasoning as calculatePricing() in pricing.ts). Audited fresh, per
+ * that task's own instruction not to assume this function needs the
+ * same multi-step pipeline treatment without checking: it doesn't.
+ * Unlike calculatePricing()'s five genuinely separable concerns (tier
+ * lookup, subtotal, fee, duration, savings), this function has exactly
+ * ONE arithmetic concern -- a base-score lookup plus a single
+ * conditional home-market bump, both part of the same "what's this
+ * market's score" question, not two composable rules. No
+ * PricingStep-style pipeline was built here; if a genuinely separate
+ * geo-scoring rule ever needs to compose with this one (e.g. a
+ * "trending in this market right now" signal, layered on top of the
+ * static affinity table), that would be the point to revisit this
+ * decision, not before.
  */
 export function getRecommendedGeographies(
   genre: string | null,
-  homeCountryCode?: string | null
+  homeCountryCode: string | null | undefined,
+  referenceData: GeoReferenceData
 ): GeoRecommendation[] {
-  const table = (genre && GENRE_COUNTRY_AFFINITY[genre]) || null;
+  const table = (genre && referenceData.genreCountryAffinity[genre]) || null;
 
-  return COUNTRY_CODES.map((code) => {
-    const meta = TARGET_COUNTRIES.find((c) => c.code === code)!;
-    const base = table ? table[code] ?? 20 : 40; // no genre picked yet → flat-ish baseline
-    const isHomeMarket = !!homeCountryCode && homeCountryCode === code;
+  return referenceData.countries.map((meta) => {
+    const base = table ? table[meta.code] ?? 20 : 40; // no genre picked yet → flat-ish baseline
+    const isHomeMarket = !!homeCountryCode && homeCountryCode === meta.code;
     const score = Math.min(100, base + (isHomeMarket ? 8 : 0));
     return { ...meta, score, isHomeMarket };
   }).sort((a, b) => b.score - a.score);
@@ -113,13 +136,19 @@ export function getRecommendedGeographies(
  * candidates, and repeat until `poolSize` distinct countries are chosen.
  * Intended to be re-called (via a `useMemo` keyed on genre) whenever the
  * artist changes genre, so they never see the exact same set twice.
+ *
+ * Task 45 Part 1 -- `referenceData` threaded through to
+ * getRecommendedGeographies() below; placed after `homeCountryCode` and
+ * before `poolSize` so `poolSize`'s default stays usable by callers
+ * that don't want to override it.
  */
 export function getGeoTargetingPool(
   genre: string | null,
-  homeCountryCode?: string | null,
+  homeCountryCode: string | null | undefined,
+  referenceData: GeoReferenceData,
   poolSize: number = 8
 ): GeoRecommendation[] {
-  const ranked = getRecommendedGeographies(genre, homeCountryCode);
+  const ranked = getRecommendedGeographies(genre, homeCountryCode, referenceData);
   if (ranked.length <= poolSize) return ranked;
 
   const candidates = [...ranked];
@@ -141,6 +170,10 @@ export function getGeoTargetingPool(
   return chosen.sort((a, b) => b.score - a.score);
 }
 
+/**
+ * Task 45 Part 1 -- unchanged. Takes no reference data (a pure
+ * numeric->label mapping), nothing to parameterize.
+ */
 export function scoreLabel(score: number): { label: string; tone: 'strong' | 'good' | 'moderate' | 'light' } {
   if (score >= 75) return { label: 'Strong fit', tone: 'strong' };
   if (score >= 50) return { label: 'Good fit', tone: 'good' };

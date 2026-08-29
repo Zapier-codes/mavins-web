@@ -7,8 +7,8 @@ import { useAuth } from '@/hooks/auth/useAuth';
 import { createCampaign, getArtistCampaigns } from '@/services/campaign/campaign.service';
 import { getPublicSeedStats } from '@/services/stats/publicStats.service';
 import { useGeo } from '@/components/providers/GeoProvider';
-import { calculatePricing, formatCents, formatNumber, DURATION_SLOTS } from '@/lib/campaign/pricing';
-import { getRecommendedGeographies, getGeoTargetingPool, scoreLabel, TARGET_COUNTRIES } from '@/lib/campaign/geoAffinity';
+import { calculatePricing, formatCents, formatNumber, DURATION_SLOTS, PRICING_TIERS } from '@/lib/campaign/pricing';
+import { getRecommendedGeographies, getGeoTargetingPool, scoreLabel, TARGET_COUNTRIES, GENRE_COUNTRY_AFFINITY } from '@/lib/campaign/geoAffinity';
 import { getKorapayDccCurrency } from '@/lib/currency/korapayDccCurrency';
 import { COUNTRY_CURRENCY } from '@/lib/currency/countryCurrency';
 import { initializeCheckout, initializeCampaignCheckout } from '@/lib/payments/checkout';
@@ -110,8 +110,14 @@ const GeoTargetingSection = memo(function GeoTargetingSection({
 }) {
   // Shown pool is 8-of-25, genre-weighted-random — re-shuffles whenever
   // genre (or home market) changes, so the artist never sees a fixed,
-  // static set of countries every time they land here.
-  const shown = useMemo(() => getGeoTargetingPool(genre || null, homeCountryCode), [genre, homeCountryCode]);
+  // static set of countries every time they land here. Task 45 Part 1:
+  // reference data now passed explicitly rather than read as module
+  // globals -- still TARGET_COUNTRIES/GENRE_COUNTRY_AFFINITY, zero
+  // behavior change.
+  const shown = useMemo(
+    () => getGeoTargetingPool(genre || null, homeCountryCode, { countries: TARGET_COUNTRIES, genreCountryAffinity: GENRE_COUNTRY_AFFINITY }),
+    [genre, homeCountryCode]
+  );
   const topCodes = useMemo(() => new Set(shown.slice(0, 3).map((r) => r.code)), [shown]);
   const atLimit = !isAdmin && selectedCodes.length >= MAX_COUNTRIES_FREE;
 
@@ -453,12 +459,20 @@ export default function PromotePage() {
     return () => { cancelled = true; };
   }, []);
 
-  const pricing = useMemo(() => calculatePricing(viewCount), [viewCount]);
+  // Task 45 Part 1: reference data now passed explicitly rather than
+  // read as module globals -- still PRICING_TIERS/DURATION_SLOTS, zero
+  // behavior change.
+  const pricing = useMemo(
+    () => calculatePricing(viewCount, { tiers: PRICING_TIERS, durationSlots: DURATION_SLOTS }),
+    [viewCount]
+  );
   const currentTier = useMemo(() => TIERS.find(t => viewCount >= t.min && viewCount <= t.max) || TIERS[0], [viewCount]);
 
   const topTargetedGeo = useMemo(() => {
     if (targetCountries.length === 0) return null;
-    const ranked = getRecommendedGeographies(selectedGenre || null, homeCountryCode);
+    // Task 45 Part 1: reference data now passed explicitly, same as
+    // the `shown` useMemo above -- zero behavior change.
+    const ranked = getRecommendedGeographies(selectedGenre || null, homeCountryCode, { countries: TARGET_COUNTRIES, genreCountryAffinity: GENRE_COUNTRY_AFFINITY });
     const best = ranked.find((r) => targetCountries.includes(r.code));
     return best ? { country: best.country, flag: best.flag } : null;
   }, [targetCountries, selectedGenre, homeCountryCode]);

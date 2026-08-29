@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { isAdmin } from '@/lib/auth/isAdmin';
-import { calculatePricing } from '@/lib/campaign/pricing';
+import { calculatePricing, PRICING_TIERS, DURATION_SLOTS } from '@/lib/campaign/pricing';
 
 /**
  * POST /api/campaigns/create
@@ -124,7 +124,10 @@ export async function POST(request: NextRequest) {
     const { data: profile } = await admin.from('users').select('role').eq('id', authUser.id).single();
     const callerIsAdmin = isAdmin({ email: authUser.email, role: profile?.role });
 
-    const pricing = calculatePricing(body.viewCount);
+    // Task 45 Part 1: reference data now passed explicitly rather than
+    // read as module globals -- still PRICING_TIERS/DURATION_SLOTS,
+    // zero behavior change.
+    const pricing = calculatePricing(body.viewCount, { tiers: PRICING_TIERS, durationSlots: DURATION_SLOTS });
 
     // Product-owner rule, this session: a duplicate campaign for the
     // SAME link is not allowed, but multiple campaigns for multiple
