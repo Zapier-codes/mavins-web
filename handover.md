@@ -87,9 +87,35 @@
 > unblocked work:** Task 35's two remaining open items (where the
 > platform's cut gets recorded; whether `add-funds` should carry the
 > fee too — both still need a product-owner call, not blocked on
-> deploy), or Task 44 (spec-only, not started). Task 36 is now fully
-> done (Parts 1–4 all complete, see below). No task in this file is
-> currently on hold.
+> deploy), or **Task 45 (spec written this session, not started —
+> see below).** Task 36 is now fully done (Parts 1–4 all complete, see
+> below). No task in this file is currently on hold.
+>
+> **This session — Task 45 added: SPEC ONLY, per explicit instruction,
+> nothing implemented.** Direct product-owner request: the promote
+> page's slider must never query Supabase during interaction (a
+> client-side store — Zustand and/or TanStack Query, a real decision
+> Task 45 Part 2 makes explicitly rather than assuming — fetches
+> reference data once at init and resyncs only when the underlying
+> Supabase data actually changes, not on a timer); separately, the
+> pricing/geo arithmetic itself should be modular enough that a new
+> rule "fits right in without affecting the code." Reconciles cleanly
+> with the earlier "server-side pricing" ask from the same session:
+> the client store/slider is a *display-only* preview, the server
+> always independently recomputes the actual charge and never trusts a
+> client-supplied total — Task 45 Part 3 makes this split explicit.
+> Five parts: (1) extract the calculation logic into pure,
+> data-parameterized functions + a modifier-pipeline extension point,
+> (2) the client store itself + the resync-on-change mechanism
+> (Realtime recommended, a version-check fallback documented), (3)
+> server-side authoritative recomputation, (4) delete the old
+> hardcoded arrays, (5) a contributor guide + concrete proof the
+> "modular" goal actually holds. **Supersedes Task 44's own Parts 2-4**
+> (Task 44 Part 1 — schema + seed migration — stays done, unchanged,
+> and is this task's own prerequisite). See Task 45's own entry, far
+> below, for the full write-up — don't start implementing without
+> reading it end to end, several of its parts have explicit
+> dependencies on the ones before them.
 >
 > **This session — Task 36 Part 4 done, closing out Task 36
 > entirely.** `checkout.ts` gained `initializeCampaignCheckout()`
@@ -3900,6 +3926,16 @@ refactor (Part 2), then frontend wiring to delete the static arrays
 (Part 3), with the admin-editing-UI question (if confirmed wanted) as
 a distinct Part 4 rather than folded into Part 3.
 
+**Superseded by Task 45, below.** This "Recommended split" text is
+kept as-is for history, but Parts 2-4 above are no longer the live
+plan — the product owner gave a more specific architecture request
+(store-backed client cache, resync-only-on-change, a modular pricing-
+arithmetic pipeline) that Part 2's original framing didn't anticipate.
+Task 45 absorbs Task 44's remaining scope (everything after Part 1,
+which stays done and unchanged) into its own 5-part plan. Read Task 45
+before starting any of Task 44's remaining work — don't build Part 2
+as originally described above.
+
 ---
 
 **Part 1 — schema + seed migration. [x] Done this session (2026-08-29).**
@@ -3950,6 +3986,330 @@ credentials to do that from this sandbox. The `DO $$ ... $$` sanity
 check inside the migration itself is what actually proves the seed
 data's row-count invariant once it does run, not this note.
 
-**Next: Part 2** — backend read path + `calculatePricing()` refactor.
-Decide sync-with-caching vs. fully-async first (see point 3 above)
-before writing code; that decision shapes how big Part 2 actually is.
+**Next: see Task 45**, further down in this file — it absorbs and
+supersedes this "Part 2" plan with a more specific architecture
+(store-backed client cache, resync-only-on-change, a modular pricing-
+arithmetic pipeline), per direct product-owner request. Don't build
+the sync-vs-async decision described above in isolation; Task 45's own
+Part 1-3 make that same decision as part of a larger, coherent plan.
+
+---
+
+## Task 45 — Store-backed reference data (Zustand/TanStack Query, fetch-once + resync-only-on-change) + a modular pricing-arithmetic pipeline [ ]
+
+**SPEC ONLY, per explicit instruction — no code written for this task
+this session.** Supersedes Task 44's own Parts 2-4 (see that task's
+own note, just above) — Task 44 Part 1 (schema + seed migration,
+`supabase_migration_010_static_data_tables.sql`) stays done and
+unchanged; this task builds on it, not around it.
+
+**Ask, from the product owner directly, this session — paraphrased
+from a stream-of-consciousness message, structure imposed here, not by
+them:**
+1. The promote page's slider (and everything pricing-related it
+   drives) must stay smooth no matter what — dragging it must never
+   trigger a Supabase fetch. Adding a new pricing tier, duration slot,
+   country, genre, or affinity score in Supabase later must not make
+   the slider janky or require a code change to pick up.
+2. A client-side store, populated once at initialization, is what the
+   slider actually reads from — not a live query. The two candidate
+   tools named were Zustand and TanStack Query (**not one merged
+   library** — two names given together, read here as two options to
+   choose between, or combine, not a single "Zustand-TanStack" thing).
+3. The store should resync with Supabase **only when the underlying
+   data has actually changed** — not on a timer, not on every mount,
+   not "every time," since the product owner's own framing is that
+   updates to this reference data will be rare. Whatever mechanism
+   decides "has it changed" is a real design decision this task needs
+   to make, not hand-wave.
+4. Separately, but related: "the pricing calculations and all the
+   arithmetical logic" should be **modular** — so a new pricing rule,
+   discount, or fee type can be added later as something that "fits
+   right in without affecting the code," i.e. without editing existing
+   calculation logic to bolt on something new.
+5. Reconciling this with the previous message in this same session
+   ("I want price calculation to be server side not client side"): the
+   two asks are not in tension once split correctly — **the actual
+   charged amount must always be recomputed authoritatively
+   server-side, at the moment a payment is initialized, never trusted
+   from whatever the client displayed.** The slider's live preview
+   during dragging is a *display-only* computation, run client-side
+   against the store's cached data, using the exact same pure
+   calculation functions the server uses — never the source of truth
+   for what gets charged. This task's own Part 3 makes this split
+   explicit; it is the answer to "how are both true at once," not a
+   contradiction to resolve by picking one side.
+
+**Why 5 parts, and why this split specifically:** each part is
+independently shippable and independently verifiable (this project's
+own one-task-per-session convention, see this file's very first
+lines) — Part 1 is pure refactor with no behavior change (safe to ship
+alone), Part 2 is additive (new store, nothing deleted yet), Part 3 is
+the security-relevant one (server stops trusting hardcoded arrays,
+still doesn't trust the client), Part 4 is the actual deletion of the
+old static arrays (the highest-risk part, done last and in isolation
+once 1-3 are proven), Part 5 is documentation + a concrete
+demonstration that the "modular" goal was actually achieved, not just
+asserted.
+
+---
+
+### Part 1 — Extract calculation logic into pure, data-parameterized functions + define the modifier-pipeline extension point [ ]
+
+**No data source changes yet. No behavior changes yet.** Purely a
+refactor of `src/lib/campaign/pricing.ts` and
+`src/lib/campaign/geoAffinity.ts` so their exported functions
+(`calculatePricing`, `calculateRefund`, `calculateActualCharge`,
+`getRecommendedGeographies`, `getGeoTargetingPool`, `scoreLabel`) take
+their reference data (today's `PRICING_TIERS`/`DURATION_SLOTS`/
+`TARGET_COUNTRIES`/`GENRE_COUNTRY_AFFINITY`) **as parameters**, instead
+of importing the module-level hardcoded arrays directly. This is the
+prerequisite for the exact same logic being callable from three
+different contexts later (server route, Edge Function, client store)
+against whatever each one's own copy of the reference data is — one
+calculation engine, multiple data sources, not three re-implementations
+that can drift.
+
+- New shared types file (e.g. `src/lib/campaign/referenceData.ts` or
+  folded into `pricing.ts`/`geoAffinity.ts` directly — decide based on
+  import-cycle cleanliness once actually writing this): a
+  `PricingReferenceData` shape (`{ tiers: PricingTier[], durationSlots:
+  DurationSlot[] }`) and a `GeoReferenceData` shape (`{ countries:
+  TargetCountry[], genreCountryAffinity: Record<string,
+  Record<string, number>> }`) — both mirroring migration 010's table
+  shapes exactly (`pricing_tiers`, `duration_slots`, `countries`,
+  `genres`, `genre_country_affinity`), so a later Supabase read maps
+  onto them with no reshaping logic needed.
+- `calculatePricing(viewCount, referenceData: PricingReferenceData)` —
+  same signature shape idea for the geo functions. Every existing call
+  site (`campaign.service.ts`, `initialize-campaign/route.ts`,
+  `initialize/route.ts`, `create/route.ts`, `promote/page.tsx` — the
+  five files this session's own grep found) needs updating to pass the
+  hardcoded arrays explicitly at the call site for now (still
+  `PRICING_TIERS`/`DURATION_SLOTS` etc., just passed as arguments
+  instead of read as module globals) — **zero behavior change**, purely
+  mechanical, verifiable by confirming every existing computed price/
+  duration/geo ranking is byte-identical before and after this part.
+- **Preserve the exact existing bugs/quirks found this session — do
+  not fix them here, just don't lose them in the refactor:**
+  `calculatePricing()`'s own clamp is `Math.min(viewCount, 5000000)` —
+  meaning the seeded "Legend" tier (`max_views: 10000000` in migration
+  010, copied verbatim from `PRICING_TIERS`' own array) is
+  **unreachable today**, a real, previously-undocumented-until-this-
+  session inconsistency. Also still-open: `promote/page.tsx`'s own
+  separate `TIERS` array caps at 5,000,000 (matches the clamp, unlike
+  `PRICING_TIERS`), which is Task 44 Part 1's own already-documented
+  finding. None of these get resolved by Part 1 — they get carried
+  through faithfully, flagged again here so Part 4 (which deletes the
+  arrays these quirks live in today) doesn't accidentally silently fix
+  them as a drive-by change nobody asked for.
+- **The modifier-pipeline extension point** (this is the part that
+  actually answers "modular... fits right in without affecting the
+  code," not just the data-parameterization above): refactor
+  `calculatePricing()`'s internals into an ordered list of small, pure
+  functions — a `PricingStep` type, something like `(ctx:
+  PricingContext) => PricingContext`, where `PricingContext` accumulates
+  fields as it passes through the pipeline (tier lookup → subtotal →
+  platform fee → duration/drip assignment → savings calc, matching
+  today's five sequential concerns in the function body). Each existing
+  concern becomes its own named step function; `calculatePricing()`
+  itself becomes `PRICING_PIPELINE.reduce((ctx, step) => step(ctx),
+  initialContext)` (or equivalent) — a thin runner, not where any actual
+  arithmetic lives anymore. Adding a genuinely new kind of rule later
+  (a loyalty discount, a first-campaign promo, a country-specific
+  surcharge — none of these exist today, this is about the shape being
+  ready for whenever one does) means writing one new step function and
+  inserting it into the pipeline array, without touching any existing
+  step. **This needs at least one worked-through example while
+  designing it** — pick a plausible hypothetical rule (e.g. "10% off
+  for a first-time buyer," not implemented for real, just used to prove
+  the shape works) and confirm it can be added as a single new step
+  with zero edits to the other four, before considering Part 1 actually
+  done. Same idea applies to `getRecommendedGeographies()`'s scoring
+  logic if it turns out to have more than one genuinely separable
+  concern — audit it fresh rather than assuming it needs the same
+  treatment as pricing without checking.
+- **Verify:** `npx tsc --noEmit` clean; a throwaway script (this
+  project's own established convention — write it, run it, delete it,
+  don't commit it) that calls the refactored `calculatePricing()`
+  against a range of view counts spanning every tier boundary and
+  confirms every output field matches the pre-refactor function's
+  output exactly, byte-for-byte — this is the actual proof "zero
+  behavior change" holds, not just an assertion.
+
+### Part 2 — Client-side store: TanStack Query vs. Zustand decision, fetch-once at init, resync-only-on-change mechanism [ ]
+
+**Depends on Part 1** (needs the data-parameterized functions to exist
+so the store's cached data has something to be passed into).
+
+- **Decide and document, explicitly, before writing code:** TanStack
+  Query alone (it already provides a global cache + `staleTime` +
+  refetch-on-focus/interval semantics — arguably already *is* "a store
+  that's populated once and only resyncs on demand," built for exactly
+  this) vs. Zustand alone (a plain global store, with a hand-rolled
+  fetch-once-on-init effect and a manually-triggered refetch) vs. both
+  together (TanStack Query owns the actual data-fetching/caching
+  lifecycle for the five reference tables; a separate, small Zustand
+  store — if one is wanted at all — only holds *derived/UI* state, e.g.
+  "which genre is currently selected," "current slider position,"
+  things that aren't server data and don't belong in a query cache).
+  **Recommendation, not a mandate:** TanStack Query alone for the
+  reference-data caching itself, since duplicating what it already does
+  inside a hand-rolled Zustand store is the more failure-prone path
+  (two caches that can disagree) — but this is a real decision for
+  whoever implements this part to confirm, not something to treat as
+  already settled by this note.
+- **Fetch-once at init:** one query (or five, or one composed query —
+  decide based on whether the five tables are ever needed
+  independently anywhere, or always all-or-nothing on the promote
+  page specifically) that runs once when the relevant part of the app
+  mounts. Decide the scope: a root-level provider (data ready
+  everywhere, costs a fetch even on pages that never touch pricing) vs.
+  scoped to wherever the promote page's own provider tree starts (only
+  fetches when actually needed, but a user navigating away and back
+  without a persistent top-level cache may refetch — TanStack Query's
+  own cache persistence across unmount/remount, if configured with a
+  sensible `gcTime`, likely makes this a non-issue either way; confirm
+  rather than assume).
+- **The resync-only-on-change mechanism — the real design decision
+  this part exists to make:**
+  - **Recommended: Supabase Realtime (`postgres_changes`) subscriptions**
+    on the five reference tables (`pricing_tiers`, `duration_slots`,
+    `countries`, `genres`, `genre_country_affinity`) — this is
+    literally what Realtime is for ("push a change when one happens,
+    stay silent otherwise"), and matches "resync only when there's
+    actually an update, not every time, not on a timer" far more
+    directly than any polling scheme could. On an incoming change
+    event, invalidate the TanStack Query cache key (triggering exactly
+    one refetch) rather than trying to patch the changed row into the
+    cache by hand.
+  - **Documented fallback, if Realtime turns out impractical** (RLS +
+    Realtime policy friction, connection-lifecycle complexity on a
+    page that isn't always mounted, or any other real blocker found
+    while implementing — don't assume none exists without checking):
+    a cheap version-check. Either a `SELECT MAX(updated_at) FROM ...`
+    unioned across the five tables, or (cleaner) a dedicated one-row
+    `static_data_meta(key TEXT PRIMARY KEY, updated_at TIMESTAMPTZ)`
+    table bumped by a trigger on any of the five tables' own
+    INSERT/UPDATE/DELETE — the client checks this single cheap value
+    (via TanStack Query's own `refetchInterval`, set to something
+    genuinely infrequent, e.g. every few minutes, or on window refocus
+    only) and only pulls the full five-table payload again if it
+    changed. **Whichever mechanism is chosen, don't build both
+    speculatively** — pick one, document why, implement it, leave the
+    other documented here as the considered alternative.
+- **Verify:** manually confirm (can't be scripted without live
+  Supabase access from this sandbox) that changing a row in one of the
+  five tables via the Supabase dashboard actually triggers exactly one
+  resync, and that leaving the data untouched for an extended session
+  triggers zero resyncs — the two behaviors this part's entire premise
+  rests on.
+
+### Part 3 — Server-side authoritative recomputation: the charge amount is never trusted from the client [ ]
+
+**Depends on Part 1.** This is the literal answer to "I want price
+calculation to be server side" from earlier this session — made
+precise here rather than left as a general preference.
+
+- Every server route that turns a price into an actual charge
+  (`create/route.ts`, `initialize-campaign/route.ts`, and
+  `initialize/route.ts` if it ever becomes price-relevant beyond flat
+  wallet top-up amounts) must call Part 1's refactored
+  `calculatePricing()` itself, server-side, against its **own**
+  server-side read of the five reference tables — never accept a
+  pre-computed total from the request body and trust it directly. This
+  is already almost true today (these routes already call
+  `calculatePricing()` server-side against the hardcoded arrays); the
+  actual change here is swapping the data source from hardcoded arrays
+  to a Supabase read, not introducing server-side computation that
+  doesn't already exist.
+- **Server-side caching, so this doesn't mean "hit Supabase on every
+  single request":** these routes are serverless/edge functions with
+  no long-lived process the way a browser tab has — a Zustand/TanStack
+  Query store doesn't translate directly. Recommended: a simple
+  module-level in-memory cache with a short TTL (e.g. 60 seconds) —
+  first request in that window hits Supabase, subsequent ones within
+  the TTL reuse the cached result, next request past the TTL refetches.
+  Good enough for reference data that changes rarely; does not need
+  Realtime or the version-check mechanism Part 2 builds for the
+  client, since a stale-by-up-to-60-seconds price for someone actively
+  checking out is an acceptable tradeoff this task treats as settled —
+  flag for a product-owner call only if that assumption turns out to
+  be wrong once someone thinks about it harder than this note did.
+- **Explicit split to document in code comments, not just here:** the
+  client's slider preview (Part 2's cached store, Part 1's pure
+  functions run directly in the browser) is always a *preview* —
+  labeled as such in the UI if it isn't already, and never sent to a
+  server route as "the price," only the inputs that determine it
+  (view count, genre, duration selection) are ever sent. The server
+  recomputes from those inputs independently and that recomputed value
+  is what actually gets charged. If the client's preview and the
+  server's authoritative number ever disagree (a stale client cache
+  during a rare mid-session data change, for instance), the server's
+  number wins silently — worth a UI affordance to detect and handle
+  that gracefully (e.g. re-show updated pricing before charging) but
+  that's a nice-to-have, not this part's core scope.
+- **Verify:** a throwaway script or manual test confirming a
+  server route rejects/ignores a tampered client-supplied total and
+  recomputes its own instead — the actual security property this part
+  exists to guarantee, not just "the code calls calculatePricing()
+  somewhere."
+
+### Part 4 — Frontend wiring: delete the old static arrays, slider reads only from the store [ ]
+
+**Depends on Parts 1-3 all being done and verified — this is the
+highest-risk part (deletion), done last and in isolation on purpose.**
+
+- Delete `PRICING_TIERS`/`DURATION_SLOTS` from `pricing.ts`,
+  `TARGET_COUNTRIES`/`GENRE_COUNTRY_AFFINITY` from `geoAffinity.ts`,
+  and `GENRES`/`TIERS` from `promote/page.tsx` — all four call sites
+  this session's grep found (`campaign.service.ts`,
+  `initialize-campaign/route.ts`, `initialize/route.ts`,
+  `create/route.ts`, `promote/page.tsx`) get re-pointed at either
+  Part 2's client store (client-side call sites) or Part 3's
+  server-side Supabase read (server-side call sites) — no file left
+  importing a hardcoded array that no longer exists.
+- `promote/page.tsx`'s slider drag handler calls Part 1's pure
+  `calculatePricing()` directly against Part 2's store data — confirm
+  by inspection (and ideally a quick manual interaction check) that
+  dragging the slider triggers zero network requests, the actual
+  end-to-end proof of this whole task's original premise.
+- **Verify:** `npx tsc --noEmit` clean; manually exercise the promote
+  page's full flow (genre pick → slider drag → duration/tier display →
+  submit) and confirm every displayed number matches what Part 1's
+  byte-for-byte comparison script (from Part 1's own verify step)
+  already proved the new pipeline produces.
+
+### Part 5 — Contributor guide + concrete proof the "modular" goal holds [ ]
+
+**Depends on Part 4** (needs the final, real shape of the code to
+document accurately — writing this earlier risks describing an
+intermediate state that changes).
+
+- A short, concrete written guide (a comment block at the top of
+  wherever the pipeline lives, or a small dedicated markdown file —
+  decide based on what actually gets read; a future session or the
+  product owner themselves is the audience) covering exactly two
+  things with a worked example each:
+  1. **Adding a new *data* row** (a pricing tier, duration slot,
+     country, genre, or affinity score) — purely a Supabase insert via
+     the dashboard or a new migration, zero code touched, given Parts
+     1-4 landed correctly. This should already be true by construction
+     once this task is done; Part 5 just writes it down so it doesn't
+     need re-deriving from the code every time.
+  2. **Adding a new *kind* of arithmetic rule** — a worked, concrete
+     example (can reuse Part 1's own hypothetical "10% off for a
+     first-time buyer" if that's what was used to validate the
+     pipeline shape there) showing the one new step function and the
+     one line adding it to the pipeline array, with an explicit note
+     of which existing files/functions were NOT touched to add it —
+     the actual demonstration that "fits right in without affecting
+     the code" is real, not aspirational.
+- Confirm (don't just assert) that Task 44's own still-open items
+  (admin-editing UI question; the 5M-vs-10M clamp inconsistency; the
+  `TIERS`-vs-`PRICING_TIERS` drift) are either resolved by this task's
+  own work or still explicitly open and flagged as such in this file —
+  don't let this task's own done-note quietly imply they were fixed if
+  they weren't.
+
+---
