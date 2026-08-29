@@ -3,6 +3,29 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
+> **Newest session (2026-08-29) — Task 46b-a done: `platform_fee_settings`
+> table (migration 014), schema only, not yet pushed to the live DB.**
+> This is schema/spec work continuing on from Task 46a (reference-data
+> CRUD, already `[x]`) — Task 46b (admin-editable fee arithmetic) was
+> split into 46b-a through 46b-e last session, dependency-ordered
+> (a→b→c→d→e), and this session did exactly 46b-a: the append-only
+> table itself, seeded with the current confirmed 10%/5% rates as a
+> bootstrap row (not a rate change). **Nothing downstream touched** —
+> `PLATFORM_FEE_PERCENT`/`DEPOSIT_FEE_RATE` are still the live source
+> of truth for actual fee computation; this table isn't read by any
+> app code yet. **See Task 46b-a's own done-note (below, under Task 46)
+> for full detail**, including a representation gap flagged for
+> whoever picks up 46b-b next (the new table stores both rates as
+> 0-100 percent; the existing `DEPOSIT_FEE_RATE` constant is a 0-1
+> fraction — the swap needs a /100, not a direct read).
+>
+> **Next task: 46b-b — wire the one fee-computing call site to read
+> from the new table.** Confirm migration 014 was actually pushed to
+> the live DB first (`supabase db push` — project-owner step, not yet
+> done as of this note) before assuming the table is queryable. Do NOT
+> skip ahead to 46b-c/d/e — they depend on 46b-b existing, same
+> explicit ordering 46b's own intro paragraph lays out.
+>
 > **This session (2026-08-29) — Task 37 closed out, verification-only,
 > no code changes.** Last session flagged that Task 37's "trigger-point"
 > bullet might now be unblocked by Task 36's completion — verified this
@@ -5669,7 +5692,7 @@ break apart, rather than one session trying to hold all of it at once.
 Do these **in order** — b/c/d/e each depend on a/b/c/d respectively,
 not parallelizable:
 
-#### 46b-a — Schema: fee-settings table with forward-only effective-dating [ ]
+#### 46b-a — Schema: fee-settings table with forward-only effective-dating [x]
 New table (suggested name: `platform_fee_settings`, but check for a
 naming collision with anything Task 45 already created before
 committing to it) holding the current campaign-fee and deposit-fee
@@ -5691,6 +5714,53 @@ repo right now (check `supabase_migration_*.sql` file names directly
 DB** by this split alone — same `supabase db push` hand-off every
 prior migration in this file has needed; a session doing 46b-a should
 say so explicitly in its own done-note, not assume it happened.
+
+**Done, this session (2026-08-29) — schema only, per this part's own
+scope; nothing downstream touched.** `supabase_migration_014_platform_fee_settings.sql`
+— checked `supabase_migration_*.sql` directly first (013 was the
+highest, per this note's own instruction not to guess); no naming
+collision with anything Task 45/46a created. Append-only table exactly
+as specced (`id, campaign_fee_percent, deposit_fee_percent,
+changed_by, changed_at`), `changed_by` nullable (populated NULL only
+by this migration's own seed row, never by a real future admin edit —
+46b-c's job to always populate it). Both percentages stored 0-100
+(percent, not fraction) — **flagging clearly for 46b-b:** this matches
+`PLATFORM_FEE_PERCENT`'s existing convention exactly, but does NOT
+match `DEPOSIT_FEE_RATE`'s (currently a 0-1 fraction, `0.05`) — 46b-b's
+call-site swap for the deposit side needs `deposit_fee_percent / 100`
+at that one spot, not a direct read. RLS: public `SELECT USING (true)`
+— same posture as `pricing_tiers` (migration 010), deliberately NOT
+service-role-only like `platform_revenue` (migration 011), since this
+is reference data `useReferenceData()`'s existing browser-client fetch
+will plausibly need to read directly once 46b-b wires it in, unlike
+`platform_revenue`'s pure-internal-accounting case. No
+INSERT/UPDATE/DELETE policy granted to `anon`/`authenticated` at all —
+write access is `service_role`-only, matching this part's own
+"writable only via the new admin API route 46b-c builds, never
+directly." Seeded with one bootstrap row, `(10, 5, NULL)` — the
+current, twice-reconfirmed values from this file's own top box, so
+46b-b's future constant→table-read swap is a behavioral no-op on the
+day it ships, not a silent rate change. Full reasoning (why append-only
+needs no separate valid-from/valid-until columns — that invariant is
+already covered by `track_campaigns`/`payment_sessions` snapshotting
+their own charged fee amount at creation time, an existing Task 35/40
+pattern, not something this table needs to duplicate) is in the
+migration file's own header comment, not just here.
+
+**Verified, this session:** parens-balanced + statement-count sanity
+check only (9 statements, matching 1 CREATE TABLE + 1 CREATE INDEX + 1
+ALTER TABLE + 1 CREATE POLICY + 3 REVOKE + 1 GRANT + 1 INSERT) — same
+limitation every prior migration in this file has noted, no live
+Postgres available in this sandbox to actually run it.
+
+**Not applied to the live DB** — same `supabase db push` hand-off
+every prior migration has needed; this session is not claiming it ran.
+
+**Next task: 46b-b**, per this part's own explicit dependency order
+(b depends on a existing, which it now does in code — not yet in the
+live DB until the migration above is pushed). A session starting 46b-b
+should confirm the migration was actually pushed before assuming the
+table is queryable, not just that this file says it exists.
 
 #### 46b-b — Wire the one fee-computing call site to read from the new table [ ]
 **Depends on 46b-a existing.** Per Task 40's own rule, there is
