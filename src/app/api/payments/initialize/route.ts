@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { checkRateLimit, getClientIp } from '@/lib/security/rateLimit';
+import { fetchReferenceData } from '@/lib/campaign/referenceData';
+import { getKorapayChannels } from '@/lib/currency/korapayChannels';
 
 const GUEST_RATE_LIMIT = 5; // checkout attempts
 const GUEST_RATE_WINDOW_MS = 10 * 60 * 1000; // per 10 minutes per IP
@@ -32,6 +34,22 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * while we still get settled in USD (this app's settlement_currency,
  * hardcoded below since this app only ever settles in USD today).
  * When absent, the payer just pays the USD amount directly.
+ *
+ * Task 30d — Korapay checkout **channel** (mobile_money/bank_transfer/
+ * card/pay_with_bank), unlike `paymentCurrency` above, is NOT accepted
+ * from the client at all -- this route determines it entirely itself,
+ * from Vercel's `x-vercel-ip-country` request header (not any
+ * client-claimed country) via `getKorapayChannels()`. That's a
+ * deliberate difference from `paymentCurrency`'s pattern, not an
+ * inconsistency to reconcile: Task 30d's own text calls for an
+ * "independently recompute... rather than trusting whatever the
+ * client sends" posture specifically for channel, and the simplest way
+ * to actually satisfy that is to never ask the client for it in the
+ * first place, rather than accept a value only to discard it. Also
+ * means `checkout.ts` needed zero changes for this task -- it already
+ * just POSTs to this route and waits for a `checkout_url`, and has no
+ * reason to know this route independently attaches channel data along
+ * the way.
  *
  * Creates a Korapay checkout session for a wallet top-up. Guests
  * (no session) can hit this too -- that's the whole point of "insufficient
@@ -98,6 +116,27 @@ export async function POST(request: NextRequest) {
     // reasoning.
     const admin = createAdminClient();
 
+    // Task 30d -- server-side-only channel selection. Vercel injects
+    // this header automatically for every request that reaches a
+    // Vercel-hosted function through their edge network; it's simply
+    // absent in local dev / non-Vercel hosting, same "must tolerate
+    // null" posture every other geo-detection path in this app already
+    // has (see ipGeolocation.service.ts's own header comment) --
+    // getKorapayChannels() already returns null for a null/undefined
+    // country, so no extra guard needed here beyond that.
+    const serverDetectedCountry = request.headers.get('x-vercel-ip-country');
+    let channelSelection: { channels: string[]; defaultChannel?: string } | null = null;
+    try {
+      const { countries } = await fetchReferenceData(admin);
+      channelSelection = getKorapayChannels(countries, serverDetectedCountry);
+    } catch (err) {
+      // Reference-data fetch failing shouldn't block checkout entirely
+      // over a UX-preference field -- log it and fall through with no
+      // channel restriction (Korapay picks its own default), same
+      // fallback an unmapped country already gets.
+      console.error('Task 30d: failed to load reference data for channel selection, continuing without it:', err);
+    }
+
     let reference: string;
     let sessionRow: Record<string, unknown>;
 
@@ -121,6 +160,7 @@ export async function POST(request: NextRequest) {
         ...(paymentCurrency && paymentCurrency !== settlementCurrency
           ? { payment_currency: paymentCurrency, settlement_currency: settlementCurrency }
           : {}),
+        ...(channelSelection ? { channels: channelSelection.channels, default_channel: channelSelection.defaultChannel } : {}),
         metadata: {
           user_id: user.id,
           type: 'wallet_topup',
@@ -159,6 +199,7 @@ export async function POST(request: NextRequest) {
         ...(paymentCurrency && paymentCurrency !== settlementCurrency
           ? { payment_currency: paymentCurrency, settlement_currency: settlementCurrency }
           : {}),
+        ...(channelSelection ? { channels: channelSelection.channels, default_channel: channelSelection.defaultChannel } : {}),
         metadata: {
           guest_email: guestEmail,
           type: 'wallet_topup_guest',

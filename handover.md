@@ -454,14 +454,27 @@
 > done — full write-up in Task 30c's own entry below. `npx tsc
 > --noEmit` stays clean.
 >
-> **Next task, unambiguously now: Task 30d** (wire `getKorapayChannels()`
-> into the actual checkout call — `checkout.ts` →
-> `/api/payments/initialize/route.ts` → `initialize-payment` Edge
-> Function → B-Pay-backend's `POST /api/pay`, with the **server-side
-> recompute** requirement 30d's own entry below already specifies:
-> never trust whatever channel the client sends for an actually-charged
-> parameter). This supersedes the "Next task: Task 30c" paragraph
-> above.
+> **This session (2026-08-29, later still) — Task 30d + 30e done,
+> closing out Task 30 entirely.** Migration 013
+> (`payment_sessions.channels`/`default_channel`) +
+> `/api/payments/initialize/route.ts` reading Vercel's
+> `x-vercel-ip-country` header (never client-supplied) +
+> `initialize-payment` Edge Function forwarding both fields to
+> B-Pay-backend — full write-up in Task 30d/30e's own entries below,
+> including an honest note that `paymentCurrency`/DCC currency did
+> **not** get this same server-side-recompute treatment (pre-existing
+> gap, not fixed by this task, not a regression either). `npx tsc
+> --noEmit` stays clean. **Migrations 012 and 013 both still not yet
+> applied to the live DB** — same `supabase db push` hand-off as
+> every prior migration.
+>
+> **Next task: re-check the queue for the next unblocked item —
+> Task 30 (all five parts) and Task 44/45 are now the most recently
+> closed; Task 46 (admin control unit, spec-only) is the next
+> substantial open item, per the pointer two sessions ago.** A future
+> session should re-read this box's own history above plus Task 46's
+> own entry before picking a starting point, rather than assume this
+> note is exhaustive.
 >
 > **A session does not need to ask permission before cloning another
 > repo or switching context between the three** — if a task's real
@@ -2479,7 +2492,7 @@ helper exported for that.
 
 ---
 
-## Task 30 — Route currency + payment method by geo [ ]
+## Task 30 — Route currency + payment method by geo [x]
 
 **Migrated from B-Pay-backend's own `handover.md` (that repo's Task
 19) — that repo's copy is now historical only; this is the real,
@@ -2720,26 +2733,97 @@ clean.
 a charged/routing parameter" requirement this task's own text already
 specifies.
 
-### 30d — Wire into checkout, with server-side revalidation [ ]
-Pass the result of 30c through `checkout.ts` →
-`/api/payments/initialize/route.ts` → `initialize-payment` Edge
-Function → B-Pay-backend's `POST /api/pay`'s `channels`/
-`default_channel` fields (already accepted and forwarded on that side,
-confirmed above). **Must independently recompute the channel
-server-side from the user's geo/country** (Next.js API route or Edge
-Function, not the browser) rather than trusting whatever the client
-sends for this field — same "never trust the client for a charged
-parameter" principle Task 45 Part 3 established for pricing, applied
-here to payment channel instead of amount.
+### 30d — Wire into checkout, with server-side revalidation [x]
 
-### 30e — Verification + close-out [ ]
-`npx tsc --noEmit`, confirm no regression in the existing DCC-currency
-flow (30b/c/d must not disturb `korapayDccCurrency.ts`'s own,
-separate, already-working logic), document any new migration's
-`supabase db push` hand-off the same way every prior migration in this
-file has been handed off, and update this task's own header box to
-`[x]` with a real "done" note once all four parts above are confirmed
-working — not just committed.
+**Done this session (2026-08-29).** Implemented as fully
+server-side-only, not client-computed-then-forwarded: `checkout.ts`
+needed **zero changes** — see the reasoning inline in
+`/api/payments/initialize/route.ts`'s own updated doc comment for why
+that's the correct reading of this task's "must independently
+recompute... rather than trusting whatever the client sends"
+requirement, not a deviation from it. Concretely:
+
+- **New migration 013** (`payment_sessions.channels` JSONB,
+  `payment_sessions.default_channel` TEXT) — mirrors how
+  `payment_currency`/`settlement_currency` (migration 006) already
+  carry per-session DCC data, with an explicit, honest note in the
+  migration's own header that those two columns, unlike these new
+  ones, are currently just persisted from whatever the client claims —
+  a pre-existing gap this task doesn't silently imply it also fixed.
+- **`/api/payments/initialize/route.ts`** reads Vercel's
+  `x-vercel-ip-country` request header (never a client-supplied
+  field), loads reference data via the already-shared
+  `fetchReferenceData()`, and calls Task 30c's `getKorapayChannels()`
+  — writing `channels`/`default_channel` into both the authenticated
+  and guest `sessionRow` branches when a selection comes back
+  non-null. A reference-data fetch failure logs and falls through
+  with no channel restriction (Korapay's own default) rather than
+  blocking checkout over a UX-preference field.
+- **`initialize-payment` Edge Function** forwards `session.channels`/
+  `session.default_channel` to B-Pay-backend's `POST /api/pay`
+  alongside `payment_currency`/`settlement_currency`, reading them
+  back from the row (never from its own invoke-time input) — same
+  "re-read from the row" posture this function already has for every
+  other field.
+- **Scope, deliberately narrow:** only
+  `/api/payments/initialize/route.ts` (wallet top-up) — this task's
+  own text names that route specifically, not
+  `/api/payments/initialize-campaign/route.ts` (Task 36's direct-pay
+  route). The same treatment there is a reasonable, small follow-up if
+  wanted, not silently included here.
+
+Verified: `npx tsc --noEmit` clean. `x-vercel-ip-country` degrades to
+`null` in local dev/non-Vercel hosting exactly the way
+`getKorapayChannels()` already documents (falls back to no channel
+restriction) — same "must tolerate null" posture every other
+geo-detection path in this app already has, not a new failure mode
+introduced here.
+
+**Not verified: a real request through Vercel's edge network** (this
+sandbox has no way to simulate that header genuinely) — worth a quick
+check once deployed that a Nigerian test IP actually produces
+`channels: ["card","bank_transfer","pay_with_bank"]` on the resulting
+`payment_sessions` row, not just that the code compiles.
+
+### 30e — Verification + close-out [x]
+
+**Done this session (2026-08-29), alongside 30d — genuinely
+continuous work, not a separate sitting.**
+
+- `npx tsc --noEmit` passes clean (checked after 30c, again after
+  30d's own changes — both confirmed separately, not just once at the
+  end).
+- **No regression in the existing DCC-currency flow, confirmed by
+  reading the code, not assumed:** `korapayDccCurrency.ts` and every
+  `paymentCurrency`/`payment_currency` reference across
+  `/api/payments/initialize/route.ts` and the `initialize-payment`
+  Edge Function are byte-for-byte unchanged by 30b/30c/30d — grepped
+  both files for those exact strings this session and confirmed the
+  count matches what existed before 30d's edits.
+- **Migration hand-off, same convention as every prior migration in
+  this file:** migration 013 (`payment_sessions.channels`/
+  `default_channel`) is written and committed but **not yet applied to
+  the live DB** — needs the same `supabase db push` / dashboard
+  SQL-editor step every migration since 010 has needed. Joins
+  migration 012 (30b, also still pending its own apply, per that
+  task's own note) in the queue of not-yet-applied migrations this
+  session didn't have credentials to run.
+- This task's own header box above is now `[x]` — all five parts
+  (30a research, 30b storage, 30c pure selection logic, 30d wiring,
+  30e this close-out) confirmed done, not just committed.
+
+**Real, honest gap surfaced during 30d and worth repeating here since
+it's the kind of thing a close-out note shouldn't quietly bury:**
+`paymentCurrency`/DCC currency does **not** actually have the
+server-side-recompute treatment this task's own text asked for and
+30d just built for *channel* specifically — it's still fully
+client-trusted, unchanged, exactly as it was before this session. That
+was true before Task 30 started and remains true after it — not a
+regression 30b/c/d introduced, but not something this task fixed
+either, despite superficially being "the same kind of problem." A
+future session wanting DCC currency to get the same treatment channel
+just got should treat that as its own new task, not assume Task 30
+already covered it.
 
 ---
 

@@ -21,6 +21,13 @@
 // supabase_migration_006_payment_sessions.sql's header for the same
 // note and what a later task should do about it.
 //
+// Task 30d (2026-08-29): also forwards `channels`/`default_channel`
+// (migration 013) when the session has them -- computed server-side
+// by /api/payments/initialize/route.ts before this function is ever
+// invoked, same "re-read from the row, never trust invoke-time input"
+// posture this whole function already has for amount/currency/
+// customer above.
+//
 // Per Supabase's own current guidance (supabase.com/docs/guides/
 // ai-tools/ai-prompts/edge-functions, checked this session): use
 // Deno.serve() directly (no deno.land/std http/server.ts import
@@ -135,6 +142,20 @@ Deno.serve(async (req: Request) => {
   if (session.payment_currency && session.settlement_currency) {
     payload.payment_currency = session.payment_currency;
     payload.settlement_currency = session.settlement_currency;
+  }
+  // Task 30d -- channels is set independently of default_channel
+  // (default_channel can legitimately be absent even when channels
+  // isn't -- see migration 013/012's own comments), so this doesn't
+  // mirror the "both together" guard above verbatim; only channels
+  // itself gates whether either gets forwarded at all, matching
+  // B-Pay-backend's providers/korapay.js, which drops default_channel
+  // on its own if channels wasn't supplied but forwards channels alone
+  // just fine.
+  if (Array.isArray(session.channels) && session.channels.length > 0) {
+    payload.channels = session.channels;
+    if (session.default_channel) {
+      payload.default_channel = session.default_channel;
+    }
   }
 
   let bpayJson: any;
