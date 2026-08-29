@@ -378,9 +378,10 @@
 > **Full cross-repo status, as of this note (stale wording below this
 > line predates several sessions of work — see the deploy-confirmation
 > note at the very top of this box for the current, correct status):**
-> - **mavins-web** (this repo) — next: **no hold — see the top of this
->   box.** All deploys confirmed live; Task 36 Parts 3-4, Task 35's two
->   open decisions, and Task 44 are the actual unblocked next work.
+> - **mavins-web** (this repo) — next: **Task 30a** — see the
+>   "supersedes every Next task mention above" note near the top of
+>   this box, not this stale bullet (Task 36/35/44 it names are all
+>   long since resolved).
 > - **B-Pay-backend** — next: **Task 9b** (Task 29's
 >   reconciled `src/lib/currency/countryCurrency.ts` feeding
 >   `getAmountFormat`) — no other unblocked work in that repo's own
@@ -395,6 +396,27 @@
 >   force one). Current real blocker: no live Supabase credentials
 >   wired in, so the built feature can't be tested end-to-end yet.
 >   **Not re-verified this session.**
+>
+> **This session (2026-08-29, later) — planning/documentation only, no
+> code changes, per explicit instruction. This supersedes every "Next
+> task" mention above.** Task 30 split into 5 parts (30a-30e, see that
+> task's own entry) — its real remaining scope (Korapay per-country
+> channel mapping) needed a storage-approach decision first
+> (recommended: extend Task 45's new Supabase-backed reference-data
+> pipeline, NOT a new hardcoded file — see 30b's own note for why)
+> before any code should start. Also wrote up a recommendation for
+> Task 46's two open questions (capability-key taxonomy, root-vs-4-
+> total headcount) — **not yet confirmed by the product owner**, see
+> Task 46's own "Recommendation for unblocking both" note; don't treat
+> it as a settled decision the way the ones above it in that section
+> are.
+>
+> **Next task, unambiguously now: Task 30a** (research Korapay's real
+> per-country channel availability — external research, no code) is
+> the concrete next step. Task 46's 46a/46b/46c can also start per the
+> recommendation above without waiting on the two open questions, but
+> the hardcoded admin-password rotation should happen first, standalone
+> — see Task 46's own sequencing recommendation.
 >
 > **A session does not need to ask permission before cloning another
 > repo or switching context between the three** — if a task's real
@@ -2516,6 +2538,66 @@ above this one assumed:**
   Africa/EFT was explicitly flagged by B-Pay-backend's own note as a
   case deliberately left unmapped there rather than guessed at, which
   is the same discipline this task's own mapping needs to follow).
+
+**Split into 5 parts, this session, same one-part-per-session
+convention as every other multi-part task in this file:**
+
+### 30a — Research: confirm Korapay's real per-country channel availability [ ]
+Check Korapay's actual docs/dashboard (developers.korapay.com) for
+which of the four channel strings (`bank_transfer`, `card`,
+`pay_with_bank`, `mobile_money`) are genuinely available for each of
+the 25 countries in the `countries` table (migration 010). Produces a
+documented, sourced mapping — not code yet, and not a guess. Follow
+the same discipline already established for South Africa/EFT on the
+B-Pay-backend side: where availability for a given country genuinely
+isn't confirmable from Korapay's own docs, leave it unmapped (falls
+back to Korapay's own default channel selection) rather than assuming.
+
+### 30b — Storage: extend the Supabase-backed reference-data pipeline, not a new hardcoded file [ ]
+**Recommendation, not yet built:** extend migration 010's `countries`
+table with the channel data from 30a (e.g. a `korapay_channels`
+text-array column + a `korapay_default_channel` column), and extend
+`fetchReferenceData`/`AllReferenceData`/`TargetCountry`
+(`src/lib/campaign/referenceData.ts`, `geoAffinity.ts`) to carry it
+through the same store Task 45 just built — **not** a new standalone
+hardcoded file in the shape of `countryCurrency.ts`. Task 45 was a
+deliberate, very recent move away from exactly that pattern
+(hardcoded per-country arrays going stale/drifting — see Task 29's own
+header for the drift this project has already hit multiple times);
+adding a brand new hardcoded array the session immediately after that
+convention was established would cut directly against it.
+`countryCurrency.ts` itself staying hardcoded is a pre-existing
+exception this task doesn't need to fix, not a precedent to extend.
+
+### 30c — Pure selection logic: country → { channels, default_channel } [ ]
+A pure function (mirroring `getKorapayDccCurrency`'s own shape) that
+reads the store's country data (from 30b) and returns the right
+`channels`/`default_channel` pair for a given country code, with an
+explicit, documented fallback (return nothing / let Korapay pick its
+own default) for any country 30a left unmapped — same fallback
+philosophy `korapayDccCurrency.ts` already uses for DCC-ineligible
+countries, not a new pattern.
+
+### 30d — Wire into checkout, with server-side revalidation [ ]
+Pass the result of 30c through `checkout.ts` →
+`/api/payments/initialize/route.ts` → `initialize-payment` Edge
+Function → B-Pay-backend's `POST /api/pay`'s `channels`/
+`default_channel` fields (already accepted and forwarded on that side,
+confirmed above). **Must independently recompute the channel
+server-side from the user's geo/country** (Next.js API route or Edge
+Function, not the browser) rather than trusting whatever the client
+sends for this field — same "never trust the client for a charged
+parameter" principle Task 45 Part 3 established for pricing, applied
+here to payment channel instead of amount.
+
+### 30e — Verification + close-out [ ]
+`npx tsc --noEmit`, confirm no regression in the existing DCC-currency
+flow (30b/c/d must not disturb `korapayDccCurrency.ts`'s own,
+separate, already-working logic), document any new migration's
+`supabase db push` hand-off the same way every prior migration in this
+file has been handed off, and update this task's own header box to
+`[x]` with a real "done" note once all four parts above are confirmed
+working — not just committed.
 
 ---
 
@@ -5213,5 +5295,60 @@ main things still genuinely open before 46d locks in its schema are:
 the exact capability-key taxonomy for `'custom'` roles, and the
 root-vs-4-total headcount ambiguity just flagged. Everything else in
 this task can proceed against the decisions above without re-asking.
+
+**Recommendation for unblocking both, written this session — not yet
+confirmed by the product owner, don't treat as a third "confirmed
+decision" alongside the ones above:**
+
+1. **Capability-key taxonomy — don't block 46a/46b/46c on this at
+   all.** The taxonomy isn't really a product decision to invent from
+   nothing; it's a mechanical enumeration of whatever admin-mutating
+   resources 46a/46b/46c end up actually building — one capability key
+   per resource/action (e.g. `countries.write`, `pricing_tiers.write`,
+   `duration_slots.write`, `genres.write`,
+   `genre_country_affinity.write`, `fees.write`,
+   `campaigns.override.views`, `campaigns.override.targeting`,
+   `campaigns.pause_cancel`, plus `users.manage` if that "possibly
+   missed" item above gets confirmed in scope). **Recommendation: let
+   46a, 46b, and 46c proceed now**, each one just needs to gate its own
+   new route(s) behind *some* named permission key it defines as it's
+   built — the taxonomy naturally falls out of that as a byproduct, at
+   which point it's a **concrete, finished list** ready for 46d to
+   consume. Only 46d (route/dashboard gating) and 46e (audit-trail
+   keying) actually need the taxonomy to be locked, and by the time
+   those start, 46a-46c will have already produced it. This also makes
+   the eventual product-owner check-in easier and more concrete: "here
+   are the 9 specific things an assigned admin can be individually
+   granted, does this match what you meant by 'a few roles
+   separately'" is a much easier thing for a non-technical stakeholder
+   to react to than being asked to design an abstract taxonomy from a
+   blank page up front.
+2. **Root-vs-4-total headcount — proceed on the existing 4-total
+   working assumption (already this section's own default), but hedge
+   the implementation rather than hard-coding the number anywhere.**
+   The literal quoted phrasing ("other person admin assigns... max is
+   3 admins can be assigned") reads more naturally as "3 assignable
+   slots, root is separate and not counted" than as "3 total including
+   root" — consistent with the working assumption already on record
+   above. Recommendation: implement the cap as a single named
+   constant/config value (not inlined into a query limit or a UI
+   string in multiple places), specifically because this is still
+   unconfirmed — if the product owner later says "no, 3 total," fixing
+   it is then a one-line change, not a schema or logic rewrite. Ask it
+   as a single, low-effort, non-blocking yes/no at the product owner's
+   convenience (e.g. "just to double check — root plus 3 more admins,
+   4 people total with any admin access, right?") rather than treating
+   it as a hard gate on starting 46d.
+3. **Sequencing recommendation, combining both of the above with the
+   already-flagged security item:** rotate the hardcoded admin
+   password **first**, standalone (already flagged above as
+   "already compromised, do this before 46d, not alongside it") — this
+   has nothing to do with either open question and shouldn't wait on
+   them. Then 46a/46b/46c can proceed in any order/session, each
+   registering its own capability key as it goes. 46d picks up the
+   now-concrete taxonomy plus a settled (or still-4-total-assumed, per
+   above) headcount once it starts. 46e threads through starting no
+   later than 46b, per that part's own "mandatory for this part
+   specifically" note.
 
 ---
