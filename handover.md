@@ -2410,6 +2410,35 @@ on B-Pay-backend's own Task 10 (provider routing) being further along
 than its current Korapay-only partial pass — check both before
 starting.
 
+**Audit, this session — checked whether any part of this was already
+built and just never recorded here, per the product owner's own
+request. Answer: partially yes, but not fully, and it wasn't
+unrecorded — it was recorded under Task 29 instead, which makes this
+task's own note read more open than the current reality.**
+- **The currency half is done.** Task 29's `korapayDccCurrency.ts`
+  (see that task's own "Done" note) already maps a `useGeo()`-detected
+  country to a Korapay-DCC-supported local currency where one exists,
+  and correctly falls back to USD/NGN for the other 17 target
+  countries Korapay's DCC doesn't cover — exactly this task's "route
+  the checkout amount + currency... accordingly... fall back to USD"
+  half. `Task 29`'s unblocking dependency is therefore satisfied and
+  has been for a while; this task's own text just never got a
+  cross-reference added pointing at where that work actually landed.
+- **The payment-*method* half is not built at all** — grepped this
+  session for `mobile_money`/`bank_transfer`/`channels`/
+  `payment_method` across `src/`: zero real hits (one incidental
+  string match in an unrelated code comment, not a payment-method
+  concept). No code anywhere selects or passes a preferred payment
+  channel/method based on geo — every checkout goes through Korapay's
+  default channel selection regardless of country. This part of the
+  task is genuinely open, not just unrecorded.
+- **Still blocked on B-Pay-backend's own Task 10** for the
+  method-routing half specifically — not re-verifiable from this
+  sandbox (that repo isn't cloned here; confirmed via a filesystem
+  search this session, nothing named B-Pay-backend exists anywhere
+  accessible). A session with that repo available needs to check its
+  current Task 10 progress before starting this half.
+
 ---
 
 ## Task 31 — No redundant "≈ local currency" display for USD-default users [x]
