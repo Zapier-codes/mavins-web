@@ -3899,3 +3899,57 @@ data layer), then the backend read path + `calculatePricing()`
 refactor (Part 2), then frontend wiring to delete the static arrays
 (Part 3), with the admin-editing-UI question (if confirmed wanted) as
 a distinct Part 4 rather than folded into Part 3.
+
+---
+
+**Part 1 — schema + seed migration. [x] Done this session (2026-08-29).**
+`supabase_migration_010_static_data_tables.sql` — five tables
+(`pricing_tiers`, `duration_slots`, `countries`, `genres`,
+`genre_country_affinity`), seeded verbatim from the current hardcoded
+arrays per this task's own instruction not to also change any values
+while migrating. No app code touched — `calculatePricing()`,
+`promote/page.tsx`'s `GENRES`/`TIERS`, and `geoAffinity.ts` are all
+completely unchanged and still what the app actually runs on; this
+migration's tables aren't read by anything yet. That's Part 2/3, both
+still open.
+
+- **`pricing_tiers`** carries `PRICING_TIERS`' six rows plus `TIERS`'
+  `color` field folded into the same table (one products table, not
+  two) — confirmed via the audit at the top of this note that a
+  genuine drift already exists between those two arrays (`TIERS`' last
+  row caps at 5,000,000 views, `PRICING_TIERS`' at 10,000,000). Seeded
+  `PRICING_TIERS`' number, since that's what `calculatePricing()`
+  actually computes against — see this file's own top comment for why
+  that's a deliberate choice, not an assumption, and why it's the
+  right one to seed rather than picking a "more correct" number
+  between two that already disagreed. This isn't fixed for the app
+  itself yet (that's still whatever `TIERS` says, until Part 3 deletes
+  it) — only recorded correctly in the new table.
+- **`genre_country_affinity`** unrolls `GENRE_COUNTRY_AFFINITY`'s
+  nested-object-literal shape into 350 rows (14 genres × 25
+  countries) — verified programmatically this session, not just
+  assumed from the source: every genre has exactly 25 rows, every
+  country/genre code referenced matches a row in `countries`/`genres`
+  exactly (no typos, no orphaned foreign keys), confirmed via a
+  throwaway Python script parsing the migration file itself before
+  treating this as done. The migration also has its own `DO $$ ...
+  RAISE EXCEPTION $$` sanity check (25-rows-per-genre) that fails the
+  whole migration at apply-time if this ever drifts, rather than
+  relying on this note's one-time check staying true forever.
+- **RLS:** all five tables are public-read (`USING (true)`), no
+  write policy for `anon`/`authenticated` — this is non-sensitive
+  reference data, unlike every money-adjacent table elsewhere in this
+  project's migrations, so this is a deliberately different (more
+  permissive) posture than e.g. `payment_sessions` or `users.wallet`,
+  not an oversight.
+
+**Not verified: this migration hasn't actually been run against the
+real Supabase instance** — same `supabase db push`/dashboard-SQL-editor
+hand-off every prior migration task in this file has needed, no
+credentials to do that from this sandbox. The `DO $$ ... $$` sanity
+check inside the migration itself is what actually proves the seed
+data's row-count invariant once it does run, not this note.
+
+**Next: Part 2** — backend read path + `calculatePricing()` refactor.
+Decide sync-with-caching vs. fully-async first (see point 3 above)
+before writing code; that decision shapes how big Part 2 actually is.
