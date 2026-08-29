@@ -4679,32 +4679,117 @@ skipped:**
 - **User management** — the product owner's "full control of the
   whole web app" plausibly extends to admin being able to view/manage
   individual users (not just campaigns/pricing) — e.g. manually
-  adjusting a user's wallet balance for a support case, or handling
-  the withdrawal requests `api/withdrawal/request/route.ts` already
-  creates (is there an admin approval surface for those today? confirmed
-  not found in this session's grep of `src/app/admin/` — if withdrawals
-  need admin approval to actually pay out, that's currently missing
-  entirely, not just missing a UI).
-- **Currency/exchange-rate data** — `src/lib/currency/
-  countryCurrency.ts` and `korapayDccCurrency.ts` are the same kind of
-  "static data a human maintains by hand" Task 44/45 moved pricing
-  data away from; if exchange rates are meant to be admin-editable too
-  (rather than provider-sourced live rates), that's a natural sibling
-  to 46a, not something to assume out of scope without asking.
-- **Multi-admin / permission granularity** — today's model is a single
-  boolean (`role === 'admin'` or the hardcoded email) with no concept
-  of *which* admin capabilities a given admin has. If more than one
-  person will ever hold admin access, or if some admin actions (46b
-  especially) should be restricted to a smaller set of people than
-  "any admin," that's a real design question for the product owner,
-  not something to assume either way while building 46a-46e.
+  adjusting a user's wallet balance for a support case.
+  **Withdrawal approval specifically — CORRECTED, this session:** the
+  original version of this bullet said no admin approval surface was
+  found for `api/withdrawal/request/route.ts` and flagged that as
+  possibly missing. That was based on an incomplete read — the
+  withdrawal feature isn't partially missing an approval step, it's
+  **entirely disabled**, on purpose, per Task 21 (`[x]`, see that
+  task's own entry above): `earnings/page.tsx`'s withdraw UI and the
+  `POST` handler in that route are both commented out, with the route
+  short-circuiting to a `403`. Nothing to build here unless/until a
+  future task explicitly re-enables Task 21's feature — not a Task 46
+  gap.
 
-Given the number and weight of open product questions embedded in
-46b/46c/46d above (fee-edit confirmation UX, live-campaign-edit refund
-semantics, whether withdrawals need admin approval, multi-admin
-permissions), **the next session should not silently assume answers
-to any of them while implementing** — confirm with the product owner
-first, the same standard this whole file already holds itself to for
-Task 40's fee-rate history and Task 35's refund-exclusion rule.
+**Confirmed decisions (product owner, 2026-08-29) — supersedes the
+open questions this section used to list; implement against these,
+don't re-derive or re-ask:**
+
+- **46b fee-change confirmation UX:** not re-authentication (retype
+  password) — the whole admin surface is already gated, and stacking
+  re-auth on top adds friction without real added security here.
+  Use a **type-to-confirm pattern** instead: show e.g. "Changing
+  platform fee from 10% to 12%" and require the admin to type the new
+  number into a second field before the save button enables (same
+  proven pattern as AWS's resource-deletion confirms — no new
+  infrastructure needed). **More important than the confirmation UX
+  itself: fee changes must be forward-only, never retroactive** — a
+  campaign's price is already locked in at creation
+  (`total_budget_cents` set then, per Task 35), so a fee-rate change
+  must only affect campaigns created *after* the change. Build this as
+  an explicit, tested invariant, not an assumption. 46e's audit trail
+  is mandatory for this part specifically, not optional — don't ship
+  46b without it landing in the same body of work.
+
+- **46c admin-cancellation refund policy:** not one fixed rule —
+  **require a reason** on every admin-initiated cancellation, and
+  branch on it:
+  - `fraud` / `policy_violation` -> **no refund**. Refunding a ToS
+    violation would subsidize the abuse it's meant to stop.
+  - `customer_service` / `technical_issue` -> **same 90% refund as a
+    normal user cancellation** (Task 35's existing math, unchanged) —
+    the customer isn't at fault here and shouldn't be treated as if
+    they were.
+  Logging the reason (via 46e) makes this both more correct and more
+  defensible after the fact than a single blanket rule either
+  direction would be.
+
+- **Currency/exchange-rate data (46a's sibling question):** **do NOT**
+  make raw FX rates admin-edited free-form data — a manually maintained
+  rate is a classic operational risk (someone forgets to update one,
+  the business either loses money or overcharges). Keep rates
+  live-sourced (`korapayDccCurrency.ts` already does this). If the
+  product owner wants business control over margin here, scope it as
+  an **admin-editable markup percentage layered on top of the live
+  rate** — same shape as the platform fee (46b), not a raw-rate
+  override.
+
+- **Admin roles — structure, confirmed:**
+  - **Root admin** — the existing hardcoded-credential account
+    (`bossblingzs@gmail.com`, `isAdmin.ts`) IS the root admin going
+    forward under this new model, not replaced by it. Always full
+    access; does not count against the cap below.
+  - **Assigned admins — max 3, assigned by the root admin.** Each one
+    gets EITHER the **Full** role (every 46a-46e capability, same as
+    root) OR a **limited role**, chosen per-admin at assignment time —
+    the product owner named **"monitor"** explicitly as one concrete
+    limited-role example (read visibility across the dashboard, no
+    edit/write capability anywhere), but also said an assigned admin
+    can "have few roles separately" — i.e. limited roles are not
+    locked to a single fixed "monitor" tier; the root admin should be
+    able to hand-pick which specific capabilities (pricing edit,
+    country edit, fee edit — 46b specifically, campaign overrides —
+    46c, user management) a given limited admin gets, individually.
+  - **Proposed shape for 46d/46e to build against** (mine, not
+    dictated verbatim by the product owner — confirm the exact
+    capability-key taxonomy when 46d is actually built, don't treat
+    this list as final): a `role` value of `'root' | 'full' |
+    'monitor' | 'custom'` per admin user, plus a `permissions` field
+    (array/jsonb of capability keys) that's only consulted when
+    `role = 'custom'` — `'full'`/`'root'` imply every capability,
+    `'monitor'` implies view-only across the board as a convenient
+    named preset for the common case, `'custom'` is the per-admin
+    hand-picked subset. Every new admin API route this whole task adds
+    needs to check the caller's specific role/permission, not just a
+    single boolean `isAdmin()` — that boolean becomes "has ANY admin
+    access" at most, not "can do this specific thing."
+  - **Ambiguity worth confirming before 46d locks the schema in:**
+    whether "max 3 admins" means 3 *assigned* admins in addition to
+    root (4 people total with any admin access — this note's working
+    assumption, since the product owner's phrasing was "other person
+    admin assigns... max is 3 admins can be assigned") or 3 total
+    including root (2 assignable slots left). Implement against the
+    4-total reading unless corrected, but don't let it go unconfirmed
+    once 46d actually starts.
+
+- **The hardcoded admin password — fix BEFORE 46d, not alongside it,
+  not after.** It has been sitting in plaintext in this file's own git
+  history, and has now also been pasted directly into a chat
+  conversation — treat it as already compromised, not merely
+  theoretically risky. Immediate: rotate the password, move it to an
+  environment variable instead of a literal in `isAdmin.ts`.
+  Longer-term, once the root/assigned-admin role model above is real:
+  retire the hardcoded-email fallback entirely in favor of the
+  `role === 'admin'` (or `'root'`) DB-column check that already
+  exists — real admin accounts created via normal signup plus a role
+  grant, nothing bespoke or hardcoded left in source at all.
+
+Given the fee-confirmation UX, refund-reason policy, exchange-rate
+scoping, and admin-role structure are now all confirmed above, the
+main things still genuinely open before 46d locks in its schema are:
+the exact capability-key taxonomy for `'custom'` roles, and the
+root-vs-4-total headcount ambiguity just flagged. Everything else in
+this task can proceed against the decisions above without re-asking.
 
 ---
