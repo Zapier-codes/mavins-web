@@ -3,6 +3,29 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
+> **Newest session (2026-08-29, latest) — product-owner decisions
+> recorded for Task 46c/46e, no code written (explicit instruction
+> this session).** Headcount confirmed **Option A** (root + 3
+> assigned = 4 total). User-management scope confirmed **much
+> broader** than the old "possibly missed" bullet: full campaign CRUD
+> and per-user CRUD, plus dashboard-wide user/campaign counts — not
+> just wallet-adjustment access. Admin can post a campaign under any
+> artist's name (a deliberate exemption from the normal
+> own-account-only restriction). **Admin starting capital — now fully
+> resolved, three rounds this session:** $40,000 default,
+> **root-adjustable per admin within $50–$100,000, chosen once at
+> assignment and locked forever after ("once given it can't be
+> ungiven")** — not an ongoing-editable setting; **root's own choice,
+> per admin, whether a monitor-role (read-only) admin gets a grant at
+> all** — not automatic either way; **root itself already has this**
+> (product owner's claim, not independently verified in this sandbox);
+> ledger stays USD, **assigned admin sees their own geo-based local
+> currency** on display (reuses the existing DCC display pattern).
+> **No open product decisions remain on this feature** — Task 46c/46e
+> can now be built against a fully-specified spec. **Next session:
+> build 46c and/or 46e against all of the above** — nothing in this
+> note has been implemented yet.
+>
 > **Newest session (2026-08-29) — Task 46b closed out entirely.** All
 > five sub-parts (46b-a through 46b-e) are now done, checked off
 > individually and at 46b's own top-level header — see each part's own
@@ -6387,12 +6410,12 @@ decision" alongside the ones above:**
    above. Recommendation: implement the cap as a single named
    constant/config value (not inlined into a query limit or a UI
    string in multiple places), specifically because this is still
-   unconfirmed — if the product owner later says "no, 3 total," fixing
-   it is then a one-line change, not a schema or logic rewrite. Ask it
-   as a single, low-effort, non-blocking yes/no at the product owner's
-   convenience (e.g. "just to double check — root plus 3 more admins,
-   4 people total with any admin access, right?") rather than treating
-   it as a hard gate on starting 46d.
+   unconfirmed — if the product owner later says "no, 3 total,"
+   fixing it is then a one-line change, not a schema or logic rewrite.
+   Ask it as a single, low-effort, non-blocking yes/no at the product
+   owner's convenience (e.g. "just to double check — root plus 3 more
+   admins, 4 people total with any admin access, right?") rather than
+   treating it as a hard gate on starting 46d.
 3. **Sequencing recommendation, combining both of the above with the
    already-flagged security item:** rotate the hardcoded admin
    password **first**, standalone (already flagged above as
@@ -6404,6 +6427,150 @@ decision" alongside the ones above:**
    above) headcount once it starts. 46e threads through starting no
    later than 46b, per that part's own "mandatory for this part
    specifically" note.
+
+---
+
+**Confirmed decisions (product owner, 2026-08-29, later session) —
+answers both open questions above; supersedes the "4-total working
+assumption" and "possibly missed" framing, doesn't replace the rest of
+this section's already-settled decisions. Recorded per explicit
+instruction this session ("no code, just update the handover file") —
+nothing below has been implemented yet.**
+
+- **Headcount: Option A confirmed.** 3 *assigned* admins **in
+  addition to** root — 4 people total with any admin access. The
+  working assumption above was correct; no longer hedge it as
+  unconfirmed once 46d actually builds the cap, though keeping it as a
+  single named constant (point 2 above) is still good practice
+  regardless.
+
+- **User management: full write access confirmed, broader than the
+  original "possibly missed" bullet's own framing.** Not just wallet
+  adjustments for support cases — the confirmed scope is **campaign
+  CRUD and "full control of the app CRUD on a per-user basis,"**
+  admin-side. Concretely, per the product owner's own framing ("admin
+  is the human side of the automated app flow"): admin should be able
+  to view and act on individual users and their campaigns with the
+  same breadth an automated flow already has, not a separate
+  read-only-plus-a-few-actions surface. Also confirmed: the dashboard
+  should surface real counts — total users, total live campaigns,
+  total finished campaigns, and a per-user breakdown of the same —
+  not just the existing per-table list views 46a/46d already built.
+
+  **Schema note, checked against the actual current schema before
+  recording this (not assumed):** there is no separate "admin table"
+  today for user-management data to attach to via foreign key — admin
+  identity is `isAdmin.ts`'s hardcoded-email check plus (per this
+  file's own earlier note, "the `role === 'admin'`... DB-column check
+  that already exists") a role column on `public.users` itself, and
+  `admin_actions` (migration 015) already references `users.id`
+  directly as its actor column. The product owner's own suggested
+  approach — "we may not need to create any new tables, just add
+  foreign relationships... to connect it through all the app" — is
+  directionally right given this: user-management CRUD most likely
+  means new admin-gated API routes reading/writing the *existing*
+  `users`/`track_campaigns` tables via their current `id`/`artist_id`
+  foreign keys (the same relationships 46a-c's routes already read),
+  not a new central "admin table" everything else points at. Whoever
+  implements this should confirm that reading holds once they're
+  actually looking at building it, rather than treat this note as a
+  locked design.
+
+- **Admin campaign-posting exemption, confirmed:** admin can create a
+  campaign under **any** artist's name/account — not restricted to
+  their own. A regular artist user remains restricted to posting only
+  under their own registered account, unchanged. This is a real,
+  deliberate asymmetry (admin bypasses a restriction a normal user is
+  held to), not an oversight to "fix" later — whoever implements this
+  should make sure `api/campaigns/create/route.ts` (or wherever
+  campaign creation ends up living after 46c) explicitly branches on
+  the caller being admin rather than accidentally loosening the
+  restriction for every user.
+
+- **Admin starting capital: $40,000 default, confirmed — amended this
+  session with three clarifications, one sub-question still open.**
+  Automatically credited to an admin's wallet **at the moment they're
+  assigned admin**, drawn down like any other user's campaign spend
+  (same wallet-debit path Task 38 already built), and once exhausted,
+  an admin funds their own wallet the same way any other user does
+  (Task 28/36's existing top-up flow) — explicitly no ongoing free
+  allowance beyond the initial grant. The product owner's own words:
+  "no more free forever."
+
+  **Amended, this session (2026-08-29, later still):**
+  1. **Root already has this — confirmed by the product owner
+     ("current root already has that if you check the wallet"), NOT
+     independently verified from this sandbox** (no live Supabase
+     credentials/network access here to actually check
+     `bossblingzs@gmail.com`'s wallet balance — see `isAdmin.ts` for
+     the confirmed root identity this refers to). Resolves the
+     previously-open "does root get this too" question: root is
+     already covered by whatever existing balance it has: **no new
+     grant logic needs to apply to root specifically** — this feature
+     is for admins assigned *after* it ships. Whoever implements this
+     should do a real check of root's actual current balance before
+     writing the grant logic, both to confirm this claim and to decide
+     whether root needs a one-time top-up to some equivalent figure or
+     is fine exactly as-is — that's an implementation-time
+     verification step, not something to take purely on the product
+     owner's word without looking.
+  2. **The grant amount is NOT a fixed constant — it's root-adjustable
+     per admin, $40,000 as the default, within a $50–$100,000 range.**
+     Root chooses the actual figure per assignment (a $500 grant for a
+     limited "monitor"-adjacent admin and a $100,000 grant for someone
+     trusted with heavy campaign spend are both meant to be possible
+     from the same feature, not two different features). **Genuinely
+     ambiguous, not resolved by this session, worth a direct check
+     before implementing:** is this amount chosen once, at assignment
+     time only, or can root revise an already-assigned admin's figure
+     later too (more like an ongoing allowance ceiling than a one-time
+     grant)? The product owner's phrasing ("the root can adjust the
+     amount the admin will receive") reads compatibly with either —
+     don't guess between a one-time-configurable-at-grant field and an
+     ongoing-editable-anytime one without asking, since they're
+     different schema/UX shapes, not just a wording difference.
+  3. **Currency: USD ledger confirmed, with local-currency display for
+     the assigned admin.** The wallet balance itself stays USD (same
+     base currency as everywhere else in this app), but what the
+     *assigned admin* sees on their own dashboard/wallet should be
+     converted to their own geo-detected local currency for display —
+     the same USD-ledger/local-currency-shown pattern this app already
+     has for a payer at Korapay's DCC checkout
+     (`korapayDccCurrency.ts`), not a new conversion mechanism to
+     build. The underlying grant/spend amounts stay USD; only the
+     admin's own display layer differs by their geography.
+
+  **Amended again, this session (2026-08-29, third round) — both
+  remaining sub-questions now resolved:**
+  - **One-time, locked at assignment — confirmed.** The grant amount
+    is set once, when root assigns the admin, and cannot be changed
+    afterward ("once given it can't be ungiven"). This settles the
+    schema/UX ambiguity from the previous round decisively: **do not
+    build an ongoing-editable field for this** — it's captured once at
+    assignment time (most naturally as part of the same
+    `admin_actions`-logged assignment action, per 46e's audit-trail
+    requirement, not a separately editable setting anywhere in the
+    admin UI afterward).
+  - **Monitor-role inclusion: root's manual choice, per admin —
+    confirmed.** Not automatic skip-for-monitor, not automatic
+    grant-for-everyone — root explicitly decides the figure (including
+    $0) for every admin they assign, regardless of role. This means
+    the grant-amount field should always be presented to root at
+    assignment time, for every role, rather than being conditionally
+    hidden/defaulted based on the role chosen.
+
+  **Both starting-capital sub-questions are now fully resolved — no
+  open product decisions remain on this feature.** Root's own
+  already-funded status (previous round) still needs the
+  implementation-time verification noted above (check the actual
+  balance, don't take it purely on faith) — that's a build-time step,
+  not a remaining product question.
+
+  **Mechanism** (recommendation, not a product question, unchanged
+  from earlier rounds): `credit_wallet_deposit` RPC, `source:
+  'admin_grant'`, logged via 46e's audit trail as part of the same
+  assignment action that captures the one-time amount above — not a
+  new, separate crediting code path invented for this one case.
 
 ---
 
