@@ -43,6 +43,35 @@
 > 46's own top-level checkbox correctly stays `[ ]` — 46a/46b/46d done,
 > 46c/46e not.
 >
+> **New Task 47 added, this session — six UI/UX items from the product
+> owner, spec only, no code changed per explicit instruction ("adjust
+> the handover file only"). Every item verified against actual code
+> before being marked done/not-done, none assumed:** wallet removed
+> from mobile bottom-tab nav (not done — still in `MobileNav.tsx`;
+> header pill already correctly routes to `/earnings`, that half is
+> done), a fund-wallet entry point on the wallet page itself (not
+> done), ipapi.co IP detection firing on home-page landing (confirmed
+> real bug — `GeoProvider` is only mounted on `/promote` and
+> `/fund-wallet`, never the home page or root layout), mobile scroll
+> indicator positioning relative to the Promote button (not addressed
+> anywhere, needs live mobile-viewport diagnosis a sandbox can't do),
+> sign-in/sign-up + fund-wallet theming (confirmed hardcoded Spotify
+> green hex literals in `login/page.tsx` and hardcoded emerald/teal in
+> `fund-wallet/page.tsx`, instead of the app's real `var(--accent)`
+> blue/gold theme; onboarding screen checked separately and found
+> already clean; confirmation screen doesn't exist at all yet, needs
+> building from scratch with correct theming from the start), and one
+> "seeding" → "growth" text swap (`PublicAnalyticsShowcase.tsx`, the
+> only occurrence found). See Task 47's own section for full
+> file/line evidence on every item.
+>
+> **Also this session — B-Pay-backend's PR #2 confirmed merged by
+> Phoenix-Boss into the real upstream repo** (`upstream/main` now at
+> `63f72e2`) — documented fully in that repo's own `handover.md`, noted
+> here too since it came up in the same conversation. Nothing in
+> Mavins-web changes as a result of this — it's a B-Pay-backend-side
+> status update, recorded here for visibility only.
+>
 > **One open question this session did NOT resolve, flagged rather
 > than silently decided:** 46d's own "possibly missed" note asks
 > whether admin user-management should extend beyond a read-only list
@@ -6377,3 +6406,155 @@ decision" alongside the ones above:**
    specifically" note.
 
 ---
+
+## Task 47 — UI/UX polish pass: wallet nav, fund-wallet entry point, IP geolocation on landing, mobile scroll positioning, theme consistency, terminology [ ]
+
+**Product owner request, written up as a spec only per explicit
+instruction this session ("adjust the handover file only") — no code
+changed for any of these six items.** Every item below was verified
+against the actual current code before being marked done or not-done —
+none of this is assumed from the request's own wording alone.
+
+1. **[ ] Wallet removed from the mobile bottom-tab menu; only the
+   header pill routes there.** `src/components/layout/MobileNav.tsx`
+   still has a `Wallet` tab (`{ id: 'earnings', icon: Wallet, label:
+   'Wallet', href: '/earnings' }`) alongside Home/Promote/Stats/Rank —
+   needs removing from that array entirely. **The other half of this
+   ask is already done, confirmed via code, not assumed:**
+   `src/components/layout/Header.tsx`'s wallet-balance pill already
+   wraps in a `<Link href="/earnings">` and is the only other nav
+   surface that mentions wallet at all — nothing to build there, only
+   the bottom-tab removal is real work.
+
+2. **[ ] Wallet page (`/earnings`) needs a "fund wallet" entry point.**
+   Confirmed via grep: zero references to `fund-wallet`, "Fund
+   Wallet", "Add Funds", or "Top Up" anywhere in
+   `src/app/earnings/page.tsx`. A user landing on their wallet page
+   today has no way to get to `/fund-wallet` from there at all — has
+   to already know that route exists or find it some other way. Needs
+   a clear CTA (button/card) on the wallet page linking to
+   `/fund-wallet`.
+
+3. **[ ] ipapi.co / IP geolocation doesn't fire on home-page landing —
+   confirmed real bug, not a misconception.** The actual detection
+   code (`src/services/geo/ipGeolocation.service.ts`, wrapped by
+   `src/components/providers/GeoProvider.tsx`) is well-built and
+   already designed to run once per visit at true app initialization —
+   but it's **only actually mounted in two places**:
+   `src/app/promote/page.tsx` and `src/app/fund-wallet/page.tsx`,
+   confirmed via `grep -rl "GeoProvider" src/`. It is **not** mounted
+   in `src/app/layout.tsx` (the root layout — only mentioned there in
+   a comment, not actually rendered) and **not** in `src/app/page.tsx`
+   (the home page) at all. A visitor landing on the home page today
+   gets zero IP detection, full stop — it only fires if/when they
+   later navigate to Promote or Fund Wallet specifically. Fix is
+   narrow: mount `<GeoProvider>` somewhere that actually wraps the home
+   page (root layout is the obvious candidate, given the provider's own
+   header comment already says it's designed to be "fetched exactly
+   once per visit, at true app initialization" — it just isn't
+   currently placed where that's true).
+
+   **Related, found in the same file, worth fixing in the same pass
+   even though not explicitly asked:** `src/app/providers.tsx` is
+   **completely dead code** — a `Providers` component with zero
+   importers anywhere in the codebase (its own header comment,
+   written during Task 45, already flags this: "found this file has
+   ZERO importers anywhere... Left in place rather than deleted"). It
+   wraps `GeoProvider` too, which might be why a future session could
+   mistakenly assume mounting it there fixes this bug — it wouldn't,
+   since nothing imports this file. Don't build the home-page fix by
+   wiring through `providers.tsx`; wire directly into `layout.tsx`
+   instead, where the real provider tree actually lives
+   (`AuthProvider` → `ThemeProvider` → `LayoutContent`, per that same
+   comment).
+
+4. **[ ] Mobile scroll indicator should appear immediately after the
+   Promote button; desktop/laptop layout is already correct as-is —
+   don't touch desktop.** Not addressed anywhere in the current code —
+   confirmed via grep across `promote/page.tsx` for
+   `overflow`/`scroll`: the only scroll-related CSS in play is a
+   generic `.scroll-smooth-mobile` utility class (`-webkit-overflow-
+   scrolling: touch`, `overscroll-behavior-y: contain`,
+   `globals.css`), which is a touch-smoothing utility, not anything
+   related to *where* a scrollbar/overflow cue visually appears
+   relative to the Promote button. This is a layout/visual placement
+   fix that needs to be diagnosed against the actual rendered mobile
+   output (this sandbox has no way to render and visually inspect the
+   live mobile layout) — a future session should reproduce the current
+   behavior on an actual mobile viewport before changing anything,
+   rather than guessing at which container's `overflow` property is
+   responsible.
+
+5. **[ ] Sign-in/sign-up theming — currently hardcoded Spotify green,
+   confirmed via literal hex codes in source, not a vague color
+   complaint.** The app's real theme, confirmed from
+   `src/app/globals.css`: light mode accent is `#2f6fed` (blue),
+   dark mode accent is `#d4af37` (champagne gold) — both already
+   exposed as the `var(--accent)` CSS variable pair the rest of the
+   app consumes correctly. `src/app/login/page.tsx` ignores this
+   variable entirely and hardcodes `#1db954`/`#169c45`/`#1ed760`
+   (Spotify's own brand green) directly in multiple places — the ambient
+   background glow, the logo badge gradient, the submit button, and the
+   "sign up" link text. Needs every one of those literals replaced
+   with `var(--accent)`/`var(--accent-light)`/`var(--accent-dark)`,
+   the same pattern already used correctly elsewhere in the app (e.g.
+   `Header.tsx`'s wallet pill: `text-[var(--accent)]`).
+
+   **Same issue, confirmed separately, on the fund-wallet screen:**
+   `src/app/fund-wallet/page.tsx` hardcodes `from-emerald-500
+   to-teal-500` (two separate spots — the icon badge and the submit
+   button) instead of the theme accent variable.
+
+   **Onboarding screen — checked, already clean, nothing to fix.**
+   The closest thing to an "onboarding" screen in this app is
+   `src/app/complete-profile/page.tsx` — grepped for hardcoded hex
+   colors and `emerald`/`green-` Tailwind classes, zero hits. Already
+   using theme-correct styling; not part of this task's remaining
+   work.
+
+   **Confirmation screen — doesn't exist yet, so there's nothing to
+   theme until it's built.** Confirmed via `find`: no dedicated
+   confirmation page/route exists anywhere in `src/app`. The only
+   trace of this concept is a single comment in `login/page.tsx`
+   ("No active session yet (e.g. email confirmation required)") —
+   the actual state is handled inline, with no dedicated screen a user
+   ever lands on after confirming their email. This needs to be built
+   from scratch, matching the correct theme from the start (not built
+   first and re-themed later) — likely a small dedicated route/page
+   the email confirmation link redirects to, mirroring the
+   `fund-wallet/verify` page's own shape (loading → success/error
+   states) rather than inventing a new pattern.
+
+6. **[ ] Remove "seeding" from user-facing text; use "growth"
+   instead.** Confirmed via case-insensitive grep across all of
+   `src/`: exactly **one** occurrence —
+   `src/components/promote/PublicAnalyticsShowcase.tsx` line 95,
+   *"Real activity across the Mavins seeding network, updated
+   continuously."* Needs to become something built around "growth"
+   instead (e.g. "Real activity across the Mavins growth network,
+   updated continuously" — exact wording not dictated here, just the
+   word swap the product owner asked for). **Not in scope for this
+   item, worth flagging separately so it isn't conflated:** the DB
+   value `current_stage: 'planting'` (used in `track_campaigns`
+   inserts across `create/route.ts` and `korapay-webhook/index.ts`) is
+   a different thing — an internal enum value, not user-facing display
+   text, and the product owner's own wording was specifically
+   "seeding," not "planting." Left untouched; if the product owner
+   also wants that internal stage name changed, that's a separate,
+   larger task (touches a DB enum/check-constraint, not just display
+   copy) and shouldn't be assumed bundled into this one.
+
+**Cross-repo note, found and confirmed while pulling B-Pay-backend for
+an unrelated check this same session:** `Zapier-codes/B-Pay-backend`'s
+PR #2 (the fork→upstream PR covering effectively that whole repo's
+accumulated work) **has been merged by Phoenix-Boss**, the real owner —
+confirmed by adding the real `upstream` remote
+(`https://github.com/Phoenix-Boss/B-PAY-backend.git`) and fetching it
+directly: `upstream/main`'s latest commit is now `63f72e2` ("Merge
+pull request #2 from Zapier-codes/main"), bringing in everything
+through B-Pay-backend's own `01df9c7`. Documented in full, with the
+"what this means for future sessions there" follow-up, in
+B-Pay-backend's own `handover.md` — not duplicated in full here since
+it's that repo's own file to own, but recorded here too since it was
+asked about in the same breath as this task and future Mavins-web
+sessions may want to know without needing to jump repos to check.
