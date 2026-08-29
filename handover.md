@@ -3,34 +3,46 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **This session (2026-08-29) — Task 45 Part 5 done, closing out Task
-> 45 entirely (all 5 parts complete) and, with it, Task 44 too** (Task
-> 45 had absorbed Task 44's entire remaining scope — see the closing
-> note now added at the bottom of Task 44's own entry). New
-> `src/lib/campaign/CONTRIBUTING.md` — a worked example each for
-> adding a new data row (a Supabase insert, zero code touched) and a
-> new arithmetic rule (one step function + one line into
-> `PRICING_PIPELINE`, with an explicit list of what wasn't touched to
-> prove it). Also checked, not assumed, Task 44's three old open
-> items: admin-editing UI question still open (Task 46 is the answer,
-> not yet built); the 5M-vs-10M clamp inconsistency still open,
-> deliberately not fixed (needs a product-owner pricing call, not a
-> pure bug fix — see the guide's own caveat); the `TIERS`-vs-
-> `PRICING_TIERS` drift confirmed resolved by Part 4. `npx tsc
-> --noEmit` clean (docs + one pointer comment, no behavior change).
+> **This session (2026-08-29) — Task 37 closed out, verification-only,
+> no code changes.** Last session flagged that Task 37's "trigger-point"
+> bullet might now be unblocked by Task 36's completion — verified this
+> for real by reading the current code, not assumed: `korapay-webhook/
+> index.ts`'s Task 36 Part 2 work (`createDirectCampaign()`'s branch)
+> already calls `resolveOrCreateGuestUserId(supabase,
+> session.customer_email)` at the moment a guest's first campaign
+> payment succeeds — exactly this task's own ask, built as an emergent
+> consequence of Task 36 rather than needing new code here. Confirmed
+> `createDirectCampaign()` never touches any wallet RPC (satisfies the
+> "wallet starts at zero" bullet) and that both guest-account-creation
+> paths (deposit-first via `guestCheckout.ts`, campaign-first via this
+> Edge Function) look up by email first, so a guest never ends up with
+> two accounts. Task 37's box is now `[x]`. Also fixed one stale
+> checkbox found along the way: Task 33 Part 2d ("deploy + end-to-end
+> verification") was still `[ ]` despite this file's own earlier
+> "Next task" history already confirming it deployed and went live —
+> same class of drift Task 44's top-level box had before last session,
+> fixed the same way. `npx tsc --noEmit` stays clean (unchanged
+> baseline).
 >
-> **Worth checking first thing next session, not yet acted on this
-> session (one-task-per-session, and this needs its own verification
-> pass, not a guess): Task 37's "trigger-point" bullet may now be
-> unblocked.** That bullet was explicitly held because it "only makes
-> sense once Task 36's direct-pay flow exists to move \[account
-> creation\] to" — and this file's own history above already confirms
-> **Task 36 is fully done (Parts 1–4)**. If that's still accurate,
-> Task 37 is the next task in file order or should be flagged as
-> superseding Task 46 the way Task 45 superseded Task 44's remaining
-> scope — don't assume this, re-verify against the current code
-> (`resolveOrCreateGuestAccount`'s call sites) before starting it,
-> since this note is a pointer, not a confirmation.
+> **Next task, checked this session, not just carried forward:** with
+> Task 37 done, the next genuinely open, unblocked, no-product-owner-
+> input-needed work is **Task 33 Part 3** — a shared user/admin success
+> screen with an animated country-interconnection pipeline
+> visualization (central hub node, animated links out to each selected
+> target country), shown on confirmed payment. Confirmed via grep this
+> session: nothing matching this description exists in `src/` yet.
+> Task 33's own top-level box stays `[ ]` correctly — Part 3 is the
+> reason, not stale bookkeeping. **Everything else earlier in file
+> order is blocked or needs a product-owner call, not silently
+> skippable:** Task 30 (blocked on B-Pay-backend's own Task 10,
+> cross-repo), Task 32 (blocked on Task 33 — narrower now that Part
+> 1/2 are done, but still gated on Part 3 above per that task's own
+> text), Task 35 (its only remaining open items — where the platform's
+> cut gets recorded; whether `add-funds` should carry a fee — both
+> explicitly need a product-owner call per this file's own earlier
+> note, not a default pickup). Task 46 remains SPEC ONLY with its own
+> embedded open questions (capability-key taxonomy, root-vs-4-total
+> headcount) — also not a blind next pickup.
 >
 > **Fee rate flip-flopped twice — read this before touching any fee
 > code:** original code/Task 35 text: 10% campaign. A session then
@@ -2804,8 +2816,18 @@ session, same one-task-per-session rule as the rest of this file:
    itself stays outside `tsconfig.json`'s scope, same as every prior
    Edge Function task) — clean.
 
-   **2d. Deploy + end-to-end verification. [ ] Not started, depends on
-   2b/2c.** Same deploy pattern as Part 1/1b (`supabase db push` if a
+   **2d. Deploy + end-to-end verification. [x] Done — confirmed by the
+   product owner, 2026-08-28 (see this file's own "Next task" history
+   near the top: `supabase functions deploy korapay-webhook` and
+   `supabase db push` both confirmed run successfully; the full
+   webhook chain — Korapay → B-Pay-backend gateway → this function →
+   wallet credit / direct-pay campaign creation — is live end to end,
+   not just code-complete).** Updating this stale checkbox now (it was
+   left `[ ]` after that confirmation landed elsewhere in this file) —
+   same class of drift as Task 44's own top-level box had, fixed the
+   same way: match the checkbox to what the rest of this file already
+   says happened, don't leave it implying open work that isn't.
+   Same deploy pattern as Part 1/1b (`supabase db push` if a
    new migration is needed, `supabase functions deploy korapay-webhook
    --project-ref atojskxrxfsbpeefigtm`) — see the "Supabase CLI on
    Termux" section near the top of this file for the full mechanics.
@@ -3327,7 +3349,7 @@ existing first.
 
 ---
 
-## Task 37 — Auto-provision `users` row + wallet on a guest's first campaign [ ]
+## Task 37 — Auto-provision `users` row + wallet on a guest's first campaign [x]
 
 **Ask:** when a guest places their first (direct-pay, per Task 36)
 campaign, that's the moment their account gets created — a `users`
@@ -3388,6 +3410,55 @@ confirmed genuinely blocked on Task 36, not just assumed:**
   task's own note on why it's blocked) for account creation to move
   to. Moving this trigger only makes sense once Task 36's direct-pay
   flow exists to move it *to* — don't attempt this bullet in isolation.
+
+**Closed out this session (2026-08-29) — Task 36's direct-pay flow now
+exists (Parts 1–4 all done, deployed and live, per this file's own
+history above), so the "trigger-point bullet" above is no longer
+blocked. Verified by reading the current code, not assumed:**
+`korapay-webhook/index.ts`'s Task 36 Part 2 work already built exactly
+what this task's own ask describes — turned out to be an emergent
+consequence of that task, not something needing separate new code
+here:
+- `createDirectCampaign()`'s branch (`session.metadata.type ===
+  'campaign_direct'`) calls `resolveOrCreateGuestUserId(supabase,
+  session.customer_email)` (line ~495) — the `users` row is created at
+  the moment a guest's payment for their **first campaign** succeeds,
+  exactly the trigger this task asked for. `customer_email` is
+  populated at session-init time from the checkout form's
+  `guestEmail` field (`initialize-campaign/route.ts` line ~152), so
+  this isn't relying on a field that might be empty.
+- Confirmed by reading `createDirectCampaign()` in full: it never
+  calls `credit_wallet_deposit` or any other wallet RPC — the comment
+  at line ~247 states this explicitly ("a direct-pay campaign never
+  touches credit_wallet_refund or any wallet RPC, matching Task 36's
+  rule"). Satisfies this task's third bullet: the wallet row created
+  alongside this user starts at zero and nothing at creation time
+  credits campaign proceeds into it.
+- The wallet-initialization bullet was already resolved above (the
+  omitted `wallet` column defaults to `{}` — same reasoning applies
+  here too, since `resolveOrCreateGuestUserId`'s own `users` insert
+  also omits `wallet` explicitly, same convention as the Next.js-side
+  `resolveOrCreateGuestAccount()`).
+- **Not a regression of the deposit/fund-wallet trigger** — that path
+  (`guestCheckout.ts#resolveOrCreateGuestAccount`, still called from
+  `api/payments/verify/[reference]/route.ts`) is untouched and still
+  correct for its own case: a guest topping up their wallet directly,
+  independent of placing a campaign. Both are now legitimate "first
+  account-creating action" triggers for their respective flows, not
+  competing definitions of one — this task's original "or does it
+  happen earlier" concern was about campaign placement being
+  *unreachable* as a trigger at all (before Task 36 existed), not
+  about the deposit path being wrong to also create an account.
+- Both paths land in the same `users` table and both look up by
+  `email` first (`ilike`) before creating, so a guest who deposits
+  first and places a campaign later (or vice versa) still gets exactly
+  one account, not two — verified by reading both
+  `resolveOrCreateGuestAccount()` and `resolveOrCreateGuestUserId()`
+  side by side.
+
+No code changes were needed — this is a verification-only close-out,
+same shape as Task 45 Part 4 Stage 3. `npx tsc --noEmit` stays clean
+(unchanged baseline, nothing edited).
 
 ---
 
