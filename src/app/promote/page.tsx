@@ -12,6 +12,7 @@ import type { DurationSlot } from '@/lib/campaign/pricing';
 import { getRecommendedGeographies, getGeoTargetingPool, scoreLabel } from '@/lib/campaign/geoAffinity';
 import type { TargetCountry, GeoReferenceData } from '@/lib/campaign/geoAffinity';
 import { useReferenceData } from '@/hooks/campaign/useReferenceData';
+import { CampaignSuccessVisualization } from '@/components/campaign/CampaignSuccessVisualization';
 import { getKorapayDccCurrency } from '@/lib/currency/korapayDccCurrency';
 import { COUNTRY_CURRENCY, checkCountryCurrencyDrift } from '@/lib/currency/countryCurrency';
 import { initializeCheckout, initializeCampaignCheckout } from '@/lib/payments/checkout';
@@ -20,7 +21,7 @@ import { cn } from '@/lib/utils/cn';
 import {
   Rocket, Link2, TrendingUp, Globe, DollarSign,
   ShieldCheck, Zap, ChevronRight, Play, PauseCircle,
-  BarChart3, Music, CheckCircle2, Sparkles, MapPin, Wand2, Map, Mail
+  BarChart3, Music, Sparkles, MapPin, Wand2, Map, Mail
 } from 'lucide-react';
 
 const PublicAnalyticsShowcase = dynamic(
@@ -412,6 +413,13 @@ export default function PromotePage() {
   // below (they have no session yet to fetch that list with — see the
   // guest-session gap noted where this is set, below).
   const [showGuestCampaignSuccess, setShowGuestCampaignSuccess] = useState(false);
+  // Task 33 Part 3 — a snapshot of targetCountries (resolved to full
+  // {code, country, flag} objects) taken at the exact moment
+  // handleSubmit's success branch fires, before that same branch
+  // clears the live targetCountries state for the next campaign's
+  // form. CampaignSuccessVisualization reads this, not the live
+  // (post-success, now-empty) targetCountries state.
+  const [lastCampaignCountries, setLastCampaignCountries] = useState<TargetCountry[]>([]);
   const [topGeo, setTopGeo] = useState<{ country: string; flag: string } | null>(null);
   const [homeCountryCode, setHomeCountryCode] = useState<string | null>(null);
   const [targetCountries, setTargetCountries] = useState<string[]>([]);
@@ -704,6 +712,10 @@ export default function PromotePage() {
     setIsSubmitting(false);
 
     if (result.success) {
+      // Snapshot before the very next line clears targetCountries —
+      // see lastCampaignCountries's own declaration comment above.
+      const resolvedCountries = (referenceData?.countries || []).filter((c) => targetCountries.includes(c.code));
+      setLastCampaignCountries(resolvedCountries);
       setShowSuccess(true); setSourceUrl(''); setSelectedGenre(''); setTargetCountries([]);
       const updated = await getArtistCampaigns(user.id);
       setCampaigns(updated);
@@ -729,23 +741,33 @@ export default function PromotePage() {
         </div>
 
         {showSuccess && (
-          <div className="glass-strong rounded-xl p-4 flex items-center gap-3 border border-[#1db954]/30 bg-[#1db954]/5">
-            <CheckCircle2 className="w-5 h-5 text-[#1db954] flex-shrink-0" />
-            <div>
-              <p className="font-semibold text-sm">Campaign Launched!</p>
-              <p className="text-xs text-[var(--subtle-foreground)]">Your track is now in the seed network.</p>
-            </div>
-          </div>
+          <CampaignSuccessVisualization
+            title="Campaign Launched!"
+            subtitle="Your track is now in the seed network."
+            targetCountries={lastCampaignCountries}
+          />
         )}
 
         {showGuestCampaignSuccess && (
-          <div className="glass-strong rounded-xl p-4 flex items-center gap-3 border border-[#1db954]/30 bg-[#1db954]/5">
-            <CheckCircle2 className="w-5 h-5 text-[#1db954] flex-shrink-0" />
-            <div>
-              <p className="font-semibold text-sm">Payment confirmed!</p>
-              <p className="text-xs text-[var(--subtle-foreground)]">Your campaign is being set up now — this can take a minute.</p>
-            </div>
-          </div>
+          // Task 33 Part 3 / Task 36 Part 4: no target-country data is
+          // available here to visualize — a guest's browser state is
+          // gone by the time they return from Korapay's checkout (see
+          // goDirectPayCampaign's own comment above for why
+          // stashPendingCampaign is deliberately not called for this
+          // path), and the redirect URL
+          // (/promote?campaign_created=1) doesn't carry a reference to
+          // fetch the server-side snapshot by either. Renders with an
+          // empty list, which the component handles gracefully
+          // (header only, no visualization) rather than guessing at
+          // data that isn't there. A future session completing Task 36
+          // Part 4 properly could close this gap by threading the
+          // reference through the redirect and fetching
+          // payment_sessions.metadata.campaign server-side.
+          <CampaignSuccessVisualization
+            title="Payment confirmed!"
+            subtitle="Your campaign is being set up now — this can take a minute."
+            targetCountries={[]}
+          />
         )}
 
         <div className="glass-strong rounded-2xl p-4 xs:p-5 sm:p-6 space-y-5 gpu-layer">
