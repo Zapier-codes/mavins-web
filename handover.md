@@ -6447,12 +6447,28 @@ none of this is assumed from the request's own wording alone.
    a comment, not actually rendered) and **not** in `src/app/page.tsx`
    (the home page) at all. A visitor landing on the home page today
    gets zero IP detection, full stop — it only fires if/when they
-   later navigate to Promote or Fund Wallet specifically. Fix is
-   narrow: mount `<GeoProvider>` somewhere that actually wraps the home
-   page (root layout is the obvious candidate, given the provider's own
-   header comment already says it's designed to be "fetched exactly
-   once per visit, at true app initialization" — it just isn't
-   currently placed where that's true).
+   later navigate to Promote or Fund Wallet specifically.
+
+   **Confirmed by the product owner, explicit requirement, not left to
+   implementer's judgment: detection must happen once, on first
+   landing, and the result must persist across every screen for the
+   rest of that visit — not re-detected per page, not scoped to
+   individual pages at all.** This settles the "obvious candidate"
+   framing this note originally used as a mere suggestion — mounting
+   `<GeoProvider>` in `src/app/layout.tsx` (the root layout, wrapping
+   every route in the app) is now the confirmed fix, not one option
+   among several. This also matches what the provider's own existing
+   header comment already claims its design intent to be ("fetched
+   exactly once per visit, at true app initialization") — the fix is
+   purely a placement/wiring correction, not a rewrite of the
+   detection logic itself, which is already correct. Once mounted at
+   the root, the two existing per-page mounts in `promote/page.tsx`
+   and `fund-wallet/page.tsx` become redundant re-wraps of a context
+   that's already available higher up the tree — worth removing them
+   as part of the same fix (not strictly required for correctness,
+   since `useGeo()` would still resolve to the nearest provider
+   either way, but leaving two extra no-op mounts around invites a
+   future session to wrongly assume they're load-bearing).
 
    **Related, found in the same file, worth fixing in the same pass
    even though not explicitly asked:** `src/app/providers.tsx` is
