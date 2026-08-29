@@ -44,15 +44,31 @@
 > `platform_revenue` ledger table (migration 011) was built and wired
 > into all three fee-taking call sites, closing the one shared item
 > that had kept both checked open. See Task 35's own "Closed, this
-> session" note for the full write-up. **Two top-level tasks remain
-> unchecked in this file, both genuinely blocked or gated — neither is
-> a blind next pickup:** Task 30 (blocked on B-Pay-backend's own Task
-> 10, cross-repo) and Task 46 (SPEC ONLY, its own embedded open
-> questions: capability-key taxonomy, root-vs-4-total headcount). **A
-> session picking up next should check with the product owner before
-> starting either of these**, rather than defaulting to file order.
-> **Migration 011 (`platform_revenue`) is NOT yet applied to the live
-> DB** — same `supabase db push` hand-off as every prior migration.
+> session" note for the full write-up. **Migration 011
+> (`platform_revenue`) is NOT yet applied to the live DB** — same
+> `supabase db push` hand-off as every prior migration.
+>
+> **Correction, this session — Task 30 was never actually cross-repo
+> blocked; that assessment was stale and unverified.** Cloned
+> `https://github.com/Zapier-codes/B-Pay-backend` directly (it hadn't
+> been available in the sandbox that first flagged this as blocked) and
+> read its `handover.md` for real. Two things it revealed: (1) Task 30
+> only ever needed Korapay's own internal channel routing
+> (mobile-money/bank-transfer/card), not B-Pay-backend's Task 10
+> (which is about *provider* selection across four different payment
+> providers — a different axis entirely, irrelevant here since this
+> app only ever uses Korapay), and (2) the forwarding half of that
+> channel routing is already built and verified on B-Pay-backend's
+> side. **Net effect: Task 30 is genuinely startable now, not blocked.**
+> Also found and documented (see Task 30's own "Correction, later
+> session" note) a real cross-repo documentation bug: B-Pay-backend's
+> file confidently claims a `korapayChannels.ts` already exists on this
+> side — it does not, never has, no trace anywhere in this repo's git
+> history. **Only one genuinely blocked/gated top-level task remains
+> unchecked in this file: Task 46** (SPEC ONLY, its own embedded open
+> questions: capability-key taxonomy, root-vs-4-total headcount) — a
+> session picking that up should check with the product owner on those
+> two specific questions first, rather than defaulting to file order.
 >
 > **Fee rate flip-flopped twice — read this before touching any fee
 > code:** original code/Task 35 text: 10% campaign. A session then
@@ -2439,6 +2455,67 @@ task's own note read more open than the current reality.**
   search this session, nothing named B-Pay-backend exists anywhere
   accessible). A session with that repo available needs to check its
   current Task 10 progress before starting this half.
+
+**Correction, later session — the note directly above this one is
+wrong, and it was wrong specifically because it was never actually
+re-verified against B-Pay-backend's real state (its own repo genuinely
+wasn't cloneable in that earlier session's sandbox, so "still blocked"
+was carried forward rather than checked). This session cloned
+`https://github.com/Zapier-codes/B-Pay-backend` directly and read its
+`handover.md` — the real picture is different from what every note
+above this one assumed:**
+
+- **B-Pay-backend's Task 10 (multi-provider routing across
+  Paystack/Korapay/JuicyWay/Payscribe) is a genuinely different,
+  broader concern than what this task actually needs.** Task 10 is
+  about *which payment provider* to use for a given currency across
+  four different providers — this app only ever uses Korapay as its
+  provider, so that whole axis of "provider selection" doesn't apply
+  here at all. This task's "payment method" half was never actually
+  gated on Task 10 finishing; that dependency was a mistaken
+  conflation between two different kinds of routing (provider-level
+  vs. Korapay's own internal channel-level), not a real blocker.
+- **What this task actually needs — Korapay channel selection
+  (mobile money vs. bank transfer vs. card vs. pay-with-bank, within
+  Korapay specifically) — has its forwarding half already built and
+  verified on B-Pay-backend's side**, added as a companion change under
+  that repo's own Task 16 entry: `routes.js`'s `POST /pay` now accepts
+  `channels`/`default_channel` fields and forwards them unchanged to
+  Korapay's real API call (verified via that repo's own `node --check`
+  plus a throwaway test script covering 5 cases: channels+default
+  present, channels-only, default-without-channels correctly dropped,
+  neither present, and an empty channels array correctly treated as
+  absent).
+- **Real cross-repo documentation bug found and worth flagging clearly,
+  not silently corrected as if it were nothing:** B-Pay-backend's own
+  note for that companion change states, in confident past tense,
+  *"the actual country→channel routing logic itself lives in
+  Mavins-web's `korapayChannels.ts`, not here"* — implying that file
+  already existed on this side. **It does not, and never has.**
+  Checked exhaustively this session: no such file anywhere in
+  `src/`, no trace in this repo's entire git history (`git log --all
+  --oneline -- "*korapayChannels*"` returns nothing), no commit
+  message ever mentioning it. That note in the other repo was written
+  as if a companion piece had already landed here — it never did. Not
+  correcting that repo's file directly from here (out of scope for a
+  Mavins-web session to edit another repo's handover unprompted), but
+  recording the discrepancy here so a future session doesn't read that
+  confident-sounding claim in B-Pay-backend's file and go looking for
+  a file that was never built.
+- **Net effect: this task is NOT cross-repo blocked at all.** The one
+  piece of infrastructure it genuinely needed from B-Pay-backend (the
+  forwarding plumbing) is done and waiting. The actual remaining work —
+  the country→channel mapping itself, plus wiring the checkout-
+  initiation call to actually send `channels`/`default_channel` — is
+  entirely buildable from this repo alone. **Genuinely blocked → genuinely startable**, once
+  a real per-country channel-support source is confirmed (Korapay's
+  own docs at developers.korapay.com/docs/checkout-redirect list the
+  four valid channel strings — `bank_transfer`, `card`, `pay_with_bank`,
+  `mobile_money` — but per-country *availability* of each still needs
+  checking against Korapay's actual docs/dashboard, not guessed; South
+  Africa/EFT was explicitly flagged by B-Pay-backend's own note as a
+  case deliberately left unmapped there rather than guessed at, which
+  is the same discipline this task's own mapping needs to follow).
 
 ---
 
