@@ -25,6 +25,22 @@ export interface TargetCountry {
   code: string;
   country: string;
   flag: string;
+  /**
+   * Task 30b — Korapay `channels` values valid for this country, per
+   * Task 30a's sourced research (see handover.md). `undefined`/absent
+   * is a real, intentional state, not "not loaded yet": it means no
+   * confirmed Korapay channel coverage exists for this country, so
+   * checkout should not send a `channels`/`default_channel` field at
+   * all and let Korapay apply its own default selection. Only 6 of
+   * the 25 target countries have a real value here — see
+   * referenceData.ts's mapping of migration 012's columns.
+   */
+  korapayChannels?: string[];
+  /** Task 30b — which of `korapayChannels` to pre-select on Korapay's
+   * checkout UI. A UX preference, not a Korapay requirement — see
+   * migration 012's own header comment for why `card` was chosen for
+   * Nigeria specifically. */
+  korapayDefaultChannel?: string;
 }
 
 // Task 45 Part 4 (stage 2, handover.md) — the hardcoded TARGET_COUNTRIES

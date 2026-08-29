@@ -37,7 +37,7 @@ export async function fetchReferenceData(client: SupabaseClient): Promise<AllRef
   const [tiersRes, slotsRes, countriesRes, genresRes, affinityRes] = await Promise.all([
     client.from('pricing_tiers').select('id, min_views, max_views, price_per_1k_cents, label, description').order('sort_order'),
     client.from('duration_slots').select('id, label, weeks, days, max_daily_drip, max_views, description, badge').order('sort_order'),
-    client.from('countries').select('code, country, flag').order('sort_order'),
+    client.from('countries').select('code, country, flag, korapay_channels, korapay_default_channel').order('sort_order'),
     client.from('genres').select('id, label').order('sort_order'),
     client.from('genre_country_affinity').select('genre_id, country_code, score'),
   ]);
@@ -70,10 +70,19 @@ export async function fetchReferenceData(client: SupabaseClient): Promise<AllRef
     badge: r.badge,
   }));
 
+  // Task 30b — korapay_channels/korapay_default_channel are NULL for
+  // 19 of the 25 rows (no confirmed Korapay coverage, or a genuine
+  // ambiguity Task 30a explicitly left unresolved -- see that task's
+  // note, not this file, for which is which). Map NULL to `undefined`
+  // rather than an empty array so TargetCountry's own doc comment
+  // ("absent means no coverage, don't send the field") stays literally
+  // true for consumers checking `country.korapayChannels?.length`.
   const countries: TargetCountry[] = (countriesRes.data ?? []).map((r) => ({
     code: r.code,
     country: r.country,
     flag: r.flag,
+    korapayChannels: r.korapay_channels ?? undefined,
+    korapayDefaultChannel: r.korapay_default_channel ?? undefined,
   }));
 
   const genres: GenreOption[] = (genresRes.data ?? []).map((r) => ({
