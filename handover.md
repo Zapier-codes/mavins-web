@@ -5413,6 +5413,66 @@ started, stopped here on direct instruction before any UI code.**
   (no live credentials here) — same limitation flagged on the Realtime
   propagation point above.
 
+**UI half, this session — commit `8f8c65c`. Per direct instruction:
+pulled latest first (this task's own numbering had already shifted
+underneath a separate, unrelated fee-decision session that landed
+in between — see Task 35's own note for what happened there), then
+split the remaining UI work into two parts and built only the first.**
+
+- **Part A (built):** the two tables that share one simple shape —
+  single string `id` PK, every other field a flat scalar, no
+  cross-row relationships: `pricing_tiers` and `duration_slots`. New
+  `src/components/admin/AdminCrudTable.tsx` — one reusable list/
+  inline-add/inline-edit/delete-confirm component, matching
+  `admin/page.tsx`'s existing glass-card/table visual language (per
+  this task's own note above, checked `frontend-design` first and
+  read this as "extend an existing page," not greenfield design).
+  Wired into two new tabs on `admin/page.tsx` itself — no new page/
+  route added, consistent with the rest of this file's admin surface
+  living in that one page.
+- **Part B (not built, flagged for a future session):** `countries`
+  (extra Korapay-channel columns this task's own note already flags,
+  plus a real cascade-delete warning — deleting a country cascades
+  into `genre_country_affinity` via the FK, migration 010), `genres`
+  (simple on its own, just not reached this session), and
+  `genre_country_affinity` (composite `(genre_id, country_code)` key,
+  350 rows, upsert-not-strict-create semantics on its own API route —
+  a fundamentally different UI shape from a flat table with an add
+  row, more likely a filterable matrix/grid). `AdminCrudTable` as
+  built is NOT a fit for any of these three as-is — a future session
+  should expect to extend it or build bespoke UI, not assume it drops
+  in unchanged.
+- **A real, non-obvious wrinkle found while building Part A, worth
+  flagging explicitly:** `useReferenceData()`'s own `PricingTier`/
+  `DurationSlot` shapes (`src/lib/campaign/pricing.ts`) deliberately
+  drop `id`/`color`/`sort_order` — `calculatePricing()` never needed
+  them. An admin editing UI does need them back (for PATCH/DELETE and
+  for controlling display order), so this reads the raw tables
+  directly via the browser Supabase client instead of through that
+  hook — safe because migration 010's RLS already permits public
+  `SELECT` on both tables, confirmed by reading the migration file
+  directly rather than assumed. No new GET route was added to either
+  admin API route for this (those routes' own doc comments say "no GET
+  here" on purpose) — the raw-table read is genuinely a different,
+  already-permitted path, not a workaround for a missing one.
+- **Integrates with Task 45 Part 2's shared cache, this task's own
+  explicit requirement:** after a successful write, calls
+  `queryClient.invalidateQueries({ queryKey: REFERENCE_DATA_QUERY_KEY })`
+  directly (imported from `useReferenceData.ts`) rather than relying
+  solely on the Realtime round-trip that hook's own subscription
+  already does — gives the admin's own list an immediate refresh
+  rather than waiting on that trip, while still exercising the same
+  shared cache the promote page reads from.
+- **Verified:** `npx tsc --noEmit` clean on the full project. A
+  throwaway Node script (deleted after use) confirmed both
+  row-to-body mapping functions (`tierRowToBody`/`slotRowToBody`)
+  produce exactly the field set each route's own doc comment
+  documents. **Not verified — no way to check from this sandbox:** an
+  actual authenticated admin write against a live Supabase instance,
+  or that the Realtime/query-invalidation round-trip actually reaches
+  `promote/page.tsx` end-to-end — same limitation the backend commit
+  above already flagged.
+
 ### 46b — Platform-fee arithmetic control (campaign %, deposit %) [ ]
 Move `PLATFORM_FEE_PERCENT` (`src/lib/campaign/pricing.ts`, currently
 `10`) and `DEPOSIT_FEE_RATE` (`supabase/functions/korapay-webhook/
