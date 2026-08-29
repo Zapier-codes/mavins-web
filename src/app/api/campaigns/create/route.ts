@@ -262,6 +262,38 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
+    // Task 35/40 (handover.md): record the platform's 10% fee as
+    // actual revenue, not just a number that existed transiently
+    // inside `pricing`. Admin-created campaigns pay no fee at all
+    // (see `total_budget_cents: callerIsAdmin ? 0 : ...` above) --
+    // nothing to record for those. `source_reference` reuses
+    // `debitReference`, the same idempotency key already used for the
+    // wallet debit itself, so a retried request that somehow reached
+    // this far twice can't double-count revenue (migration 011's own
+    // unique index on `(type, source_reference)` catches it). A
+    // failure here is logged, not fatal -- the campaign itself was
+    // already created successfully and the artist was already
+    // correctly charged; a missed revenue-ledger row is a reporting
+    // gap to fix, not a reason to fail a request that otherwise
+    // succeeded.
+    if (!callerIsAdmin) {
+      const { error: revenueError } = await admin.from('platform_revenue').insert({
+        type: 'campaign_fee',
+        amount_cents: pricing.platformFeesCents,
+        currency: 'USD',
+        user_id: authUser.id,
+        source_reference: debitReference,
+        metadata: {
+          campaign_id: data.id,
+          subtotal_cents: pricing.subtotalCents,
+          total_cost_cents: pricing.totalCostCents,
+        },
+      });
+      if (revenueError && revenueError.code !== '23505') {
+        console.error('Campaign create: platform_revenue insert failed (non-fatal)', revenueError, { campaignId: data.id, debitReference });
+      }
+    }
+
     return NextResponse.json({ success: true, campaignId: data.id });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err?.message || 'Failed to create campaign' }, { status: 500 });

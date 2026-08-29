@@ -40,18 +40,19 @@
 > fallback into a bug-signal log line rather than a silent default. See
 > Task 32's own done-note for the full write-up.
 >
-> **Four top-level tasks remain unchecked in this file, and all four
-> are genuinely blocked or gated — none is a blind next pickup:**
-> Task 30 (blocked on B-Pay-backend's own Task 10, cross-repo), Task 35
-> and **Task 40** (share the exact same one remaining open item —
-> where the platform's fee cut actually gets recorded, a ledger row vs.
-> a separate revenue table vs. implicit; Task 40's other two items,
-> the deposit-side 5% and the campaign-side 10%, are both independently
-> confirmed built/correct elsewhere in this file already), Task 46
-> (SPEC ONLY, its own embedded open questions: capability-key taxonomy,
-> root-vs-4-total headcount). **A session picking up next should check
-> with the product owner before starting any of these four**, rather
-> than defaulting to file order.
+> **Task 35 and Task 40 are now both closed, this session** — a new
+> `platform_revenue` ledger table (migration 011) was built and wired
+> into all three fee-taking call sites, closing the one shared item
+> that had kept both checked open. See Task 35's own "Closed, this
+> session" note for the full write-up. **Two top-level tasks remain
+> unchecked in this file, both genuinely blocked or gated — neither is
+> a blind next pickup:** Task 30 (blocked on B-Pay-backend's own Task
+> 10, cross-repo) and Task 46 (SPEC ONLY, its own embedded open
+> questions: capability-key taxonomy, root-vs-4-total headcount). **A
+> session picking up next should check with the product owner before
+> starting either of these**, rather than defaulting to file order.
+> **Migration 011 (`platform_revenue`) is NOT yet applied to the live
+> DB** — same `supabase db push` hand-off as every prior migration.
 >
 > **Fee rate flip-flopped twice — read this before touching any fee
 > code:** original code/Task 35 text: 10% campaign. A session then
@@ -3039,7 +3040,7 @@ against the real Supabase instance has been made yet.
 ---
 
 ## Task 35 — Fee structure: **15%** platform fee on campaigns, 5%
-gateway fee on deposits [ ]
+gateway fee on deposits [x]
 
 **Second correction, from the product owner directly, this session
 (supersedes the "Correction" note immediately below — don't act on
@@ -3118,6 +3119,51 @@ correctly split out:**
   credited for less than was paid") — not specified by the product
   owner yet, worth a one-line confirmation before building reporting on
   top of it.
+
+**Closed, this session — this was the one item left open across both
+this task and Task 40 (see that task's own note, which shares this
+exact item verbatim).** Went with the dedicated `platform_revenue`
+table option this note listed, on the reasoning laid out in the new
+migration's own header comment: `wallet_ledger` is scoped to per-user
+balance history, so reusing it would make "how much has the platform
+earned" only answerable by summing across every user's rows — the same
+reason Stripe Connect keeps "application fees" as their own object,
+separate from a connected account's balance. New
+`supabase_migration_011_platform_revenue.sql` — one row per fee
+actually taken (`type: 'campaign_fee' | 'deposit_fee'`, `amount_cents`,
+`user_id`, `source_reference`, `metadata`), idempotent via a
+`(type, source_reference)` partial unique index (same
+catch-`unique_violation`-treat-as-already-recorded pattern as every
+other money-adjacent write in this codebase), RLS locked to
+`service_role` only — this is platform-internal financial data, not
+something exposed to any user via PostgREST.
+
+Wired into all three places a fee is actually taken:
+- `api/campaigns/create/route.ts` (authenticated wallet-debit path) —
+  writes a `campaign_fee` row after a successful campaign insert, only
+  for non-admin creators (admins pay no fee, so nothing to record).
+- `korapay-webhook/index.ts`'s `createDirectCampaign()` (guest
+  direct-pay path, Task 36 Part 2) — same `campaign_fee` write, using
+  the payment `reference` as the idempotency key.
+- `korapay-webhook/index.ts`'s `creditDeposit()` — writes a
+  `deposit_fee` row, but only when `credited === true` (a genuinely new
+  credit, not a duplicate-delivery no-op from `credit_wallet_deposit`'s
+  own idempotency) — writing on every call regardless would have
+  double-counted revenue that was only actually taken once.
+
+Every write is deliberately non-fatal on failure (logged, not thrown)
+— the underlying money movement (the wallet debit/credit, the campaign
+creation) had already succeeded by the time the revenue write is
+attempted, so a missed `platform_revenue` row is a reporting gap to
+fix, never a reason to fail a request/webhook that otherwise succeeded
+correctly.
+
+Verified via `npx tsc --noEmit` (Next.js app; `korapay-webhook` is a
+Deno Edge Function excluded from that config, no Deno runtime available
+in this sandbox to verify directly — same limitation as every prior
+`korapay-webhook` change) — clean. Migration 011 not yet applied to
+the live DB — same project-owner-only `supabase db push` hand-off as
+every prior migration.
 
 **Campaign-side audit + fix, this session (closes the "Campaign side"
 item Task 40 flagged as needing a from-scratch check):** confirmed
@@ -3700,19 +3746,19 @@ for Task 38's debit rewiring, not this).
 ---
 
 ## Task 40 — Fee arithmetic lives ONLY in the Edge Function; the RPC
-never computes, it only persists [ ]
+never computes, it only persists [x]
 
-**Status, this session — two of three items done, one shared blocker
-remains (see the orientation box at the top of this file for the
-consolidated status with Task 35, which shares this exact same open
-item):** the deposit-side 5% (Task 33 Part 2b's `creditDeposit()`) and
-the campaign-side 10% (`calculatePricing()`, confirmed adding-on-top
-not skimming-out, closed under Task 35's "Campaign-side audit + fix"
-note) are both built and verified. The one item still open — where the
-platform's fee cut itself gets recorded (a ledger row, a separate
-revenue table, or implicit) — needs a product-owner call, not a
-default implementation choice, before either this task or Task 35 can
-be checked off.
+**Status, this session — all three items now done.** The deposit-side
+5% (Task 33 Part 2b's `creditDeposit()`) and the campaign-side 10%
+(`calculatePricing()`, confirmed adding-on-top not skimming-out, closed
+under Task 35's "Campaign-side audit + fix" note) were already built
+and verified. **The one item that had been shared with Task 35 — where
+the platform's fee cut itself gets recorded — is now closed too; see
+Task 35's own "Closed, this session" note for the full write-up** (new
+`platform_revenue` table, migration 011, wired into all three fee-taking
+call sites). Not re-duplicated here since it's the exact same piece of
+work closing the exact same shared item for both tasks — no separate
+implementation exists per-task.
 
 **Note added this session — Task 40's 15%-campaign figure below has
 since been superseded again; see Task 35's "Second correction" note

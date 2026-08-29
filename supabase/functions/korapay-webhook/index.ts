@@ -195,7 +195,9 @@ async function creditDeposit(
   supabase: any,
   params: { userId: string; grossAmount: number; currency: string; reference: string },
 ): Promise<{ credited: boolean; newBalanceCents: number | null }> {
+  const grossAmountCents = Math.round(params.grossAmount * 100);
   const netAmountCents = Math.round(params.grossAmount * (1 - DEPOSIT_FEE_RATE) * 100);
+  const gatewayFeeCents = grossAmountCents - netAmountCents;
 
   const { data, error } = await supabase.rpc('credit_wallet_deposit', {
     p_user_id: params.userId,
@@ -208,7 +210,36 @@ async function creditDeposit(
   if (error) throw error;
 
   const row = Array.isArray(data) ? data[0] : data;
-  return { credited: !!row?.credited, newBalanceCents: row?.new_balance_cents ?? null };
+  const credited = !!row?.credited;
+
+  // Task 35/40 (handover.md): record the platform's 5% gateway fee as
+  // actual revenue. Only on a genuine NEW credit (credited === true) --
+  // credit_wallet_deposit's own idempotency means `credited === false`
+  // here signals "already credited on a prior delivery," and writing a
+  // second platform_revenue row for that would double-count real
+  // revenue that was only actually taken once. `source_reference`
+  // reuses the same payment `reference` migration 004's own unique
+  // index is keyed on, so migration 011's `(type, source_reference)`
+  // unique index provides a second, independent guard against the
+  // same double-count even if this `credited` check were ever wrong.
+  // A failure here is logged, not thrown -- the deposit itself already
+  // succeeded; a missed revenue row is a reporting gap, not a reason
+  // to fail a webhook Korapay would otherwise consider delivered.
+  if (credited) {
+    const { error: revenueError } = await supabase.from('platform_revenue').insert({
+      type: 'deposit_fee',
+      amount_cents: gatewayFeeCents,
+      currency: params.currency,
+      user_id: params.userId,
+      source_reference: params.reference,
+      metadata: { gross_amount_cents: grossAmountCents, net_amount_cents: netAmountCents },
+    });
+    if (revenueError && revenueError.code !== '23505') {
+      console.error(`korapay-webhook: platform_revenue insert failed (non-fatal) for reference '${params.reference}'`, revenueError);
+    }
+  }
+
+  return { credited, newBalanceCents: row?.new_balance_cents ?? null };
 }
 
 // Task 36 Part 2 (handover.md): mirrors create/route.ts's
@@ -227,7 +258,7 @@ async function creditDeposit(
 // creditDeposit() above, which this function never calls.
 async function createDirectCampaign(
   supabase: any,
-  params: { artistId: string; campaign: Record<string, any> },
+  params: { artistId: string; reference: string; campaign: Record<string, any> },
 ): Promise<{ created: boolean; campaignId: string | null; duplicate: boolean }> {
   const { sourceUrl, geographicTier, targetCountries, genre, pricing } = params.campaign || {};
 
@@ -283,6 +314,30 @@ async function createDirectCampaign(
     .single();
 
   if (insertError) throw insertError;
+
+  // Task 35/40 (handover.md): same revenue-recording rule as
+  // create/route.ts's authenticated path -- record the platform's 10%
+  // fee actually taken on this campaign placement. Not written at all
+  // in the `existingActive` (duplicate-link) case above, since this
+  // whole insert still runs even then (see this function's own header
+  // comment for why) -- deliberate: a duplicate-link campaign still
+  // really did take a real fee from a real payment, so it's still
+  // real revenue, not a case to skip.
+  const { error: revenueError } = await supabase.from('platform_revenue').insert({
+    type: 'campaign_fee',
+    amount_cents: pricing.platformFeesCents ?? 0,
+    currency: 'USD',
+    user_id: params.artistId,
+    source_reference: params.reference,
+    metadata: {
+      campaign_id: inserted.id,
+      subtotal_cents: pricing.subtotalCents,
+      total_cost_cents: pricing.totalCostCents,
+    },
+  });
+  if (revenueError && revenueError.code !== '23505') {
+    console.error(`korapay-webhook: platform_revenue insert failed (non-fatal) for reference '${params.reference}'`, revenueError);
+  }
 
   return { created: true, campaignId: inserted.id, duplicate: !!existingActive };
 }
@@ -496,6 +551,7 @@ Deno.serve(async (req: Request) => {
 
       const { campaignId, duplicate } = await createDirectCampaign(supabase, {
         artistId,
+        reference,
         campaign: session.metadata?.campaign,
       });
 
