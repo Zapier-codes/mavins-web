@@ -301,11 +301,12 @@ export default function AdminPage() {
   // its own, but calling it directly here means the admin doesn't have
   // to wait on that round-trip for their OWN list to reflect what they
   // just did.
-  async function refreshAfterWrite(table: 'pricing_tiers' | 'duration_slots' | 'countries' | 'genres' | 'genre_country_affinity') {
+  async function refreshAfterWrite(table: 'pricing_tiers' | 'duration_slots' | 'countries' | 'genres' | 'genre_country_affinity' | 'platform_fee_settings') {
     if (table === 'pricing_tiers') await loadPricingTiers();
     else if (table === 'duration_slots') await loadDurationSlots();
     else if (table === 'countries') await loadCountries();
     else if (table === 'genres') await loadGenres();
+    else if (table === 'platform_fee_settings') await loadFeeSettings();
     else await loadAffinity();
     queryClient.invalidateQueries({ queryKey: REFERENCE_DATA_QUERY_KEY });
   }
@@ -397,6 +398,18 @@ export default function AdminPage() {
   async function clearAffinity(genreId: string, countryCode: string) {
     const result = await callAdminRoute('/api/admin/genre-country-affinity', 'DELETE', { genreId, countryCode });
     if (result.success) await refreshAfterWrite('genre_country_affinity');
+    return result;
+  }
+
+  // Task 46b-d, stage 2 — POST /api/admin/fees always expects both
+  // percentages together (see that route's own header comment); this
+  // page's job is only to relay FeeSettingsPanel's already-confirmed
+  // input, not re-derive or re-validate it a second time (the panel's
+  // own type-to-confirm gate and the route's own validPercent() are
+  // where that already happens).
+  async function saveFeeSettings(input: { campaignFeePercent: number; depositFeePercent: number }) {
+    const result = await callAdminRoute('/api/admin/fees', 'POST', input);
+    if (result.success) await refreshAfterWrite('platform_fee_settings');
     return result;
   }
 
@@ -712,9 +725,9 @@ export default function AdminPage() {
           />
         )}
 
-        {/* Platform Fees Tab — Task 46b-d, stage 1 (read-only) */}
+        {/* Platform Fees Tab — Task 46b-d */}
         {activeTab === 'fees' && (
-          <FeeSettingsPanel feeSettings={feeSettings} isLoading={!feeSettingsLoaded} />
+          <FeeSettingsPanel feeSettings={feeSettings} isLoading={!feeSettingsLoaded} onSave={saveFeeSettings} />
         )}
       </div>
     </div>

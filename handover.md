@@ -5938,7 +5938,7 @@ proven in production, not just correct by code review.
 **Next: 46b-d** (admin UI — type-to-confirm fee-change form), which
 depends on this route existing and now can start.
 
-#### 46b-d — Admin UI: type-to-confirm fee-change form [ ]
+#### 46b-d — Admin UI: type-to-confirm fee-change form [x]
 **Depends on 46b-c existing.** The actual form in the admin dashboard
 — implements the already-confirmed UX decision below (type-to-confirm,
 not re-authentication): show the current rate, accept a new one, then
@@ -5949,11 +5949,11 @@ this can live as a new tab on the existing single `admin/page.tsx`,
 matching how 46a's pieces did — don't block this on 46d being done
 first, they're independent.
 
-**In progress, split into 3 stages this session (2026-08-29) — same
-risk-based reasoning as 46b-c's own split: stage 1 (read) carries none
+**Done, this session (2026-08-29), split into 3 stages — same
+risk-based reasoning as 46b-c's own split: stage 1 (read) carried none
 of this whole task's flagged risk, stage 2 (the actual write path) is
 where a mistake would matter.**
-- **Stage 1 [x]** — `src/components/admin/FeeSettingsPanel.tsx`
+- **Stage 1** — `src/components/admin/FeeSettingsPanel.tsx`
   created, read-only: displays the current campaign/deposit fee
   percentages and `changed_at`, sourced from `GET /api/admin/fees`
   (46b-c). Wired into `admin/page.tsx` as a new `fees` tab, same
@@ -5969,24 +5969,53 @@ where a mistake would matter.**
   deliberately NOT resolved to an admin name/email in this UI —
   would need an extra users-table lookup out of this stage's scope;
   46e's audit trail is the source of truth for "who," this panel only
-  needs to answer "what is the rate right now." `npx tsc --noEmit`
-  clean.
-- **Stage 2 [ ]** — not started. The actual editable form: an input
-  per fee percentage, a change summary ("Changing campaign fee from
-  10% to 12%") once a draft differs from the current value, and a
-  second field the admin must type the new number into (matching
-  exactly) before Save enables. Calls `POST /api/admin/fees` — always
-  sends both percentages together (the route requires both; an admin
-  editing only one field re-submits the other's current value
-  unchanged, which is a legitimate new append-only row per 46b-a's own
-  design, not a special case to avoid).
-- **Stage 3 [ ]** — not started. Verification + `refreshAfterWrite`-
-  equivalent integration: confirm a successful save both reloads this
-  panel's own local state AND invalidates
-  `REFERENCE_DATA_QUERY_KEY` (same integration this task's own intro
-  paragraph requires — a fee edit must reach the promote page without
-  a manual refresh, same as every 46a write already does). `npx tsc
-  --noEmit` re-check after stage 2's changes.
+  needs to answer "what is the rate right now."
+- **Stage 2** — the editable form. Each fee percentage is edited
+  independently: a draft input, and — only once that draft genuinely
+  differs from the current persisted value — its own type-to-confirm
+  field ("Type 12 to confirm the campaign fee change") that must
+  match the new number exactly (whitespace-tolerant, not
+  "close enough") before Save enables for that change. Save is a
+  single button gated on ALL currently-pending changes being
+  confirmed, not one button per field — editing only campaign fee
+  still allows saving without touching the deposit field's confirm
+  input (deposit is simply re-submitted at its current value). Drafts
+  reset from the persisted row keyed on `feeSettings.id` specifically
+  (not the percentages themselves), so a background reload of the
+  SAME still-current row never silently overwrites an admin's
+  in-progress, not-yet-saved edit — only a genuinely new row landing
+  (i.e., after a successful save) resets the form.
+- **Stage 3** — folded into stage 2's own commit (quick enough not to
+  warrant a separate one, unlike 46b-c where stage 3 involved a
+  separate grep/script pass). `admin/page.tsx`'s `saveFeeSettings()`
+  calls `POST /api/admin/fees` then `refreshAfterWrite('platform_fee_settings')`
+  — same helper every 46a write already uses, extended with a new
+  branch — which both reloads this tab's own local state AND
+  invalidates `REFERENCE_DATA_QUERY_KEY`, so a fee change reaches the
+  promote page's live pricing without a manual refresh, same
+  integration every 46a write already has. Confirmed by grep that
+  `api/admin/fees/route.ts` remains the ONLY writer of
+  `platform_fee_settings` anywhere in the repo after this change too
+  (this page's new code only ever calls that route, never writes to
+  the table directly). A throwaway Node script (written, run, deleted,
+  not committed) mirrored the panel's `parsePercent()`/changed/
+  confirmed derivation against 11 cases (unchanged, changed-unconfirmed,
+  wrong-confirm, correct-confirm, whitespace-tolerant, empty draft,
+  out-of-range, non-numeric, both 0/100 boundaries, a decimal) plus 2
+  cases confirming the two fields' confirm-gating is genuinely
+  independent (editing only one field doesn't require confirming the
+  other, and an unconfirmed change correctly blocks Save) — all 13
+  passed. `npx tsc --noEmit` clean.
+
+**Not independently confirmed against a live Supabase instance** —
+same limitation every prior Supabase-touching task in this file has
+noted, no live credentials in this sandbox.
+
+**Next: 46b-e** (audit trail wiring for fee changes specifically) —
+explicitly flagged as mandatory for 46b to be considered shippable,
+not optional, and depends on 46e's `admin_actions` table existing
+(build the minimal version here first if 46e hasn't landed yet, per
+46b-e's own note).
 
 #### 46b-e — Audit trail wiring for fee changes specifically [ ]
 **Depends on 46b-c existing, and on 46e's `admin_actions` table (or
