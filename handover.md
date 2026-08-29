@@ -433,6 +433,19 @@
 > approach, already written up two sessions ago). This supersedes the
 > "Next task: Task 30a" paragraph above.
 >
+> **This session (2026-08-29, later still) — Task 30b done, commit
+> `49121b9`.** Migration 012 (`countries.korapay_channels`/
+> `korapay_default_channel`) + `fetchReferenceData`/`TargetCountry`
+> pipeline plumbing extended to carry it through — full write-up in
+> Task 30b's own entry below. **Migration 012 not yet applied to the
+> live DB** — same `supabase db push` hand-off as every prior
+> migration. `npx tsc --noEmit` stays clean.
+>
+> **Next task, unambiguously now: Task 30c** (pure `country →
+> {channels, default_channel}` selection function, reading the data
+> 30b just plumbed through). This supersedes the "Next task: Task 30b"
+> paragraph above.
+>
 > **A session does not need to ask permission before cloning another
 > repo or switching context between the three** — if a task's real
 > subject is a different repo (this file has several, e.g. Task 33
@@ -2637,21 +2650,22 @@ before 30d ships (three concrete, specific questions, not a vague
 "what do you support" ask) — not required to unblock 30b/30c, which
 only need the 6 confirmed rows above to proceed.
 
-### 30b — Storage: extend the Supabase-backed reference-data pipeline, not a new hardcoded file [ ]
-**Recommendation, not yet built:** extend migration 010's `countries`
-table with the channel data from 30a (e.g. a `korapay_channels`
-text-array column + a `korapay_default_channel` column), and extend
-`fetchReferenceData`/`AllReferenceData`/`TargetCountry`
-(`src/lib/campaign/referenceData.ts`, `geoAffinity.ts`) to carry it
-through the same store Task 45 just built — **not** a new standalone
-hardcoded file in the shape of `countryCurrency.ts`. Task 45 was a
-deliberate, very recent move away from exactly that pattern
-(hardcoded per-country arrays going stale/drifting — see Task 29's own
-header for the drift this project has already hit multiple times);
-adding a brand new hardcoded array the session immediately after that
-convention was established would cut directly against it.
-`countryCurrency.ts` itself staying hardcoded is a pre-existing
-exception this task doesn't need to fix, not a precedent to extend.
+### 30b — Storage: extend the Supabase-backed reference-data pipeline, not a new hardcoded file [x]
+**Done, this session, commit `49121b9`.** Migration 012 adds
+`korapay_channels`/`korapay_default_channel` to the `countries` table,
+populated per 30a's findings: NG gets all three NGN channels, GH/KE/
+CI/TZ/EG get `mobile_money`, the other 19 rows (17 with no coverage +
+ZA/SN's flagged ambiguities) stay `NULL` — a real "no confirmed
+coverage" state, not "not filled in yet." `TargetCountry`
+(`geoAffinity.ts`) gets two new optional fields; `fetchReferenceData`
+(`referenceData.ts` — the one function both Task 45 Part 2's client
+store and Part 3's server-side cache already share) now selects and
+maps them, converting SQL `NULL` to `undefined` so
+`country.korapayChannels?.length` behaves the way the field's own doc
+comment promises. Confirmed `checkCountryCurrencyDrift()` only reads
+`.code`, unaffected by the new fields. `npx tsc --noEmit` passes
+clean. **Migration 012 not yet applied to the live DB** — same
+`supabase db push` hand-off as every prior migration.
 
 ### 30c — Pure selection logic: country → { channels, default_channel } [ ]
 A pure function (mirroring `getKorapayDccCurrency`'s own shape) that
