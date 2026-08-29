@@ -4,8 +4,11 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/auth/useAuth';
 import { supabase } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { formatCents, formatNumber } from '@/lib/campaign/pricing';
 import { cn } from '@/lib/utils/cn';
+import { AdminCrudTable, type AdminCrudColumn } from '@/components/admin/AdminCrudTable';
+import { REFERENCE_DATA_QUERY_KEY } from '@/hooks/campaign/useReferenceData';
 import {
   Shield, Users, BarChart3, Wallet, Activity,
   TrendingUp, AlertCircle, CheckCircle2, PauseCircle, PlayCircle,
@@ -21,16 +24,82 @@ interface AdminStats {
   totalWalletBalanceCents: number;
 }
 
+// Task 46a (handover.md), Part A of this session's own UI split.
+// Raw table shape (snake_case, matching migration 010 exactly) — kept
+// distinct from PricingTier/DurationSlot in pricing.ts, which
+// deliberately drop id/color/sort_order since calculatePricing() never
+// needed them. This admin UI needs those fields back (id for PATCH/
+// DELETE, sort_order to actually control display order), so it reads
+// the raw tables directly via the browser Supabase client rather than
+// through useReferenceData() — RLS already permits public SELECT on
+// both (migration 010's own "Public read" policies), so no new GET
+// route was needed for this.
+interface PricingTierRow {
+  id: string;
+  min_views: number;
+  max_views: number;
+  price_per_1k_cents: number;
+  label: string;
+  description: string;
+  color: string | null;
+  sort_order: number;
+}
+
+interface DurationSlotRow {
+  id: string;
+  label: string;
+  weeks: number;
+  days: number;
+  max_daily_drip: number;
+  max_views: number;
+  description: string;
+  badge: string;
+  sort_order: number;
+}
+
+const PRICING_TIER_COLUMNS: AdminCrudColumn<PricingTierRow>[] = [
+  { key: 'id', label: 'ID', type: 'text' },
+  { key: 'label', label: 'Label', type: 'text' },
+  { key: 'min_views', label: 'Min Views', type: 'number' },
+  { key: 'max_views', label: 'Max Views', type: 'number' },
+  { key: 'price_per_1k_cents', label: '¢ / 1K', type: 'number' },
+  { key: 'sort_order', label: 'Order', type: 'number' },
+  { key: 'description', label: 'Description', type: 'text' },
+];
+
+const DURATION_SLOT_COLUMNS: AdminCrudColumn<DurationSlotRow>[] = [
+  { key: 'id', label: 'ID', type: 'text' },
+  { key: 'label', label: 'Label', type: 'text' },
+  { key: 'weeks', label: 'Weeks', type: 'number' },
+  { key: 'days', label: 'Days', type: 'number' },
+  { key: 'max_daily_drip', label: 'Max Daily Drip', type: 'number' },
+  { key: 'max_views', label: 'Max Views', type: 'number' },
+  { key: 'badge', label: 'Badge', type: 'text' },
+  { key: 'sort_order', label: 'Order', type: 'number' },
+  { key: 'description', label: 'Description', type: 'text' },
+];
+
 export default function AdminPage() {
   const { isAuthenticated, isAdmin, isLoading: authLoading } = useAuth();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [ledger, setLedger] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'users' | 'ledger'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'users' | 'ledger' | 'pricing' | 'duration'>('overview');
+
+  // Task 46a Part A — pricing_tiers / duration_slots raw rows. Loaded
+  // lazily (only once their tab is first opened, see loadPricingTiers/
+  // loadDurationSlots below) rather than bundled into the initial
+  // loadData() call — this admin page's core (campaigns/users/ledger)
+  // shouldn't wait on two tables most page loads won't even look at.
+  const [pricingTiers, setPricingTiers] = useState<PricingTierRow[]>([]);
+  const [pricingTiersLoaded, setPricingTiersLoaded] = useState(false);
+  const [durationSlots, setDurationSlots] = useState<DurationSlotRow[]>([]);
+  const [durationSlotsLoaded, setDurationSlotsLoaded] = useState(false);
 
   useEffect(() => {
     // Wait for the session to actually resolve before deciding anything —
@@ -94,6 +163,87 @@ export default function AdminPage() {
     if (!error) loadData();
   }
 
+  async function loadPricingTiers() {
+    const { data, error } = await supabase.from('pricing_tiers').select('*').order('sort_order');
+    if (!error) setPricingTiers(data ?? []);
+    setPricingTiersLoaded(true);
+  }
+
+  async function loadDurationSlots() {
+    const { data, error } = await supabase.from('duration_slots').select('*').order('sort_order');
+    if (!error) setDurationSlots(data ?? []);
+    setDurationSlotsLoaded(true);
+  }
+
+  useEffect(() => {
+    if (activeTab === 'pricing' && !pricingTiersLoaded) loadPricingTiers();
+    if (activeTab === 'duration' && !durationSlotsLoaded) loadDurationSlots();
+  }, [activeTab, pricingTiersLoaded, durationSlotsLoaded]);
+
+  // Task 46a Part A — after any successful write, re-read this page's
+  // own local copy AND invalidate Task 45 Part 2's shared reference-
+  // data query key, so promote/page.tsx's live pricing slider picks up
+  // the change without a manual refresh (this task's own explicit
+  // integration requirement — see handover.md). The Realtime
+  // subscription in useReferenceData.ts would eventually do this on
+  // its own, but calling it directly here means the admin doesn't have
+  // to wait on that round-trip for their OWN list to reflect what they
+  // just did.
+  async function refreshAfterWrite(table: 'pricing_tiers' | 'duration_slots') {
+    if (table === 'pricing_tiers') await loadPricingTiers();
+    else await loadDurationSlots();
+    queryClient.invalidateQueries({ queryKey: REFERENCE_DATA_QUERY_KEY });
+  }
+
+  async function callAdminRoute(path: string, method: 'POST' | 'PATCH' | 'DELETE', body: Record<string, any>) {
+    try {
+      const res = await fetch(path, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        return { success: false, error: json?.error || `Request failed (${res.status})` };
+      }
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Request failed' };
+    }
+  }
+
+  // Maps this page's snake_case raw-row field names (matching the DB
+  // columns directly, so AdminCrudTable's generic `keyof T` columns
+  // work without a separate display-shape type) to the camelCase body
+  // keys api/admin/pricing-tiers/route.ts's own fromBody() expects —
+  // see that route's header comment for the exact field list.
+  function tierRowToBody(row: Record<string, any>) {
+    return {
+      id: row.id,
+      minViews: row.min_views,
+      maxViews: row.max_views,
+      pricePer1KCents: row.price_per_1k_cents,
+      label: row.label,
+      description: row.description,
+      color: row.color,
+      sortOrder: row.sort_order,
+    };
+  }
+
+  function slotRowToBody(row: Record<string, any>) {
+    return {
+      id: row.id,
+      label: row.label,
+      weeks: row.weeks,
+      days: row.days,
+      maxDailyDrip: row.max_daily_drip,
+      maxViews: row.max_views,
+      description: row.description,
+      badge: row.badge,
+      sortOrder: row.sort_order,
+    };
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[var(--background)] flex items-center justify-center">
@@ -132,7 +282,7 @@ export default function AdminPage() {
 
         {/* Tabs */}
         <div className="flex gap-2 overflow-x-auto scrollbar-hide">
-          {(['overview', 'campaigns', 'users', 'ledger'] as const).map((tab) => (
+          {(['overview', 'campaigns', 'users', 'ledger', 'pricing', 'duration'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -141,7 +291,7 @@ export default function AdminPage() {
                 activeTab === tab ? 'bg-[#1db954] text-black' : 'glass-card text-[var(--muted-foreground)]'
               )}
             >
-              {tab}
+              {tab === 'pricing' ? 'Pricing Tiers' : tab === 'duration' ? 'Duration Slots' : tab}
             </button>
           ))}
         </div>
@@ -286,6 +436,57 @@ export default function AdminPage() {
               </table>
             </div>
           </div>
+        )}
+        {/* Pricing Tiers Tab — Task 46a Part A */}
+        {activeTab === 'pricing' && (
+          <AdminCrudTable<PricingTierRow>
+            title="Pricing Tiers"
+            columns={PRICING_TIER_COLUMNS}
+            rows={pricingTiers}
+            isLoading={!pricingTiersLoaded}
+            emptyRow={{ min_views: 0, max_views: 0, price_per_1k_cents: 0, label: '', description: '', color: null, sort_order: pricingTiers.length }}
+            onCreate={async (row) => {
+              const result = await callAdminRoute('/api/admin/pricing-tiers', 'POST', tierRowToBody(row));
+              if (result.success) await refreshAfterWrite('pricing_tiers');
+              return result;
+            }}
+            onUpdate={async (id, updates) => {
+              const result = await callAdminRoute('/api/admin/pricing-tiers', 'PATCH', tierRowToBody({ id, ...updates }));
+              if (result.success) await refreshAfterWrite('pricing_tiers');
+              return result;
+            }}
+            onDelete={async (id) => {
+              const result = await callAdminRoute('/api/admin/pricing-tiers', 'DELETE', { id });
+              if (result.success) await refreshAfterWrite('pricing_tiers');
+              return result;
+            }}
+          />
+        )}
+
+        {/* Duration Slots Tab — Task 46a Part A */}
+        {activeTab === 'duration' && (
+          <AdminCrudTable<DurationSlotRow>
+            title="Duration Slots"
+            columns={DURATION_SLOT_COLUMNS}
+            rows={durationSlots}
+            isLoading={!durationSlotsLoaded}
+            emptyRow={{ label: '', weeks: 1, days: 7, max_daily_drip: 0, max_views: 0, description: '', badge: '', sort_order: durationSlots.length }}
+            onCreate={async (row) => {
+              const result = await callAdminRoute('/api/admin/duration-slots', 'POST', slotRowToBody(row));
+              if (result.success) await refreshAfterWrite('duration_slots');
+              return result;
+            }}
+            onUpdate={async (id, updates) => {
+              const result = await callAdminRoute('/api/admin/duration-slots', 'PATCH', slotRowToBody({ id, ...updates }));
+              if (result.success) await refreshAfterWrite('duration_slots');
+              return result;
+            }}
+            onDelete={async (id) => {
+              const result = await callAdminRoute('/api/admin/duration-slots', 'DELETE', { id });
+              if (result.success) await refreshAfterWrite('duration_slots');
+              return result;
+            }}
+          />
         )}
       </div>
     </div>
