@@ -3,28 +3,34 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **This session (2026-08-29) — Task 45 Part 4 Stage 3 done, closing
-> out Task 45 entirely.** Both of Stage 3's own outstanding "Verify"
-> items are now confirmed: (1) the slider is structurally
-> network-free — `handleSliderInput` (fires on every drag tick) only
-> touches a CSS custom property and a ref'd text node, no React state,
-> no fetch; `viewCount` (and therefore `pricing`, computed via a plain
-> `useMemo(() => calculatePricing(...))`) only updates once, on
-> release, via `handleSliderChange` — confirmed by reading
-> `promote/page.tsx` directly, `calculatePricing()` itself
-> (`pricing.ts`) is fully synchronous with no `fetch`/`await` anywhere
-> in it. (2) Traced the full display pipeline by inspection —
-> `DurationSlotsGrid`, `SelectedCountriesStack`, and `PricingBreakdown`
-> all consume `pricing`/`referenceData` directly, nothing reads a stale
-> or hardcoded value. `npx tsc --noEmit` passes clean; grepped `src/`
-> for `PRICING_TIERS`/`DURATION_SLOTS`/`TARGET_COUNTRIES`/
-> `GENRE_COUNTRY_AFFINITY` and confirmed every remaining hit is in a
-> comment, not live code (matches Stage 2's own note). `npm run build`
-> was attempted too but fails only on this sandbox's lack of network
-> access to Google Fonts — unrelated to this task, not a code issue.
-> Task 45 Part 4's own checkbox is now checked; **Task 45 Part 5
-> (contributor guide) is the only remaining open part on Task 45** and
-> is next up per its own "depends on Part 4" note.
+> **This session (2026-08-29) — Task 45 Part 5 done, closing out Task
+> 45 entirely (all 5 parts complete) and, with it, Task 44 too** (Task
+> 45 had absorbed Task 44's entire remaining scope — see the closing
+> note now added at the bottom of Task 44's own entry). New
+> `src/lib/campaign/CONTRIBUTING.md` — a worked example each for
+> adding a new data row (a Supabase insert, zero code touched) and a
+> new arithmetic rule (one step function + one line into
+> `PRICING_PIPELINE`, with an explicit list of what wasn't touched to
+> prove it). Also checked, not assumed, Task 44's three old open
+> items: admin-editing UI question still open (Task 46 is the answer,
+> not yet built); the 5M-vs-10M clamp inconsistency still open,
+> deliberately not fixed (needs a product-owner pricing call, not a
+> pure bug fix — see the guide's own caveat); the `TIERS`-vs-
+> `PRICING_TIERS` drift confirmed resolved by Part 4. `npx tsc
+> --noEmit` clean (docs + one pointer comment, no behavior change).
+>
+> **Worth checking first thing next session, not yet acted on this
+> session (one-task-per-session, and this needs its own verification
+> pass, not a guess): Task 37's "trigger-point" bullet may now be
+> unblocked.** That bullet was explicitly held because it "only makes
+> sense once Task 36's direct-pay flow exists to move \[account
+> creation\] to" — and this file's own history above already confirms
+> **Task 36 is fully done (Parts 1–4)**. If that's still accurate,
+> Task 37 is the next task in file order or should be flagged as
+> superseding Task 46 the way Task 45 superseded Task 44's remaining
+> scope — don't assume this, re-verify against the current code
+> (`resolveOrCreateGuestAccount`'s call sites) before starting it,
+> since this note is a pointer, not a confirmation.
 >
 > **Fee rate flip-flopped twice — read this before touching any fee
 > code:** original code/Task 35 text: 10% campaign. A session then
@@ -3900,7 +3906,7 @@ Verified via `npx tsc --noEmit` — clean.
 
 ---
 
-## Task 44 — Migrate static/hardcoded campaign data into Supabase; promote page fetches dynamically, no static logic [ ]
+## Task 44 — Migrate static/hardcoded campaign data into Supabase; promote page fetches dynamically, no static logic [x]
 
 **Ask, from the product owner directly:** the promote page (and the
 pricing engine behind it) currently runs entirely off hardcoded arrays
@@ -4085,9 +4091,16 @@ arithmetic pipeline), per direct product-owner request. Don't build
 the sync-vs-async decision described above in isolation; Task 45's own
 Part 1-3 make that same decision as part of a larger, coherent plan.
 
+**Closed out, 2026-08-29: Task 45 (all 5 parts) is now done**, which
+was this task's entire remaining scope (everything after Part 1).
+Checking this task's own box now rather than leaving it permanently
+open under a task that no longer has any live work of its own — the
+"Superseded" note above stays for history/context, not because
+anything here is still outstanding.
+
 ---
 
-## Task 45 — Store-backed reference data (Zustand/TanStack Query, fetch-once + resync-only-on-change) + a modular pricing-arithmetic pipeline [ ]
+## Task 45 — Store-backed reference data (Zustand/TanStack Query, fetch-once + resync-only-on-change) + a modular pricing-arithmetic pipeline [x]
 
 **SPEC ONLY, per explicit instruction — no code written for this task
 this session.** Supersedes Task 44's own Parts 2-4 (see that task's
@@ -4568,7 +4581,47 @@ task's own 5-part split above — not a deviation from it:**
   byte-for-byte comparison script (from Part 1's own verify step)
   already proved the new pipeline produces.
 
-### Part 5 — Contributor guide + concrete proof the "modular" goal holds [ ]
+### Part 5 — Contributor guide + concrete proof the "modular" goal holds [x]
+
+**Done this session (2026-08-29).** New `src/lib/campaign/CONTRIBUTING.md`
+— a small dedicated file rather than a comment block, since the guide
+needs to cover the whole reference-data/pricing pipeline (multiple
+files: `pricing.ts`, `referenceData.ts`, `referenceDataCache.ts`,
+`useReferenceData.ts`, migration 010), not just one function's own
+neighborhood. Covers both required things with a worked example each:
+1. **Adding a new data row** — a hypothetical seventh pricing tier,
+   shown as a single `insert` statement, zero `.ts` files touched.
+   Also flagged the one real caveat this example surfaces on its own:
+   a tier whose range starts above `clampViewsStep`'s existing
+   `Math.min(..., 5000000)` clamp is stored and visible but
+   unreachable by the actual calculation until that clamp changes too
+   — ties directly into the still-open Task 44 item below rather than
+   silently glossing over it.
+2. **Adding a new arithmetic rule** — narrated version of `pricing.ts`'s
+   own `EXAMPLE_firstTimeDiscountStep` (already in the file, per Part
+   1): the one new step function, the one line inserting it into
+   `PRICING_PIPELINE`, and an explicit list of what was NOT touched
+   (all six existing steps, `calculatePricing()` itself, every call
+   site, `PricingContext`'s shape) — the actual demonstration, not an
+   assertion.
+Added a short pointer comment in `pricing.ts` (next to the existing
+worked-example comment) linking to the new file, rather than
+duplicating the guide's content into the code comments themselves.
+`npx tsc --noEmit` clean (docs-only + one comment addition; no
+behavior change).
+
+**Task 44's three still-open items — checked, not assumed:**
+- **Admin-editing UI question** — still open. Task 46 (SPEC ONLY) is
+  the direct answer, not yet built.
+- **5M-vs-10M clamp inconsistency** — still open, deliberately not
+  fixed here either (see the guide's own §1 caveat) — needs a
+  product-owner call since it's a pricing decision (does the seeded
+  "Legend" tier become reachable), not a pure bug fix.
+- **`TIERS`-vs-`PRICING_TIERS` drift** — confirmed resolved by Task 45
+  Part 4 (the local `TIERS` array in `promote/page.tsx` is gone;
+  one tiers source now, not two).
+
+**Task 45 is now fully done — all 5 parts complete.**
 
 **Depends on Part 4** (needs the final, real shape of the code to
 document accurately — writing this earlier risks describing an
