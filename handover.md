@@ -3,6 +3,29 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
+> **This session (2026-08-29) — Task 45 Part 4 Stage 3 done, closing
+> out Task 45 entirely.** Both of Stage 3's own outstanding "Verify"
+> items are now confirmed: (1) the slider is structurally
+> network-free — `handleSliderInput` (fires on every drag tick) only
+> touches a CSS custom property and a ref'd text node, no React state,
+> no fetch; `viewCount` (and therefore `pricing`, computed via a plain
+> `useMemo(() => calculatePricing(...))`) only updates once, on
+> release, via `handleSliderChange` — confirmed by reading
+> `promote/page.tsx` directly, `calculatePricing()` itself
+> (`pricing.ts`) is fully synchronous with no `fetch`/`await` anywhere
+> in it. (2) Traced the full display pipeline by inspection —
+> `DurationSlotsGrid`, `SelectedCountriesStack`, and `PricingBreakdown`
+> all consume `pricing`/`referenceData` directly, nothing reads a stale
+> or hardcoded value. `npx tsc --noEmit` passes clean; grepped `src/`
+> for `PRICING_TIERS`/`DURATION_SLOTS`/`TARGET_COUNTRIES`/
+> `GENRE_COUNTRY_AFFINITY` and confirmed every remaining hit is in a
+> comment, not live code (matches Stage 2's own note). `npm run build`
+> was attempted too but fails only on this sandbox's lack of network
+> access to Google Fonts — unrelated to this task, not a code issue.
+> Task 45 Part 4's own checkbox is now checked; **Task 45 Part 5
+> (contributor guide) is the only remaining open part on Task 45** and
+> is next up per its own "depends on Part 4" note.
+>
 > **Fee rate flip-flopped twice — read this before touching any fee
 > code:** original code/Task 35 text: 10% campaign. A session then
 > "corrected" it to 15% (Task 40), citing a product-owner confirmation.
@@ -4472,7 +4495,7 @@ precise here rather than left as a general preference.
   exists to guarantee, not just "the code calls calculatePricing()
   somewhere."
 
-### Part 4 — Frontend wiring: delete the old static arrays, slider reads only from the store [ ]
+### Part 4 — Frontend wiring: delete the old static arrays, slider reads only from the store [x]
 
 **Depends on Parts 1-3 all being done and verified — this is the
 highest-risk part (deletion), done last and in isolation on purpose.**
@@ -4502,14 +4525,28 @@ task's own 5-part split above — not a deviation from it:**
   (dev-only, same as before). `npx tsc --noEmit` clean; confirmed via
   grep that every remaining reference to the four deleted export names
   anywhere in `src/` is in a comment, not live code.
-- **Stage 3 [ ]** — not started. Still owes this part's own two
-  "Verify" items: (1) confirm by inspection/manual interaction that
-  dragging the promote page's slider triggers zero network requests
-  (the end-to-end proof of this whole task's premise), and (2)
-  manually exercise the full promote-page flow and confirm every
-  displayed number matches what Part 1's byte-for-byte comparison
-  script already proved the pipeline produces. This part's own
-  checkbox above stays unchecked until stage 3 closes both out.
+- **Stage 3 [x]** — done (2026-08-29). Closed out this part's own two
+  "Verify" items by inspection (no running browser available in this
+  sandbox, so this is a code-level trace rather than a literal manual
+  click-through): (1) `handleSliderInput` (the DOM-input handler that
+  fires continuously while dragging) only mutates a CSS custom
+  property and a ref'd text node — no `setState`, no network call
+  anywhere in it or anything it calls; `viewCount` React state (and
+  therefore `pricing`, `useMemo`'d straight off `calculatePricing()`)
+  only changes once, on release, via `handleSliderChange`.
+  `calculatePricing()` itself (`pricing.ts`) is fully synchronous —
+  confirmed no `fetch`/`await` anywhere in the file. (2) Traced every
+  consumer of `pricing`/`referenceData` in `promote/page.tsx`
+  (`DurationSlotsGrid`, `SelectedCountriesStack`, `PricingBreakdown`,
+  the header tier badge, the submit button's price label) and
+  confirmed each reads directly off the same `pricing`/`referenceData`
+  values Part 1's own verified pipeline produces — nothing stale or
+  re-derived separately. `npx tsc --noEmit` clean. Re-ran Stage 2's
+  grep for the four deleted export names across `src/`: every
+  remaining hit is still in a comment only. `npm run build` was also
+  attempted; it fails solely on this sandbox's lack of network access
+  to fetch Google Fonts at build time, unrelated to this task's
+  changes.
 
 - Delete `PRICING_TIERS`/`DURATION_SLOTS` from `pricing.ts`,
   `TARGET_COUNTRIES`/`GENRE_COUNTRY_AFFINITY` from `geoAffinity.ts`,
