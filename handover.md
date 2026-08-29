@@ -84,17 +84,29 @@
 > apply anywhere below in this file as of this confirmation — treat any
 > such wording found further down (there's a lot of it, accumulated
 > across sessions) as historical, not current. **Migration 010 (Task
-> 44 Part 1's five reference tables) is also confirmed live as of this
-> session** — product owner confirmed directly. **Actual next
-> unblocked work: Task 45 Part 3** (server-side authoritative
-> recomputation — see that part's own entry). Task 35's two
+> 44 Part 1's five reference tables) is also confirmed live** — product
+> owner confirmed directly. **Actual next unblocked work: Task 45 Part 4**
+> (frontend wiring — delete the old static arrays; highest-risk part,
+> done last on purpose — see that part's own entry). Task 35's two
 > remaining open items (where the platform's cut gets recorded;
 > whether `add-funds` should carry the fee too) are still open but
 > both explicitly need a product-owner call, not something to guess at
 > — pick those up only if the product owner raises them, don't treat
-> them as the default next task over Part 3. Task 36 is fully done
+> them as the default next task over Part 4. Task 36 is fully done
 > (Parts 1–4 all complete, see below). No task in this file is
 > currently on hold.
+>
+> **This session — Task 45 Part 3 done.** Both real server call sites
+> (`create/route.ts`, `initialize-campaign/route.ts`) now read
+> reference data via a new server-side TTL cache
+> (`referenceDataCache.ts`, wrapping Part 2's shared
+> `fetchReferenceData()`) instead of the hardcoded arrays.
+> `initialize/route.ts` confirmed correctly out of scope (no pricing
+> calls at all). Verified structurally (throwaway script, deleted
+> after) that neither route reads any price/total/amount-shaped field
+> from the client body at all — see Part 3's own note for the full
+> writeup. `npx tsc --noEmit` passes clean. **Next: Part 4** — depends
+> on Parts 1–3 all being verified, which they now are.
 >
 > **This session — Task 45 Part 2 done (2026-08-28).** New
 > `src/lib/campaign/referenceData.ts` (plain fetch+shape function, not
@@ -4350,11 +4362,58 @@ same file).
   triggers zero resyncs — the two behaviors this part's entire premise
   rests on.
 
-### Part 3 — Server-side authoritative recomputation: the charge amount is never trusted from the client [ ]
+### Part 3 — Server-side authoritative recomputation: the charge amount is never trusted from the client [x]
 
 **Depends on Part 1.** This is the literal answer to "I want price
 calculation to be server side" from earlier this session — made
 precise here rather than left as a general preference.
+
+**Done this session (2026-08-28).**
+
+- Both real call sites (`create/route.ts`, `initialize-campaign/route.ts`)
+  now call `getServerReferenceData(admin)` (new
+  `src/lib/campaign/referenceDataCache.ts`) instead of importing
+  `PRICING_TIERS`/`DURATION_SLOTS` directly, and pass the result into
+  `calculatePricing()` exactly as before. `initialize/route.ts` stays
+  untouched — confirmed by grep it has zero `calculatePricing()`
+  references; it's still just a flat, price-irrelevant wallet top-up
+  amount, matching this part's own "if it ever becomes price-relevant"
+  conditional, which it hasn't.
+- `src/lib/campaign/referenceDataCache.ts` — new. The module-level
+  in-memory cache with a 60s TTL this part's own spec recommended,
+  wrapping Part 2's shared `fetchReferenceData()` (not duplicated —
+  same function Part 2's client hook calls, just given the
+  admin/service-role client here instead of the browser one). Added
+  one thing beyond the spec's literal ask: concurrent cache-miss
+  requests (e.g. several checkouts initiating in the same instant right
+  after the TTL expires) collapse into a single in-flight Supabase read
+  via a shared promise, rather than each firing its own redundant
+  fetch. Documented the real serverless caveat this cache has that a
+  browser-tab cache wouldn't: it's only shared within a single warm
+  instance, so a cold start or a request landing on a different
+  instance gets its own fresh cache regardless of TTL — expected and
+  fine for this data, noted so it isn't mistaken for a bug later.
+- **No Realtime/webhook invalidation built server-side** — matches this
+  part's own accepted tradeoff ("a stale-by-up-to-60-seconds price...
+  is acceptable") and Part 2's "don't build both speculatively" logic,
+  applied here too.
+- **Verify, per this part's own explicit requirement** ("a throwaway
+  script or manual test confirming a server route rejects/ignores a
+  tampered client-supplied total"): wrote and ran a throwaway script
+  (this project's own convention — write it, run it, delete it) that
+  parsed both routes' actual source for every field read from the
+  client request body (dot-access **and** destructuring, not just one
+  pattern) and confirmed neither ever reads anything matching
+  `/total|price|amount|cost|charge/i` — the stronger, more literal
+  version of "rejects a tampered total" is that there is structurally
+  no such field for a client to tamper *with*; only inputs
+  (`viewCount`, `genre`, etc.) ever cross the wire, and the server
+  computes the actual number from those every time. Also confirmed
+  `calculatePricing()` is genuinely called in both files (not just
+  imported) and that neither file references the hardcoded arrays
+  outside of an explanatory comment. All checks passed; script deleted
+  after, nothing extra committed.
+- Verified: `npx tsc --noEmit` passes clean.
 
 - Every server route that turns a price into an actual charge
   (`create/route.ts`, `initialize-campaign/route.ts`, and

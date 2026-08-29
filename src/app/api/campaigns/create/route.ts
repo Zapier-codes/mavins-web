@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { isAdmin } from '@/lib/auth/isAdmin';
-import { calculatePricing, PRICING_TIERS, DURATION_SLOTS } from '@/lib/campaign/pricing';
+import { calculatePricing } from '@/lib/campaign/pricing';
+import { getServerReferenceData } from '@/lib/campaign/referenceDataCache';
 
 /**
  * POST /api/campaigns/create
@@ -124,10 +125,19 @@ export async function POST(request: NextRequest) {
     const { data: profile } = await admin.from('users').select('role').eq('id', authUser.id).single();
     const callerIsAdmin = isAdmin({ email: authUser.email, role: profile?.role });
 
-    // Task 45 Part 1: reference data now passed explicitly rather than
-    // read as module globals -- still PRICING_TIERS/DURATION_SLOTS,
-    // zero behavior change.
-    const pricing = calculatePricing(body.viewCount, { tiers: PRICING_TIERS, durationSlots: DURATION_SLOTS });
+    // Task 45 Part 3 (handover.md): reference data now comes from a
+    // server-side Supabase read (Part 2's own client store is
+    // browser-only; this is the server's independent copy, cached with
+    // a short TTL — see referenceDataCache.ts) instead of the
+    // hardcoded PRICING_TIERS/DURATION_SLOTS arrays. This is the
+    // security-relevant half of Task 45: this route computes its own
+    // authoritative price from the reference data itself, never from
+    // anything the client sent — a tampered/stale client-side preview
+    // can't affect what actually gets charged, since the client never
+    // even had a number to tamper with here (only viewCount, an input,
+    // not a price).
+    const referenceData = await getServerReferenceData(admin);
+    const pricing = calculatePricing(body.viewCount, { tiers: referenceData.tiers, durationSlots: referenceData.durationSlots });
 
     // Product-owner rule, this session: a duplicate campaign for the
     // SAME link is not allowed, but multiple campaigns for multiple
