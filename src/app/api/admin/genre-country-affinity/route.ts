@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/requireAdmin';
+import { logAdminAction } from '@/lib/admin/auditLog';
 
 /**
  * Admin write path for public.genre_country_affinity (migration 010).
@@ -45,6 +46,19 @@ export async function POST(request: NextRequest) {
   const scoreError = validateScore(score);
   if (scoreError) return NextResponse.json({ success: false, ...scoreError }, { status: 400 });
 
+  // Task 46e — no single `id` column here (composite PK), so record_id
+  // is a synthetic 'genreId:countryCode' string — still a stable,
+  // greppable identifier for this specific pair, same spirit as the
+  // other four routes' single-column record_id.
+  const recordId = `${genreId}:${countryCode}`;
+
+  const { data: previous } = await context.admin
+    .from('genre_country_affinity')
+    .select('*')
+    .eq('genre_id', genreId)
+    .eq('country_code', countryCode)
+    .maybeSingle();
+
   const { data, error } = await context.admin
     .from('genre_country_affinity')
     .upsert({ genre_id: genreId, country_code: countryCode, score: Number(score) }, { onConflict: 'genre_id,country_code' })
@@ -52,6 +66,21 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+
+  // Action name reflects the route's own upsert semantics (this file's
+  // header comment) rather than a fixed 'create'/'update' — 'upsert'
+  // is accurate whether or not `previous` existed, and old_value
+  // (null vs a real row) already distinguishes the two cases for
+  // anyone reading this audit entry later.
+  await logAdminAction(context.admin, {
+    adminId: context.authUser.id,
+    action: 'genre_country_affinity.upsert',
+    tableName: 'genre_country_affinity',
+    recordId,
+    oldValue: previous,
+    newValue: data,
+  });
+
   return NextResponse.json({ success: true, affinity: data });
 }
 
@@ -65,6 +94,15 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'genreId and countryCode are required' }, { status: 400 });
   }
 
+  const recordId = `${genreId}:${countryCode}`;
+
+  const { data: previous } = await context.admin
+    .from('genre_country_affinity')
+    .select('*')
+    .eq('genre_id', genreId)
+    .eq('country_code', countryCode)
+    .maybeSingle();
+
   const { error } = await context.admin
     .from('genre_country_affinity')
     .delete()
@@ -72,5 +110,15 @@ export async function DELETE(request: NextRequest) {
     .eq('country_code', countryCode);
 
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+
+  await logAdminAction(context.admin, {
+    adminId: context.authUser.id,
+    action: 'genre_country_affinity.delete',
+    tableName: 'genre_country_affinity',
+    recordId,
+    oldValue: previous,
+    newValue: null,
+  });
+
   return NextResponse.json({ success: true });
 }

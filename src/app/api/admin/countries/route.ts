@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/requireAdmin';
+import { logAdminAction } from '@/lib/admin/auditLog';
 
 /**
  * Admin CRUD for public.countries (migration 010 + migration 012's
@@ -67,6 +68,16 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await context.admin.from('countries').insert(row).select().single();
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+
+  await logAdminAction(context.admin, {
+    adminId: context.authUser.id,
+    action: 'countries.create',
+    tableName: 'countries',
+    recordId: data.code,
+    oldValue: null,
+    newValue: data,
+  });
+
   return NextResponse.json({ success: true, country: data });
 }
 
@@ -80,8 +91,20 @@ export async function PATCH(request: NextRequest) {
   if ('error' in row) return NextResponse.json({ success: false, error: row.error }, { status: 400 });
   const { code, ...updates } = row;
 
+  const { data: previous } = await context.admin.from('countries').select('*').eq('code', body.code).maybeSingle();
+
   const { data, error } = await context.admin.from('countries').update(updates).eq('code', body.code).select().single();
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+
+  await logAdminAction(context.admin, {
+    adminId: context.authUser.id,
+    action: 'countries.update',
+    tableName: 'countries',
+    recordId: body.code,
+    oldValue: previous,
+    newValue: data,
+  });
+
   return NextResponse.json({ success: true, country: data });
 }
 
@@ -92,7 +115,19 @@ export async function DELETE(request: NextRequest) {
   const body = await request.json();
   if (!body?.code) return NextResponse.json({ success: false, error: 'code is required' }, { status: 400 });
 
+  const { data: previous } = await context.admin.from('countries').select('*').eq('code', body.code).maybeSingle();
+
   const { error } = await context.admin.from('countries').delete().eq('code', body.code);
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+
+  await logAdminAction(context.admin, {
+    adminId: context.authUser.id,
+    action: 'countries.delete',
+    tableName: 'countries',
+    recordId: body.code,
+    oldValue: previous,
+    newValue: null,
+  });
+
   return NextResponse.json({ success: true });
 }

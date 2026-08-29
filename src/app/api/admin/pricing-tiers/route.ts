@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/requireAdmin';
+import { logAdminAction } from '@/lib/admin/auditLog';
 
 /**
  * Admin CRUD for public.pricing_tiers (migration 010).
@@ -79,6 +80,17 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await context.admin.from('pricing_tiers').insert(row).select().single();
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+
+  // Task 46e — audit trail for 46a's writes, see src/lib/admin/auditLog.ts's own header comment.
+  await logAdminAction(context.admin, {
+    adminId: context.authUser.id,
+    action: 'pricing_tiers.create',
+    tableName: 'pricing_tiers',
+    recordId: data.id,
+    oldValue: null,
+    newValue: data,
+  });
+
   return NextResponse.json({ success: true, tier: data });
 }
 
@@ -92,8 +104,23 @@ export async function PATCH(request: NextRequest) {
   if ('error' in row) return NextResponse.json({ success: false, error: row.error }, { status: 400 });
   const { id, ...updates } = row;
 
+  // Task 46e — read the pre-update row so the audit entry has a real
+  // old_value, same "read before write" pattern api/admin/fees/route.ts
+  // already established for its own INSERT-as-change-record shape.
+  const { data: previous } = await context.admin.from('pricing_tiers').select('*').eq('id', body.id).maybeSingle();
+
   const { data, error } = await context.admin.from('pricing_tiers').update(updates).eq('id', body.id).select().single();
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+
+  await logAdminAction(context.admin, {
+    adminId: context.authUser.id,
+    action: 'pricing_tiers.update',
+    tableName: 'pricing_tiers',
+    recordId: body.id,
+    oldValue: previous,
+    newValue: data,
+  });
+
   return NextResponse.json({ success: true, tier: data });
 }
 
@@ -104,7 +131,19 @@ export async function DELETE(request: NextRequest) {
   const body = await request.json();
   if (!body?.id) return NextResponse.json({ success: false, error: 'id is required' }, { status: 400 });
 
+  const { data: previous } = await context.admin.from('pricing_tiers').select('*').eq('id', body.id).maybeSingle();
+
   const { error } = await context.admin.from('pricing_tiers').delete().eq('id', body.id);
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+
+  await logAdminAction(context.admin, {
+    adminId: context.authUser.id,
+    action: 'pricing_tiers.delete',
+    tableName: 'pricing_tiers',
+    recordId: body.id,
+    oldValue: previous,
+    newValue: null,
+  });
+
   return NextResponse.json({ success: true });
 }

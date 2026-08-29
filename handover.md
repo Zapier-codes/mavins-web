@@ -27,6 +27,22 @@
 > Task 47's UI/UX items (spec only, not started) — genuinely open,
 > pick whichever fits.**
 >
+> **Newest session (2026-08-29, after the above) — 46e's audit-logging
+> gap closed for 46a.** New `src/lib/admin/auditLog.ts`
+> (`logAdminAction()`), wired into all five of Task 46a's routes
+> (pricing-tiers, duration-slots, countries, genres,
+> genre-country-affinity — every write verb across all five). See
+> 46e's own entry under Task 46 below for full detail, including why
+> `/api/admin/fees` and `/api/admin/campaigns/[id]` were deliberately
+> left untouched rather than refactored to match. **What's left before
+> 46e's own checkbox can flip: the confirmation-dialogs pattern for
+> destructive/high-impact 46a/46c actions — not built at all yet.**
+> 46c's pause/cancel decision is also still open (unrelated to this
+> session's own work, not resolved by it). **Next session: build the
+> confirmation-dialog pattern (46e), get the product owner's pause/
+> cancel call (46c), or pick up Task 47's UI/UX items — still all
+> genuinely open, pick whichever fits.**
+>
 > **Newest session (2026-08-29) — product-owner decisions recorded for
 > Task 46c/46e, no code written (explicit instruction that session).** Headcount confirmed **Option A** (root + 3
 > assigned = 4 total). User-management scope confirmed **much
@@ -6328,16 +6344,55 @@ session doesn't assume the route split settled it.
 
 ### 46e — Audit trail + safety rails across all of the above [ ]
 
-**Status, this session — the table exists now, this part's broader
-scope doesn't yet.** `admin_actions` (migration 015) was built by
-46b-e (see that part's own done-note above) rather than here, per
-46b-e's explicit "build the minimal version first" instruction — don't
-create a second table or rename this one without checking that note
-first. What's still genuinely open, unchanged by 46b-e's work: 46a's
-and 46c's own writes don't call `admin_actions` yet (only
-`/api/admin/fees`'s `POST` does, since that was 46b-e's own narrow
-scope), and the confirmation-dialogs pattern described below hasn't
-been built at all.
+**Status, this session (2026-08-29) — 46a's writes now covered too;
+confirmation dialogs still the one remaining piece.** New
+`src/lib/admin/auditLog.ts` (`logAdminAction()`) — extracted once a
+6th-through-13th near-identical insert+error-handling block started
+being needed (46a's five routes, each with up to three write verbs),
+rather than copy-pasting the shape `/api/admin/fees` and
+`/api/admin/campaigns/[id]` had each independently hand-rolled.
+Deliberately fire-and-log, not fire-and-throw — same posture both of
+those two originals already established (an audit-insert failure never
+rolls back or fails the real write, just logs loudly) — this helper
+just centralizes that contract, doesn't change it.
+**Wired into all five of 46a's routes this session**
+(`pricing-tiers`, `duration-slots`, `countries`, `genres`,
+`genre-country-affinity` — every POST/PATCH/DELETE across all five),
+each logging a dot-namespaced action (`pricing_tiers.create`,
+`countries.delete`, etc. — `genre_country_affinity` gets `.upsert`
+specifically, matching that route's own upsert-not-strict-create-or-
+update semantics per its header comment, with a synthetic
+`genreId:countryCode` `record_id` since that table has no single `id`/
+`code` column). PATCH/DELETE handlers now read the row via a
+`.select('*').eq(...).maybeSingle()` *before* mutating, purely so
+`old_value` has something real to record — same "read before write"
+pattern `/api/admin/fees` already established for its own append-only
+shape, applied here to genuine update-in-place tables instead.
+**Deliberately NOT refactored: `/api/admin/fees` and
+`/api/admin/campaigns/[id]` themselves** — both already work
+correctly and were reviewed/shipped as-is; the DRY argument for
+`logAdminAction()` applies to the five NEW call sites this session
+adds, not retroactively to two already-correct ones that would gain
+nothing but review risk from being touched.
+**Verified:** `npx tsc --noEmit` clean across the whole project. A
+throwaway Node script (deleted after use) mirrored
+`logAdminAction()`'s payload-construction logic against 2 cases
+(populated `oldValue`/`newValue`, and confirming an omitted `newValue`
+correctly defaults to `null` rather than `undefined` reaching the
+insert) — both correct. **Not verified — no way to check from this
+sandbox:** an actual authenticated admin write against a live Supabase
+instance, i.e. that these inserts succeed for real against
+`admin_actions`' actual RLS/service-role posture — same standing
+limitation every part of this task has flagged.
+**Still genuinely open, not touched this session:** the
+confirmation-dialogs pattern (destructive/high-impact changes —
+deleting a country/tier a live campaign might reference, overriding a
+live campaign's view count) described below hasn't been built at
+all — 46b's fee-change UI has its own type-to-confirm pattern already,
+but nothing shared exists yet for 46a/46c's own higher-stakes actions.
+That, plus 46c's still-open pause/cancel product decision (see this
+task's top-of-file note), are what keep both 46c and 46e's own
+checkboxes at `[ ]`.
 
 Every mutation from 46a/46b/46c needs: who made it, when, and the
 before/after value — a new `admin_actions` (or similarly named) table,

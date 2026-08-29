@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/requireAdmin';
+import { logAdminAction } from '@/lib/admin/auditLog';
 
 /**
  * Admin CRUD for public.duration_slots (migration 010).
@@ -60,6 +61,16 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await context.admin.from('duration_slots').insert(row).select().single();
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+
+  await logAdminAction(context.admin, {
+    adminId: context.authUser.id,
+    action: 'duration_slots.create',
+    tableName: 'duration_slots',
+    recordId: data.id,
+    oldValue: null,
+    newValue: data,
+  });
+
   return NextResponse.json({ success: true, slot: data });
 }
 
@@ -73,8 +84,20 @@ export async function PATCH(request: NextRequest) {
   if ('error' in row) return NextResponse.json({ success: false, error: row.error }, { status: 400 });
   const { id, ...updates } = row;
 
+  const { data: previous } = await context.admin.from('duration_slots').select('*').eq('id', body.id).maybeSingle();
+
   const { data, error } = await context.admin.from('duration_slots').update(updates).eq('id', body.id).select().single();
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+
+  await logAdminAction(context.admin, {
+    adminId: context.authUser.id,
+    action: 'duration_slots.update',
+    tableName: 'duration_slots',
+    recordId: body.id,
+    oldValue: previous,
+    newValue: data,
+  });
+
   return NextResponse.json({ success: true, slot: data });
 }
 
@@ -85,7 +108,19 @@ export async function DELETE(request: NextRequest) {
   const body = await request.json();
   if (!body?.id) return NextResponse.json({ success: false, error: 'id is required' }, { status: 400 });
 
+  const { data: previous } = await context.admin.from('duration_slots').select('*').eq('id', body.id).maybeSingle();
+
   const { error } = await context.admin.from('duration_slots').delete().eq('id', body.id);
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+
+  await logAdminAction(context.admin, {
+    adminId: context.authUser.id,
+    action: 'duration_slots.delete',
+    tableName: 'duration_slots',
+    recordId: body.id,
+    oldValue: previous,
+    newValue: null,
+  });
+
   return NextResponse.json({ success: true });
 }
