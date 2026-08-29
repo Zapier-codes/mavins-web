@@ -83,16 +83,35 @@
 > No further "not yet deployed"/"awaiting deploy feedback" caveats
 > apply anywhere below in this file as of this confirmation — treat any
 > such wording found further down (there's a lot of it, accumulated
-> across sessions) as historical, not current. **Actual next
-> unblocked work, as of Task 45 Part 1 landing this session: Task 45
-> Part 2** (see the note above this one for detail). Task 35's two
+> across sessions) as historical, not current. **Migration 010 (Task
+> 44 Part 1's five reference tables) is also confirmed live as of this
+> session** — product owner confirmed directly. **Actual next
+> unblocked work: Task 45 Part 3** (server-side authoritative
+> recomputation — see that part's own entry). Task 35's two
 > remaining open items (where the platform's cut gets recorded;
 > whether `add-funds` should carry the fee too) are still open but
 > both explicitly need a product-owner call, not something to guess at
 > — pick those up only if the product owner raises them, don't treat
-> them as the default next task over Part 2. Task 36 is fully done
+> them as the default next task over Part 3. Task 36 is fully done
 > (Parts 1–4 all complete, see below). No task in this file is
 > currently on hold.
+>
+> **This session — Task 45 Part 2 done (2026-08-28).** New
+> `src/lib/campaign/referenceData.ts` (plain fetch+shape function, not
+> a hook — reused by Part 3 server-side) and
+> `src/hooks/campaign/useReferenceData.ts` (TanStack Query, decided
+> over Zustand for this data specifically — see that part's own note
+> for why) + a Supabase Realtime subscription on all five migration-010
+> tables that invalidates the query cache on any change. Wired in at
+> the true app root (`layout.tsx`, via a new `QueryProvider` client
+> component) — **not** `src/app/providers.tsx`, which turned out to be
+> entirely dead code (zero importers anywhere) despite looking like the
+> obvious place; flagged, not deleted. `npx tsc --noEmit` passes clean;
+> `npx eslint` cannot run in this sandbox at all (pre-existing broken
+> config, unrelated to this session). The live-Realtime-resync behavior
+> itself still needs a human with real Supabase dashboard access to
+> confirm — see Part 2's own "Verify" note for the two specific
+> behaviors to check. **Next: Part 3.**
 >
 > **This session — Task 45 Part 1 done (2026-08-28).**
 > `pricing.ts`/`geoAffinity.ts` refactored into data-parameterized pure
@@ -4174,10 +4193,99 @@ asserted (see below).
   - Sandbox and script deleted after — nothing extra committed, per
     this project's established convention.
 
-### Part 2 — Client-side store: TanStack Query vs. Zustand decision, fetch-once at init, resync-only-on-change mechanism [ ]
+### Part 2 — Client-side store: TanStack Query vs. Zustand decision, fetch-once at init, resync-only-on-change mechanism [x]
 
 **Depends on Part 1** (needs the data-parameterized functions to exist
 so the store's cached data has something to be passed into).
+
+**Done this session (2026-08-28).** Confirmed by the product owner
+directly, this session: **migration 010 is live** — the five reference
+tables (`pricing_tiers`, `duration_slots`, `countries`, `genres`,
+`genre_country_affinity`) actually exist on the real Supabase instance,
+not just as a checked-in SQL file. This matters because it's what makes
+this part's own code meaningfully testable/correct rather than
+hopeful — worth recording explicitly since nothing in this file had
+confirmed migration 010's live status before this note (unlike
+migrations 004/005/007/008, each individually confirmed earlier in this
+same file).
+
+- **Decision made, as this part's own spec asked for explicitly:
+  TanStack Query alone**, no separate Zustand store for this specific
+  data. Zustand stays available in this project (already a dependency)
+  for genuinely client-only UI state that was never server data — not
+  used for reference data, since Query's own cache already provides
+  everything a hand-rolled store would just reimplement, with more
+  room to disagree with itself.
+- `src/lib/campaign/referenceData.ts` — new. A plain async
+  `fetchReferenceData(client)` function (not a hook) that reads all
+  five tables via one `Promise.all` and shapes them into Part 1's own
+  `PricingReferenceData`/`GeoReferenceData` interfaces, plus a new
+  `GenreOption[]` (`{id, label}`) that neither of those interfaces
+  already covered — `promote/page.tsx`'s own local `GENRES` array
+  (id-only strings today) is what Part 4 will eventually replace with
+  this. `genre_country_affinity`'s flat table rows are folded into the
+  nested `Record<genre, Record<country, score>>` shape
+  `GENRE_COUNTRY_AFFINITY` already uses, so `geoAffinity.ts`'s scoring
+  functions need no changes to accept it. Deliberately a plain function
+  taking a `SupabaseClient` argument, not a hook — Part 3's server-side
+  routes will call this exact same function (via the admin/
+  service-role client, not the browser one) rather than duplicating the
+  fetch+shape logic a second time; one function, two callers, matching
+  Part 1's own "one engine, multiple data sources" framing.
+- `src/hooks/campaign/useReferenceData.ts` — new. Wraps
+  `fetchReferenceData` in a `useQuery` (`staleTime: Infinity` — nothing
+  time-based decides staleness here) plus a `useEffect`-managed Supabase
+  Realtime channel subscribed to `postgres_changes` on all five tables;
+  any event on any of them calls `queryClient.invalidateQueries(...)`
+  on this hook's own query key, triggering exactly one refetch. One
+  channel for all five tables (every real consumer needs all five
+  together anyway), not five separate subscriptions. The documented
+  version-check fallback from this part's own spec was **not** built —
+  Realtime was usable without any blocker found, so building the
+  fallback alongside it would have been exactly the "don't build both
+  speculatively" this part's own instructions warned against.
+- `src/components/providers/QueryProvider.tsx` — new. A small client
+  component wrapping `QueryClientProvider`, using the
+  `useState(() => new QueryClient(...))` pattern (TanStack Query's own
+  documented approach for the Next.js App Router, not invented here) so
+  the client survives re-renders without losing its cache. Also wires
+  up `@tanstack/react-query-devtools`, which turned out to already be
+  an installed dependency with zero existing usage anywhere in the
+  codebase before this session — connected it now that there's finally
+  a `QueryClientProvider` for it to attach to (no-ops outside
+  development on its own, nothing extra needed here).
+- **Root-level, not scoped to the promote page** — wired into
+  `src/app/layout.tsx` directly (the *real* root provider tree:
+  `AuthProvider` → `ThemeProvider` → `LayoutContent`), not
+  `src/app/providers.tsx`. Reference data is small/cheap enough that
+  fetching it app-wide isn't wasteful, and it means the promote page
+  never waits on a fresh fetch the first time a user reaches it.
+- **Found and flagged, not fixed (separate, low-priority concern):**
+  `src/app/providers.tsx` — the file that looked like the obvious place
+  to add this — turned out to have **zero importers anywhere in the
+  codebase**, confirmed by grep. The real provider tree lives directly
+  in `layout.tsx`; `GeoProvider` is wired per-page instead (see its
+  usage in `promote/page.tsx`/`fund-wallet/page.tsx`), not through this
+  file either. Left the file in place (deleting unused-but-harmless
+  code is a separate decision from this task's actual scope) but added
+  an in-file comment explaining this, so a future session doesn't lose
+  time on the same confusion this session had.
+- **Verify:** this part's own spec says the live-Realtime-resync
+  behavior "can't be scripted without live Supabase access from this
+  sandbox" — still true; this sandbox has no network path to the real
+  Supabase project (only migration 010 being *live* was confirmed, by
+  the product owner directly, not independently re-verified from here).
+  `npx tsc --noEmit` passes clean. `npx eslint` could not run at all in
+  this sandbox — pre-existing environment issue
+  (`ERR_PACKAGE_PATH_NOT_EXPORTED` on `eslint.config.mjs`), unrelated to
+  this session's changes and not something previously fixed either; every
+  other session in this file has used `tsc` alone as its verification
+  bar, followed here too. **Still needs a human, with real Supabase
+  dashboard access, to change a row in one of the five tables and
+  confirm exactly one resync fires, and that leaving the data untouched
+  triggers zero** — the two behaviors this part's entire premise rests
+  on, per this part's own "Verify" bullet above.
+
 
 - **Decide and document, explicitly, before writing code:** TanStack
   Query alone (it already provides a global cache + `staleTime` +
