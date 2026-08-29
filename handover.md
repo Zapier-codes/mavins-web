@@ -84,12 +84,30 @@
 > apply anywhere below in this file as of this confirmation — treat any
 > such wording found further down (there's a lot of it, accumulated
 > across sessions) as historical, not current. **Actual next
-> unblocked work:** Task 36 Part 4 (frontend wiring — Part 3 is now
-> done, see that task's own note), Task 35's
-> two remaining open items (where the platform's cut gets recorded;
-> whether `add-funds` should carry the fee too — both still need a
-> product-owner call, not blocked on deploy), or Task 44 (spec-only,
-> not started). No task in this file is currently on hold.
+> unblocked work:** Task 35's two remaining open items (where the
+> platform's cut gets recorded; whether `add-funds` should carry the
+> fee too — both still need a product-owner call, not blocked on
+> deploy), or Task 44 (spec-only, not started). Task 36 is now fully
+> done (Parts 1–4 all complete, see below). No task in this file is
+> currently on hold.
+>
+> **This session — Task 36 Part 4 done, closing out Task 36
+> entirely.** `checkout.ts` gained `initializeCampaignCheckout()`
+> (shares its checkout-redirect logic with `initializeCheckout` via a
+> new private `redirectToCheckout()` helper rather than duplicating
+> it); `promote/page.tsx`'s guest branch now calls it directly instead
+> of routing through the wallet top-up flow, with an inline email
+> field replacing the one that used to live on the fund-wallet page's
+> own form. Landed on `redirectTo: '/promote?campaign_created=1'` for
+> the post-confirmation destination. Flagged, not solved: a guest
+> returning from a confirmed payment doesn't get signed in
+> automatically — the verify route is a pure status redirect and was
+> never meant to establish a session, even though the webhook has by
+> then already created their account. See Task 36 Part 4's own note
+> for the full write-up, the auto-login gap, and one other
+> already-flagged, still-open rough edge (verify route's
+> failure/pending redirects are hardcoded to `/fund-wallet?...`
+> regardless of session type).
 >
 > **This session — Task 36 Part 3 done.** `create/route.ts`'s bare
 > `401` for an unauthenticated caller now carries `code:
@@ -2899,7 +2917,7 @@ owner call before touching it — don't assume either way.
 
 ---
 
-## Task 36 — Direct-pay campaigns for guests/first-timers; wallet-funded campaigns for returning users only [ ]
+## Task 36 — Direct-pay campaigns for guests/first-timers; wallet-funded campaigns for returning users only [x]
 
 **Split into 4 parts this session, per the one-task-per-session
 convention (this task was flagged "not startable in any partial form"
@@ -2949,12 +2967,12 @@ landed — reconciled as of this note, Part 2 is genuinely done.
    authenticated caller (the other half of the "two-way rule") already
    existed before this session, nothing to add there. Verified: `npx
    tsc --noEmit` passes clean.
-4. **[ ] Part 4 — frontend wiring.** `promote/page.tsx`'s "Place
+4. **[x] Part 4 — frontend wiring.** `promote/page.tsx`'s "Place
    Campaign" action branches on auth state: logged-in → existing
    `create/route.ts` wallet-debit call, unchanged; guest → Part 1's
    route, redirect to the returned `checkout_url`.
 
-   **Scope note, this session — found and fixed a real, live bug
+   **Scope note, prior session — found and fixed a real, live bug
    while starting this part, before writing any of Part 4's own code:
    don't build a new `/campaign-payment/verify` page mirroring
    `fund-wallet/verify` — that page has been deleted, and nothing
@@ -2996,22 +3014,63 @@ landed — reconciled as of this note, Part 2 is genuinely done.
    page or route is needed for the campaign-direct-pay flow at all** —
    once `initializeCheckout` (or a call built the same way) is used for
    Part 1's route, the existing fix above already covers it for free.
-   The actual remaining Part 4 work is narrower than originally scoped:
-   just the `promote/page.tsx` branch (call
-   `/api/payments/initialize-campaign` for a guest instead of
-   `/fund-wallet`, using Part 3's `redirectTo`/`code` signal from
-   `create/route.ts` to know when to do so) and deciding what
-   `redirectTo` a guest campaign payment should land on post-confirmation
-   (`/promote?campaign_created=1` or similar — not decided yet).
 
-   **Related, lower-priority, NOT fixed this session:** the verify
-   route's own failure/pending redirects are hardcoded to
-   `/fund-wallet?error=...`/`?info=...` regardless of what kind of
-   payment session this was — fine (if slightly generic) for a top-up,
-   probably not the ideal landing page for a failed *campaign* payment.
-   Worth a follow-up once Part 4's guest campaign flow actually exists
-   to have an opinion about where that should go instead — flagging,
-   not guessing at it now.
+   **Done, this session.** `src/lib/payments/checkout.ts`: extracted
+   the checkout_url-processing logic out of `initializeCheckout` into a
+   private `redirectToCheckout()` helper, then added
+   `initializeCampaignCheckout()` — same contract, but posts the full
+   campaign intent to Part 1's route instead of a bare dollar amount to
+   the wallet route, so the two flows share the URL-guard/verify-
+   callback logic rather than risk it drifting between them.
+   `promote/page.tsx`: replaced `goFundWalletGuest` (routed guests
+   through the wallet top-up flow — correct before this task existed,
+   wrong per its explicit rule, and now fully unused/removed) with
+   `goDirectPayCampaign`, calling the new helper; `handleSubmit`'s
+   guest branch validates email inline (this codebase's usual
+   `EMAIL_RE` pattern) instead of deferring to the fund-wallet form's
+   own field, since there's no fund-wallet page in this flow anymore.
+   Added the guest email `<input>` directly on the promote page, and a
+   `campaign_created=1` query-param effect + distinct success banner
+   for a guest returning from checkout.
+
+   **Landed on `redirectTo: '/promote?campaign_created=1'`** for the
+   post-confirmation destination — this task's own earlier note left
+   it undecided; picked the same page the guest started on rather than
+   a dedicated confirmation page, since there's nothing else useful to
+   show them yet (no session to fetch "their" campaign with — see
+   next).
+
+   **Real, deliberate scope boundary, flagged rather than solved:** a
+   guest returning from a confirmed payment does NOT get signed in
+   automatically. Part 2's webhook has, by then, already created their
+   `users` row + campaign server-side (Task 37), but
+   `/api/payments/verify/[reference]` is a pure status redirect (Task
+   33 Part 2a) and was never meant to establish a browser session for
+   anyone. The success banner is worded to match reality ("your
+   campaign is being set up") rather than implying they're logged in
+   or can see it yet. Auto-signing in a freshly-auto-provisioned guest
+   is a distinct, non-trivial feature (magic link or similar) — Task
+   37's own note doesn't cover it either. Worth its own task if this
+   product wants that gap closed.
+
+   **Also still open, not addressed here (already flagged by a prior
+   session, still true):** the verify route's own failure/pending
+   redirects are hardcoded to `/fund-wallet?error=...`/`?info=...`
+   regardless of session type — a guest whose *campaign* payment fails
+   or is still confirming lands on the fund-wallet page's error/info
+   banner, not `/promote`'s. Cosmetic, not a functional break (the
+   route's core status logic is unaffected), but worth a follow-up.
+
+   Verified: `npx tsc --noEmit` clean on the full project (not just the
+   touched files). A throwaway script (deleted after use) confirmed
+   `initializeCampaignCheckout`'s POST body matches
+   `initialize-campaign/route.ts`'s documented shape exactly, with and
+   without a `paymentCurrency`/DCC hint. **Not verified:** an actual
+   live guest checkout end-to-end (no sandbox network access to
+   Supabase/Korapay from this environment) — recommend a real check
+   post-deploy: as a logged-out visitor, submit a campaign, confirm
+   Korapay's checkout page shows the right amount/currency, and confirm
+   the campaign + guest account actually exist afterward.
 
 **Ask, restated precisely:** a **direct campaign** (pay for this one
 campaign right now, no wallet involved) is how every guest/first-time
