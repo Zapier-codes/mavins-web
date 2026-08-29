@@ -7,8 +7,11 @@ import { useAuth } from '@/hooks/auth/useAuth';
 import { createCampaign, getArtistCampaigns } from '@/services/campaign/campaign.service';
 import { getPublicSeedStats } from '@/services/stats/publicStats.service';
 import { useGeo } from '@/components/providers/GeoProvider';
-import { calculatePricing, formatCents, formatNumber, DURATION_SLOTS, PRICING_TIERS } from '@/lib/campaign/pricing';
-import { getRecommendedGeographies, getGeoTargetingPool, scoreLabel, TARGET_COUNTRIES, GENRE_COUNTRY_AFFINITY } from '@/lib/campaign/geoAffinity';
+import { calculatePricing, formatCents, formatNumber } from '@/lib/campaign/pricing';
+import type { DurationSlot } from '@/lib/campaign/pricing';
+import { getRecommendedGeographies, getGeoTargetingPool, scoreLabel } from '@/lib/campaign/geoAffinity';
+import type { TargetCountry, GeoReferenceData } from '@/lib/campaign/geoAffinity';
+import { useReferenceData } from '@/hooks/campaign/useReferenceData';
 import { getKorapayDccCurrency } from '@/lib/currency/korapayDccCurrency';
 import { COUNTRY_CURRENCY } from '@/lib/currency/countryCurrency';
 import { initializeCheckout, initializeCampaignCheckout } from '@/lib/payments/checkout';
@@ -38,20 +41,23 @@ const PublicAnalyticsShowcase = dynamic(
   }
 );
 
-const GENRES = [
-  'Afrobeats', 'Amapiano', 'Hip-Hop', 'R&B', 'Pop',
-  'Electronic', 'Reggae', 'Gospel', 'Highlife', 'Jazz',
-  'Rock', 'Afro-fusion', 'Drill', 'Dancehall'
-];
-
-const TIERS = [
-  { min: 1000, max: 10000, label: 'Starter', color: 'from-emerald-500 to-teal-500' },
-  { min: 10001, max: 50000, label: 'Growth', color: 'from-blue-500 to-cyan-500' },
-  { min: 50001, max: 100000, label: 'Scale', color: 'from-violet-500 to-purple-500' },
-  { min: 100001, max: 500000, label: 'Pro', color: 'from-amber-500 to-orange-500' },
-  { min: 500001, max: 1000000, label: 'Enterprise', color: 'from-rose-500 to-pink-500' },
-  { min: 1000001, max: 5000000, label: 'Legend', color: 'from-red-500 to-rose-600' },
-];
+// Task 45 Part 4 (stage 1 of 3, handover.md) — the old GENRES/TIERS
+// arrays that duplicated PRICING_TIERS/DURATION_SLOTS-shaped data
+// locally are gone; genres and tier boundaries now come from
+// useReferenceData()'s store below. TIER_COLORS survives because it
+// is a genuinely UI-only concern (a display gradient per tier label)
+// that migration 010's pricing_tiers table has no column for and
+// shouldn't need one for — keyed by label so it still lines up with
+// whatever tier the store returns for a given view count.
+const TIER_COLORS: Record<string, string> = {
+  Starter: 'from-emerald-500 to-teal-500',
+  Growth: 'from-blue-500 to-cyan-500',
+  Scale: 'from-violet-500 to-purple-500',
+  Pro: 'from-amber-500 to-orange-500',
+  Enterprise: 'from-rose-500 to-pink-500',
+  Legend: 'from-red-500 to-rose-600',
+};
+const DEFAULT_TIER_COLOR = 'from-emerald-500 to-teal-500';
 
 const PENDING_CAMPAIGN_KEY = 'mavins_pending_campaign';
 // Same pattern as fund-wallet/page.tsx and initialize-campaign/route.ts's
@@ -87,12 +93,12 @@ function getStageLabel(stage: string) {
 
 // ── Memoized subsections ──────────────────────────────────────────────
 
-const GenreChips = memo(function GenreChips({ selectedGenre, onSelect }: {
-  selectedGenre: string; onSelect: (genre: string) => void;
+const GenreChips = memo(function GenreChips({ selectedGenre, onSelect, genres }: {
+  selectedGenre: string; onSelect: (genre: string) => void; genres: string[];
 }) {
   return (
     <div className="flex flex-wrap gap-2">
-      {GENRES.map((genre) => (
+      {genres.map((genre) => (
         <button key={genre} type="button" onClick={() => onSelect(genre)} className={cn(
           'px-3 py-1.5 rounded-full text-xs font-medium text-center whitespace-nowrap transition-all active:scale-95',
           selectedGenre === genre ? 'bg-[#1db954] text-black shadow-lg shadow-[#1db954]/20' : 'chip-card text-[var(--muted-foreground)]'
@@ -103,20 +109,21 @@ const GenreChips = memo(function GenreChips({ selectedGenre, onSelect }: {
 });
 
 const GeoTargetingSection = memo(function GeoTargetingSection({
-  genre, homeCountryCode, selectedCodes, onToggle, isAdmin,
+  genre, homeCountryCode, selectedCodes, onToggle, isAdmin, geoReferenceData,
 }: {
   genre: string; homeCountryCode: string | null; selectedCodes: string[];
-  onToggle: (code: string) => void; isAdmin: boolean;
+  onToggle: (code: string) => void; isAdmin: boolean; geoReferenceData: GeoReferenceData;
 }) {
   // Shown pool is 8-of-25, genre-weighted-random — re-shuffles whenever
   // genre (or home market) changes, so the artist never sees a fixed,
-  // static set of countries every time they land here. Task 45 Part 1:
-  // reference data now passed explicitly rather than read as module
-  // globals -- still TARGET_COUNTRIES/GENRE_COUNTRY_AFFINITY, zero
-  // behavior change.
+  // static set of countries every time they land here. Task 45 Part 4
+  // (stage 1): reference data now comes from the parent's
+  // useReferenceData() store, passed down as a prop, instead of the
+  // old TARGET_COUNTRIES/GENRE_COUNTRY_AFFINITY module globals Part 1
+  // had temporarily kept passing explicitly. Zero behavior change.
   const shown = useMemo(
-    () => getGeoTargetingPool(genre || null, homeCountryCode, { countries: TARGET_COUNTRIES, genreCountryAffinity: GENRE_COUNTRY_AFFINITY }),
-    [genre, homeCountryCode]
+    () => getGeoTargetingPool(genre || null, homeCountryCode, geoReferenceData),
+    [genre, homeCountryCode, geoReferenceData]
   );
   const topCodes = useMemo(() => new Set(shown.slice(0, 3).map((r) => r.code)), [shown]);
   const atLimit = !isAdmin && selectedCodes.length >= MAX_COUNTRIES_FREE;
@@ -166,7 +173,7 @@ const GeoTargetingSection = memo(function GeoTargetingSection({
   );
 });
 
-const DurationSlotsGrid = memo(function DurationSlotsGrid({ selectedSlotId }: { selectedSlotId: string }) {
+const DurationSlotsGrid = memo(function DurationSlotsGrid({ selectedSlotId, durationSlots }: { selectedSlotId: string; durationSlots: DurationSlot[] }) {
   return (
     <div className="glass-card rounded-xl p-4">
       <div className="flex items-center justify-between mb-3">
@@ -177,7 +184,7 @@ const DurationSlotsGrid = memo(function DurationSlotsGrid({ selectedSlotId }: { 
         <span className="text-xs text-[var(--subtle-foreground)]">Auto-calculated</span>
       </div>
       <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-5 gap-1.5 xs:gap-2">
-        {DURATION_SLOTS.map((slot) => (
+        {durationSlots.map((slot) => (
           <div key={slot.id} className={cn('text-center p-2.5 rounded-xl border transition-all',
             selectedSlotId === slot.id ? 'bg-[#1db954]/10 border-[#1db954]/30 text-[#1db954]' : 'chip-card border-white/5 text-[var(--subtle-foreground)]'
           )}>
@@ -195,9 +202,9 @@ const DurationSlotsGrid = memo(function DurationSlotsGrid({ selectedSlotId }: { 
 // user targeted (or a network-wide globe when nothing's selected yet), as
 // an overlapping stack so it reads as one cohesive "your reach" chip rather
 // than a wall of separate flag icons.
-const SelectedCountriesStack = memo(function SelectedCountriesStack({ codes }: { codes: string[] }) {
+const SelectedCountriesStack = memo(function SelectedCountriesStack({ codes, countries }: { codes: string[]; countries: TargetCountry[] }) {
   const picked = codes
-    .map((code) => TARGET_COUNTRIES.find((c) => c.code === code))
+    .map((code) => countries.find((c) => c.code === code))
     .filter((c): c is NonNullable<typeof c> => !!c);
 
   if (picked.length === 0) {
@@ -243,13 +250,14 @@ const SelectedCountriesStack = memo(function SelectedCountriesStack({ codes }: {
 });
 
 const PricingBreakdown = memo(function PricingBreakdown({
-  pricing, topGeo, targetedGeo, targetedCountries, localCurrency,
+  pricing, topGeo, targetedGeo, targetedCountries, localCurrency, countries,
 }: {
   pricing: ReturnType<typeof calculatePricing>;
   topGeo: { country: string; flag: string } | null;
   targetedGeo: { country: string; flag: string } | null;
   targetedCountries: string[];
   localCurrency: { code: string; symbol: string; rate: number } | null;
+  countries: TargetCountry[];
 }) {
   const hourlyRate = Math.round(pricing.dailyDripRate / 24);
   // Task 31: the primary total (formatCents, below) is always rendered
@@ -268,7 +276,7 @@ const PricingBreakdown = memo(function PricingBreakdown({
   // selected yet. Names are shown for 1–2 picks (reads naturally); beyond
   // that it's flags-only so the line doesn't wrap awkwardly on mobile.
   const selectedGeos = targetedCountries
-    .map((code) => TARGET_COUNTRIES.find((c) => c.code === code))
+    .map((code) => countries.find((c) => c.code === code))
     .filter((c): c is { code: string; country: string; flag: string } => !!c);
 
   const reachLabel = selectedGeos.length > 0
@@ -409,6 +417,16 @@ export default function PromotePage() {
   const [targetCountries, setTargetCountries] = useState<string[]>([]);
   const [localCurrency, setLocalCurrency] = useState<{ code: string; symbol: string; rate: number } | null>(null);
 
+  // Task 45 Part 4 (stage 1) — reference data (pricing tiers, duration
+  // slots, countries, genres, affinity scores) now comes from the
+  // store Part 2 built, fetched once and resynced only on change, not
+  // from this file's own hardcoded arrays. `referenceData` is
+  // undefined until the first fetch resolves; everything below that
+  // depends on it (pricing, genre list, geo targeting) guards for
+  // that explicitly rather than assuming it's always present the way
+  // the old module-level constants were.
+  const { data: referenceData } = useReferenceData();
+
   // Task 36 Part 4 — a guest lands back here from Korapay checkout via
   // /api/payments/verify/[reference]?redirect=/promote%3Fcampaign_created%3D1
   // (see goDirectPayCampaign below). That verify route is a pure
@@ -459,23 +477,41 @@ export default function PromotePage() {
     return () => { cancelled = true; };
   }, []);
 
-  // Task 45 Part 1: reference data now passed explicitly rather than
-  // read as module globals -- still PRICING_TIERS/DURATION_SLOTS, zero
-  // behavior change.
+  // Task 45 Part 4 (stage 1): sourced from the store instead of the
+  // old PRICING_TIERS/DURATION_SLOTS module globals. `null` while
+  // referenceData hasn't loaded yet -- every consumer below is only
+  // reached once the loading gate around the New Campaign card (in
+  // the JSX) has already confirmed referenceData (and therefore this)
+  // is non-null, so this stays a plain `ReturnType<typeof
+  // calculatePricing> | null` rather than needing its own fallback
+  // value the way currentTier does below.
   const pricing = useMemo(
-    () => calculatePricing(viewCount, { tiers: PRICING_TIERS, durationSlots: DURATION_SLOTS }),
-    [viewCount]
+    () => referenceData ? calculatePricing(viewCount, { tiers: referenceData.tiers, durationSlots: referenceData.durationSlots }) : null,
+    [viewCount, referenceData]
   );
-  const currentTier = useMemo(() => TIERS.find(t => viewCount >= t.min && viewCount <= t.max) || TIERS[0], [viewCount]);
+  // Unlike `pricing` above, this always returns a real (if
+  // placeholder) value -- it's read in the header badge that renders
+  // even during the brief loading window before referenceData
+  // arrives, so a null here would need its own guard at every call
+  // site instead of one shared default.
+  const currentTier = useMemo(() => {
+    const tiers = referenceData?.tiers ?? [];
+    const found = tiers.find((t) => viewCount >= t.minViews && viewCount <= t.maxViews) ?? tiers[0];
+    const label = found?.label ?? 'Starter';
+    return { label, color: TIER_COLORS[label] ?? DEFAULT_TIER_COLOR };
+  }, [viewCount, referenceData]);
 
   const topTargetedGeo = useMemo(() => {
-    if (targetCountries.length === 0) return null;
-    // Task 45 Part 1: reference data now passed explicitly, same as
-    // the `shown` useMemo above -- zero behavior change.
-    const ranked = getRecommendedGeographies(selectedGenre || null, homeCountryCode, { countries: TARGET_COUNTRIES, genreCountryAffinity: GENRE_COUNTRY_AFFINITY });
+    if (targetCountries.length === 0 || !referenceData) return null;
+    // Task 45 Part 4 (stage 1): reference data now comes from the
+    // store, same as the `shown` useMemo inside GeoTargetingSection --
+    // zero behavior change. `referenceData` structurally satisfies
+    // GeoReferenceData (it's a superset -- see AllReferenceData in
+    // referenceData.ts), so it's passed straight through.
+    const ranked = getRecommendedGeographies(selectedGenre || null, homeCountryCode, referenceData);
     const best = ranked.find((r) => targetCountries.includes(r.code));
     return best ? { country: best.country, flag: best.flag } : null;
-  }, [targetCountries, selectedGenre, homeCountryCode]);
+  }, [targetCountries, selectedGenre, homeCountryCode, referenceData]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -599,6 +635,12 @@ export default function PromotePage() {
   // handleSubmit below) and for a returning user whose createCampaign
   // attempt came back insufficient.
   const goStraightToCheckout = useCallback(async (reason: string) => {
+    // Guarded, not asserted: this is only ever invoked from
+    // handleSubmit/the submit button, both reachable only once the
+    // loading gate below has confirmed pricing is non-null -- but
+    // this callback's own signature doesn't know that, so it checks
+    // for itself rather than trusting the caller.
+    if (!pricing) { alert('Pricing is still loading — please try again in a moment.'); return; }
     const amountUsd = Math.ceil(pricing.totalCostCents / 100);
     stashPendingCampaign();
     setIsSubmitting(true);
@@ -613,7 +655,7 @@ export default function PromotePage() {
       setIsSubmitting(false);
       alert(error);
     }
-  }, [pricing.totalCostCents, stashPendingCampaign, dccCurrency]);
+  }, [pricing, stashPendingCampaign, dccCurrency]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -697,6 +739,21 @@ export default function PromotePage() {
         )}
 
         <div className="glass-strong rounded-2xl p-4 xs:p-5 sm:p-6 space-y-5 gpu-layer">
+          {/* Task 45 Part 4 (stage 1) — the whole campaign form now
+              waits on referenceData/pricing instead of assuming the
+              old hardcoded arrays were always synchronously present.
+              A brief skeleton here, once, rather than a null-check at
+              every one of the dozen call sites below. */}
+          {!referenceData || !pricing ? (
+            <div className="space-y-4" aria-hidden>
+              <div className="h-6 w-40 rounded-lg shimmer" />
+              <div className="h-10 rounded-xl shimmer" />
+              <div className="h-24 rounded-xl shimmer" />
+              <div className="h-32 rounded-xl shimmer" />
+              <div className="h-24 rounded-xl shimmer" />
+            </div>
+          ) : (
+          <>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-[#1db954]/10 border border-[#1db954]/20 flex items-center justify-center">
@@ -748,7 +805,7 @@ export default function PromotePage() {
 
             <div className="space-y-2">
               <label className="text-sm font-medium mb-2 text-[var(--muted-foreground)]">Genre</label>
-              <GenreChips selectedGenre={selectedGenre} onSelect={handleGenreSelect} />
+              <GenreChips selectedGenre={selectedGenre} onSelect={handleGenreSelect} genres={referenceData.genres.map((g) => g.label)} />
             </div>
 
             <GeoTargetingSection
@@ -757,6 +814,7 @@ export default function PromotePage() {
               selectedCodes={targetCountries}
               onToggle={handleToggleCountry}
               isAdmin={isAdmin}
+              geoReferenceData={referenceData}
             />
 
             {/* Target Views slider — native input, DOM-only updates while
@@ -794,16 +852,18 @@ export default function PromotePage() {
               </div>
             </div>
 
-            <DurationSlotsGrid selectedSlotId={pricing.durationSlot.id} />
-            <SelectedCountriesStack codes={targetCountries} />
+            <DurationSlotsGrid selectedSlotId={pricing.durationSlot.id} durationSlots={referenceData.durationSlots} />
+            <SelectedCountriesStack codes={targetCountries} countries={referenceData.countries} />
 
-            <PricingBreakdown pricing={pricing} topGeo={topGeo} targetedGeo={topTargetedGeo} targetedCountries={targetCountries} localCurrency={localCurrency} />
+            <PricingBreakdown pricing={pricing} topGeo={topGeo} targetedGeo={topTargetedGeo} targetedCountries={targetCountries} localCurrency={localCurrency} countries={referenceData.countries} />
 
             <button type="submit" disabled={isSubmitting} className="w-full py-3.5 rounded-xl bg-[#1db954] text-black font-semibold hover:bg-[#1ed760] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-[#1db954]/20 gpu-layer">
               {isSubmitting ? <><div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />Creating campaign...</>
                 : <><Rocket className="w-5 h-5" /><span className="truncate">{isAdmin ? 'Launch Campaign' : `Launch Campaign — ${formatCents(pricing.totalCostCents)}`}</span></>}
             </button>
           </form>
+          </>
+          )}
         </div>
 
         {campaigns.length > 0 && (
