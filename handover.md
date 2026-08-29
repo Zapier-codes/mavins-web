@@ -446,6 +446,23 @@
 > 30b just plumbed through). This supersedes the "Next task: Task 30b"
 > paragraph above.
 >
+> **This session (2026-08-29, later still) — Task 30c done.** New
+> `src/lib/currency/korapayChannels.ts`, `getKorapayChannels()` — reads
+> the already-fetched `TargetCountry[]` (30b's fields) directly rather
+> than a second hardcoded map; verified against 8 concrete cases (a
+> throwaway Node script, not just eyeballed) before treating this as
+> done — full write-up in Task 30c's own entry below. `npx tsc
+> --noEmit` stays clean.
+>
+> **Next task, unambiguously now: Task 30d** (wire `getKorapayChannels()`
+> into the actual checkout call — `checkout.ts` →
+> `/api/payments/initialize/route.ts` → `initialize-payment` Edge
+> Function → B-Pay-backend's `POST /api/pay`, with the **server-side
+> recompute** requirement 30d's own entry below already specifies:
+> never trust whatever channel the client sends for an actually-charged
+> parameter). This supersedes the "Next task: Task 30c" paragraph
+> above.
+>
 > **A session does not need to ask permission before cloning another
 > repo or switching context between the three** — if a task's real
 > subject is a different repo (this file has several, e.g. Task 33
@@ -2667,14 +2684,41 @@ comment promises. Confirmed `checkCountryCurrencyDrift()` only reads
 clean. **Migration 012 not yet applied to the live DB** — same
 `supabase db push` hand-off as every prior migration.
 
-### 30c — Pure selection logic: country → { channels, default_channel } [ ]
-A pure function (mirroring `getKorapayDccCurrency`'s own shape) that
-reads the store's country data (from 30b) and returns the right
-`channels`/`default_channel` pair for a given country code, with an
-explicit, documented fallback (return nothing / let Korapay pick its
-own default) for any country 30a left unmapped — same fallback
-philosophy `korapayDccCurrency.ts` already uses for DCC-ineligible
-countries, not a new pattern.
+### 30c — Pure selection logic: country → { channels, default_channel } [x]
+
+**Done this session (2026-08-29).** New
+`src/lib/currency/korapayChannels.ts`, `getKorapayChannels(countries,
+countryCode)` — deliberately reads from the already-fetched
+`TargetCountry[]` (Task 30b's `korapayChannels`/`korapayDefaultChannel`
+fields, populated via `referenceData.ts`/`useReferenceData()`) rather
+than a second hardcoded map the way `korapayDccCurrency.ts` does —
+that file predates the Supabase-backed reference-data pipeline (Task
+45); this one is built after it and uses it directly, not a second
+static source of the same kind of per-country data Task 44/45 exist
+to centralize. Returns `null` for any unmapped country (Task 30a's 17
+always-uncovered rows, or ZA/SN's two deliberately-left-ambiguous
+flags) — documented as the *expected*, non-error result, with the
+fallback behavior (don't send `channels`/`default_channel` at all)
+being 30d's job, not this function's.
+
+This is also, finally, the actual `korapayChannels.ts` file
+B-Pay-backend's own handover.md claimed already existed here (see this
+task's own "real cross-repo documentation bug" note above) — that
+claim is no longer false.
+
+**Verified with concrete cases, not just eyeballed:** a throwaway
+Node script (8 cases — confirmed-mapped country with a default
+channel, case-insensitive country-code input, confirmed-mapped
+country with no default set, an explicitly-unmapped flag country
+(ZA), a country with zero Korapay coverage, an unknown/absent country
+code, and both `null`/`undefined` input) — all 8 passed against the
+exact logic now in the real file. `npx tsc --noEmit` also passes
+clean.
+
+**Next: 30d** — wire this into the actual checkout call, with the
+"must independently recompute server-side, never trust the client for
+a charged/routing parameter" requirement this task's own text already
+specifies.
 
 ### 30d — Wire into checkout, with server-side revalidation [ ]
 Pass the result of 30c through `checkout.ts` →
