@@ -24,25 +24,34 @@
 > fixed the same way. `npx tsc --noEmit` stays clean (unchanged
 > baseline).
 >
-> **Next task, checked this session, not just carried forward:** with
-> Task 37 done, the next genuinely open, unblocked, no-product-owner-
-> input-needed work is **Task 33 Part 3** — a shared user/admin success
-> screen with an animated country-interconnection pipeline
-> visualization (central hub node, animated links out to each selected
-> target country), shown on confirmed payment. Confirmed via grep this
-> session: nothing matching this description exists in `src/` yet.
-> Task 33's own top-level box stays `[ ]` correctly — Part 3 is the
-> reason, not stale bookkeeping. **Everything else earlier in file
-> order is blocked or needs a product-owner call, not silently
-> skippable:** Task 30 (blocked on B-Pay-backend's own Task 10,
-> cross-repo), Task 32 (blocked on Task 33 — narrower now that Part
-> 1/2 are done, but still gated on Part 3 above per that task's own
-> text), Task 35 (its only remaining open items — where the platform's
-> cut gets recorded; whether `add-funds` should carry a fee — both
-> explicitly need a product-owner call per this file's own earlier
-> note, not a default pickup). Task 46 remains SPEC ONLY with its own
-> embedded open questions (capability-key taxonomy, root-vs-4-total
-> headcount) — also not a blind next pickup.
+> **Next task, checked this session, not just carried forward:**
+> **Task 33 Part 3 done** — new
+> `src/components/campaign/CampaignSuccessVisualization.tsx` (shared
+> user/admin success screen, animated hub-to-target-country
+> visualization), wired into both of `promote/page.tsx`'s success
+> moments. **Task 33's top-level box is now `[x]`** — all three parts
+> (1/1b, 2/2a/2b/2c/2d, 3) are done. **Task 32 also closed out this
+> session** — it was blocked on Task 33 existing, which it now does;
+> verified with code (not assumed) that `initialize-payment`'s Edge
+> Function always forwards a caller-supplied reference to B-Pay-
+> backend's `POST /api/pay`, and left a recommendation (not an
+> implementation — that code lives in a different repo, not cloned
+> here) for B-Pay-backend's own session to turn its `generateReference()`
+> fallback into a bug-signal log line rather than a silent default. See
+> Task 32's own done-note for the full write-up.
+>
+> **Four top-level tasks remain unchecked in this file, and all four
+> are genuinely blocked or gated — none is a blind next pickup:**
+> Task 30 (blocked on B-Pay-backend's own Task 10, cross-repo), Task 35
+> and **Task 40** (share the exact same one remaining open item —
+> where the platform's fee cut actually gets recorded, a ledger row vs.
+> a separate revenue table vs. implicit; Task 40's other two items,
+> the deposit-side 5% and the campaign-side 10%, are both independently
+> confirmed built/correct elsewhere in this file already), Task 46
+> (SPEC ONLY, its own embedded open questions: capability-key taxonomy,
+> root-vs-4-total headcount). **A session picking up next should check
+> with the product owner before starting any of these four**, rather
+> than defaulting to file order.
 >
 > **Fee rate flip-flopped twice — read this before touching any fee
 > code:** original code/Task 35 text: 10% campaign. A session then
@@ -2440,7 +2449,7 @@ this isn't blocking.
 
 ---
 
-## Task 32 — Confirm the real caller of B-Pay-backend: audit direct-call vs. edge-function architecture [ ]
+## Task 32 — Confirm the real caller of B-Pay-backend: audit direct-call vs. edge-function architecture [x]
 
 **Migrated from B-Pay-backend's own `handover.md` (that repo's Task
 23) — that repo's copy is now historical only; this is the real,
@@ -2470,9 +2479,39 @@ decide whether B-Pay-backend's `generateReference()` own-reference
 fallback should stay as a defensive default or become a bug-signal log
 line. **Blocked on Task 33.**
 
+**Done, this session — Task 33 now complete, so both remaining
+questions are answerable.**
+- **"Confirm `POST /api/pay` still works correctly when the caller
+  always supplies its own reference" — verified, with code, not
+  assumed:** `supabase/functions/initialize-payment/index.ts` requires
+  a non-empty `reference` on its own inbound request (`if (!reference)
+  return 400`), uses it to look up the exact `payment_sessions` row,
+  and forwards that same `session.reference` in the `POST /api/pay`
+  payload — there is no code path in this repo where B-Pay-backend
+  gets called without a caller-supplied reference. The "common case
+  going forward" this task asked about is, from mavins-web's side,
+  now the *only* case.
+- **"Decide whether B-Pay-backend's `generateReference()` own-
+  reference fallback should stay as a defensive default or become a
+  bug-signal log line" — recommendation, not an implementation (that
+  fallback lives in B-Pay-backend's own repo, not cloned into this
+  sandbox, so it can't be edited from here):** given the finding
+  above, that fallback is now confirmed dead code for every call this
+  app makes. If it's ever actually reached, that means either (a) some
+  other caller besides this app is hitting `POST /api/pay` without a
+  reference (worth knowing, not silently accepting), or (b) something
+  broke in this app's own reference-generation path and the request
+  that reached B-Pay-backend already lost its reference somewhere
+  along the way (also worth knowing loudly, not silently patched over
+  by generating a substitute). **Recommendation: it should become a
+  bug-signal log line, not stay as a silent defensive default.**
+  Flagging this for a B-Pay-backend-repo session to actually implement
+  — same cross-repo handoff pattern this file already uses for Tasks
+  30/41/42.
+
 ---
 
-## Task 33 — Wallet-crediting + first-time-vs-returning-user logic + Supabase Edge Function [ ]
+## Task 33 — Wallet-crediting + first-time-vs-returning-user logic + Supabase Edge Function [x]
 
 **Migrated from B-Pay-backend's own `handover.md` (that repo's Task
 24) — that repo's copy is now historical only; this is the real,
@@ -2837,11 +2876,35 @@ session, same one-task-per-session rule as the rest of this file:
    live webhook delivery against a real Korapay sandbox charge, which
    only the project owner can trigger.
 
-3. **Shared user/admin success screen** with an animated
+3. **[x] Shared user/admin success screen** with an animated
    country-interconnection pipeline visualization (central hub node,
    animated links out to each selected target country) shown on
-   confirmed payment. **Not started** — confirmed this session via
-   grep, nothing matching this description exists in `src/` yet.
+   confirmed payment. **Done this session** — new
+   `src/components/campaign/CampaignSuccessVisualization.tsx`, wired
+   into `promote/page.tsx`'s two existing success moments
+   (`showSuccess`/`showGuestCampaignSuccess`), replacing their old
+   plain-text banners. Follows `HowItWorksAnimated.tsx`'s established
+   SVG-animation conventions exactly (local
+   `usePrefersReducedMotion`/`useLoopProgress` hooks,
+   `pathLength`-normalized strokes, `--accent`/`--accent-light` CSS
+   vars, reduced-motion respected). Caps visible nodes at 7 with a
+   "+N more" overflow node — deliberately not capped at the free-tier
+   `MAX_COUNTRIES_FREE`, since this is explicitly the *shared*
+   user/admin screen and an admin's selection isn't capped the same
+   way.
+
+   **One real gap, flagged rather than silently worked around:** the
+   guest direct-pay success moment
+   (`showGuestCampaignSuccess`) has no target-country data available
+   to visualize — a guest's browser state is gone by the time they
+   return from Korapay's checkout (no session, no stashed form draft,
+   by `goDirectPayCampaign`'s own existing design), and the redirect
+   URL (`/promote?campaign_created=1`) carries no reference to fetch
+   the server-side snapshot by either. Renders with an empty country
+   list today (header only, no visualization) rather than guessing —
+   a future session completing Task 36 Part 4 properly could close
+   this by threading the reference through the redirect and fetching
+   `payment_sessions.metadata.campaign` server-side.
 
 ---
 
@@ -3609,6 +3672,18 @@ for Task 38's debit rewiring, not this).
 
 ## Task 40 — Fee arithmetic lives ONLY in the Edge Function; the RPC
 never computes, it only persists [ ]
+
+**Status, this session — two of three items done, one shared blocker
+remains (see the orientation box at the top of this file for the
+consolidated status with Task 35, which shares this exact same open
+item):** the deposit-side 5% (Task 33 Part 2b's `creditDeposit()`) and
+the campaign-side 10% (`calculatePricing()`, confirmed adding-on-top
+not skimming-out, closed under Task 35's "Campaign-side audit + fix"
+note) are both built and verified. The one item still open — where the
+platform's fee cut itself gets recorded (a ledger row, a separate
+revenue table, or implicit) — needs a product-owner call, not a
+default implementation choice, before either this task or Task 35 can
+be checked off.
 
 **Note added this session — Task 40's 15%-campaign figure below has
 since been superseded again; see Task 35's "Second correction" note
