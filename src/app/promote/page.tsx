@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef, memo } from 'react';
 import dynamic from 'next/dynamic';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/auth/useAuth';
 import { createCampaign, getArtistCampaigns } from '@/services/campaign/campaign.service';
 import { getPublicSeedStats } from '@/services/stats/publicStats.service';
@@ -11,13 +11,13 @@ import { calculatePricing, formatCents, formatNumber, DURATION_SLOTS } from '@/l
 import { getRecommendedGeographies, getGeoTargetingPool, scoreLabel, TARGET_COUNTRIES } from '@/lib/campaign/geoAffinity';
 import { getKorapayDccCurrency } from '@/lib/currency/korapayDccCurrency';
 import { COUNTRY_CURRENCY } from '@/lib/currency/countryCurrency';
-import { initializeCheckout } from '@/lib/payments/checkout';
+import { initializeCheckout, initializeCampaignCheckout } from '@/lib/payments/checkout';
 import { getWalletBalanceCents } from '@/lib/payments/wallet';
 import { cn } from '@/lib/utils/cn';
 import {
   Rocket, Link2, TrendingUp, Globe, DollarSign,
   ShieldCheck, Zap, ChevronRight, Play, PauseCircle,
-  BarChart3, Music, CheckCircle2, Sparkles, MapPin, Wand2, Map
+  BarChart3, Music, CheckCircle2, Sparkles, MapPin, Wand2, Map, Mail
 } from 'lucide-react';
 
 const PublicAnalyticsShowcase = dynamic(
@@ -54,6 +54,11 @@ const TIERS = [
 ];
 
 const PENDING_CAMPAIGN_KEY = 'mavins_pending_campaign';
+// Same pattern as fund-wallet/page.tsx and initialize-campaign/route.ts's
+// own guestEmail validation — kept in sync deliberately (all three
+// validate the same shape of input), not extracted to a shared
+// constant since it's a one-line regex, not logic that could drift.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_COUNTRIES_FREE = 3;
 
 // Country → currency mapping moved to src/lib/currency/countryCurrency.ts
@@ -375,16 +380,48 @@ const HOW_IT_WORKS = [
 export default function PromotePage() {
   const { user, isAuthenticated, isAdmin } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [viewCount, setViewCount] = useState(5000);
   const [sourceUrl, setSourceUrl] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('');
+  const [guestEmail, setGuestEmail] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [showSuccess, setShowSuccess] = useState(false);
+  // Distinct from showSuccess above: that one follows an authenticated
+  // wallet-debit createCampaign() call completing synchronously in
+  // this same page load. A guest's campaign is created by Part 2's
+  // webhook, asynchronously, after they've left and come back from
+  // Korapay's checkout — by the time they land back here (Task 36
+  // Part 4), all this page can honestly say is "payment confirmed,
+  // your campaign is being set up," not show it in "Your Campaigns"
+  // below (they have no session yet to fetch that list with — see the
+  // guest-session gap noted where this is set, below).
+  const [showGuestCampaignSuccess, setShowGuestCampaignSuccess] = useState(false);
   const [topGeo, setTopGeo] = useState<{ country: string; flag: string } | null>(null);
   const [homeCountryCode, setHomeCountryCode] = useState<string | null>(null);
   const [targetCountries, setTargetCountries] = useState<string[]>([]);
   const [localCurrency, setLocalCurrency] = useState<{ code: string; symbol: string; rate: number } | null>(null);
+
+  // Task 36 Part 4 — a guest lands back here from Korapay checkout via
+  // /api/payments/verify/[reference]?redirect=/promote%3Fcampaign_created%3D1
+  // (see goDirectPayCampaign below). That verify route is a pure
+  // status read/redirect (Task 33 Part 2a) — it does NOT establish a
+  // browser session for the guest, even though Part 2's webhook has
+  // (asynchronously, server-side) already created their account and
+  // campaign by the time they arrive. Signing a freshly-auto-created
+  // guest in automatically is a distinct, non-trivial feature (magic
+  // link or similar) that Task 37's own note doesn't cover either —
+  // flagging here, not attempting it as part of this task. So: show a
+  // confirmation, but don't pretend they're logged in or try to fetch
+  // "their" campaigns — there's no session to fetch them with.
+  useEffect(() => {
+    if (searchParams.get('campaign_created') !== '1') return;
+    setShowGuestCampaignSuccess(true);
+    // Strip the query param so a refresh/back-navigation doesn't
+    // re-show this indefinitely.
+    router.replace('/promote');
+  }, [searchParams, router]);
 
   // Local currency, derived from the app-wide geo context (fetched once
   // at app initialization by GeoProvider — see providers.tsx) rather
@@ -507,20 +544,37 @@ export default function PromotePage() {
     } catch {}
   }, [sourceUrl, viewCount, selectedGenre, targetCountries]);
 
-  // Guests only — a genuine guest has no account yet and needs to
-  // supply an email so we know where to send the receipt/create the
-  // account after payment. Still routes through the fund-wallet page's
-  // form for that reason. Never used for an authenticated user — see
-  // goStraightToCheckout below.
-  const goFundWalletGuest = useCallback((reason: string) => {
-    // totalCostCents is USD cents; this is USD dollars, NOT naira --
-    // was misleadingly named `amountNaira` (it was always just cents/100
-    // regardless of currency). Renamed rather than left to cause the
-    // same confusion this caused in fund-wallet/page.tsx this session.
-    const amountUsd = Math.ceil(pricing.totalCostCents / 100);
-    stashPendingCampaign();
-    router.push(`/fund-wallet?amount=${amountUsd}&redirect=${encodeURIComponent('/promote')}&reason=${reason}`);
-  }, [pricing.totalCostCents, stashPendingCampaign, router]);
+  // Task 36 Part 4 — guests never touch the wallet at all; their first
+  // campaign is always a direct payment for exactly that campaign
+  // (Part 1's route), never a fund-wallet-then-launch two-step. This
+  // replaces the old goFundWalletGuest, which routed guests through
+  // the wallet top-up flow — correct before Task 36 existed, wrong
+  // per its explicit rule now. No stashPendingCampaign() call here:
+  // unlike the authenticated checkout-redirect path below, a guest's
+  // campaign is created server-side by Part 2's webhook from the
+  // intent already snapshotted in payment_sessions.metadata.campaign
+  // — there's no form to resume/resubmit on return, and by the time
+  // they're back they don't have a session for this page to restore
+  // the draft into anyway (see the campaign_created effect above).
+  const goDirectPayCampaign = useCallback(async () => {
+    setIsSubmitting(true);
+    const error = await initializeCampaignCheckout({
+      sourceUrl: sourceUrl.trim(),
+      viewCount,
+      guestEmail,
+      genre: selectedGenre || undefined,
+      geographicTier,
+      targetCountries,
+      paymentCurrency: dccCurrency,
+      redirectTo: '/promote?campaign_created=1',
+    });
+    if (error) {
+      // Only reached on failure — success navigates the browser away
+      // inside initializeCampaignCheckout.
+      setIsSubmitting(false);
+      alert(error);
+    }
+  }, [sourceUrl, viewCount, guestEmail, selectedGenre, geographicTier, targetCountries, dccCurrency]);
 
   // Authenticated users only (Task 28) — their email is already known
   // from the session, so there's nothing for them to fill in on the
@@ -551,10 +605,14 @@ export default function PromotePage() {
     e.preventDefault();
     if (!sourceUrl.trim()) { alert('Please enter a YouTube URL'); return; }
 
-    // Guests genuinely have no account/wallet — collect email via the
-    // fund-wallet form so we know where to send the receipt.
+    // Task 36: a guest pays directly for exactly this campaign — no
+    // wallet, no fund-wallet form. Email is still needed (nothing to
+    // derive it from without a session), collected inline on this page
+    // now instead of on the fund-wallet page's own field.
     if (!isAuthenticated || !user?.id) {
-      await goFundWalletGuest('launch_campaign');
+      const email = guestEmail.trim();
+      if (!email || !EMAIL_RE.test(email)) { alert('Please enter a valid email address'); return; }
+      await goDirectPayCampaign();
       return;
     }
 
@@ -614,6 +672,16 @@ export default function PromotePage() {
           </div>
         )}
 
+        {showGuestCampaignSuccess && (
+          <div className="glass-strong rounded-xl p-4 flex items-center gap-3 border border-[#1db954]/30 bg-[#1db954]/5">
+            <CheckCircle2 className="w-5 h-5 text-[#1db954] flex-shrink-0" />
+            <div>
+              <p className="font-semibold text-sm">Payment confirmed!</p>
+              <p className="text-xs text-[var(--subtle-foreground)]">Your campaign is being set up now — this can take a minute.</p>
+            </div>
+          </div>
+        )}
+
         <div className="glass-strong rounded-2xl p-4 xs:p-5 sm:p-6 space-y-5 gpu-layer">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -645,6 +713,24 @@ export default function PromotePage() {
                 />
               </div>
             </div>
+
+            {!isAuthenticated && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-[var(--muted-foreground)]">Email</label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--subtle-foreground)]" />
+                  <input
+                    type="email"
+                    value={guestEmail}
+                    onChange={(e) => setGuestEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm placeholder:text-[var(--subtle-foreground)] focus:border-[#1db954]/50 focus:ring-1 focus:ring-[#1db954]/20 transition-all"
+                    required
+                  />
+                </div>
+                <p className="text-[11px] text-[var(--subtle-foreground)]">First campaign — pay directly, no wallet needed. We'll create your account with this email.</p>
+              </div>
+            )}
 
             <div className="space-y-2">
               <label className="text-sm font-medium mb-2 text-[var(--muted-foreground)]">Genre</label>
