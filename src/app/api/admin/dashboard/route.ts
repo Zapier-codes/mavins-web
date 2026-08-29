@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { isAdmin } from '@/lib/auth/isAdmin';
+import { requireAdmin } from '@/lib/auth/requireAdmin';
 
 /**
  * GET /api/admin/dashboard
@@ -16,38 +15,20 @@ import { isAdmin } from '@/lib/auth/isAdmin';
  * even for a real admin — RLS was doing exactly what it's supposed to,
  * just not what the admin view needs.
  *
- * IMPORTANT: unlike a naive "just call createAdminClient() and return
- * everything" route, this checks the *caller's own session* first and
- * requires it to actually belong to an admin (DB role, or the hardcoded
- * fallback email — same single source of truth as the rest of the app,
- * `isAdmin()` from AuthProvider) before ever touching the service-role
- * client. Skipping that check would mean any authenticated user could
- * hit this endpoint directly and dump every user's data and the full
- * wallet ledger, since the service role bypasses RLS entirely.
+ * Task 46a — now uses the shared requireAdmin() helper
+ * (src/lib/auth/requireAdmin.ts) instead of its own inline copy of the
+ * same check. This route's own semantics (admin-or-reject, no
+ * ownership fallback) match requireAdmin() exactly, so it's a safe,
+ * behavior-preserving swap — unlike api/campaigns/cancel|create|
+ * add-funds, which allow a non-admin to act on their own resource and
+ * therefore need `isAdmin` as a flag, not a hard gate; those three are
+ * deliberately left as their own inline checks rather than force-fit
+ * onto a helper shaped for a different use case.
  */
 export async function GET() {
   try {
-    const supabase = await createServerSupabaseClient();
-    const {
-      data: { user: authUser },
-    } = await supabase.auth.getUser();
-
-    if (!authUser) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
-
-    // RLS's "own row" policy permits this — a user can always read their
-    // own `role`, regardless of what the rest of this route needs it for.
-    const { data: profile } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', authUser.id)
-      .single();
-
-    const callerIsAdmin = isAdmin({ email: authUser.email, role: profile?.role });
-    if (!callerIsAdmin) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    const { response } = await requireAdmin();
+    if (response) return response;
 
     const admin = createAdminClient();
     const [usersRes, campaignsRes, ledgerRes] = await Promise.all([
