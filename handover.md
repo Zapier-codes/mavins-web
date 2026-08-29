@@ -3,9 +3,32 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest session (2026-08-29, latest) — product-owner decisions
-> recorded for Task 46c/46e, no code written (explicit instruction
-> this session).** Headcount confirmed **Option A** (root + 3
+> **Newest session (2026-08-29, latest) — Task 46c: two of three
+> sub-items done, one still blocked.** Delivered-count corrections and
+> live demographic-targeting edits are both built (new `PATCH
+> /api/admin/campaigns/[id]`, wired into a new inline edit row on
+> `admin/campaigns/page.tsx`), each logging to `admin_actions` under
+> its own action name (`campaign.override_views` /
+> `campaign.override_targeting`). Traced `seedEngine.service.ts`
+> before building rather than assuming — confirmed it reads
+> `track_campaigns` fresh every cron tick, no caching to worry about.
+> **Pause/resume/cancel deliberately NOT touched** — the task's own
+> text bundles them into one bullet requiring a product-owner decision
+> (does an admin cancel refund like a user cancel does) that wasn't
+> re-litigated or guessed at this session; carving out plain pause as
+> "obviously fine" was considered and rejected since the task doesn't
+> separate the two. Task 46c's own checkbox stays `[ ]`. See that
+> task's own entry under Task 46 below for the full write-up,
+> including a deliberate departure from `record_campaign_stream`'s
+> monotonic stage logic (this override recomputes `current_stage`
+> bidirectionally, not upgrade-only) — flagged there in case the
+> product owner disagrees. **Next session: 46c's pause/cancel decision
+> (ask the product owner), or 46e's remaining cross-cutting scope, or
+> Task 47's UI/UX items (spec only, not started) — genuinely open,
+> pick whichever fits.**
+>
+> **Newest session (2026-08-29) — product-owner decisions recorded for
+> Task 46c/46e, no code written (explicit instruction that session).** Headcount confirmed **Option A** (root + 3
 > assigned = 4 total). User-management scope confirmed **much
 > broader** than the old "possibly missed" bullet: full campaign CRUD
 > and per-user CRUD, plus dashboard-wide user/campaign counts — not
@@ -6126,7 +6149,8 @@ immediately" invariant or Task 38's wallet-deduction accounting:
   definition for the exact columns) — the *other* reading of "increase
   or reduce the views count" from 46a's tier-bounds reading; this one
   is a live campaign's own progress number, likely for fraud
-  correction or manual reconciliation, not a pricing change.
+  correction or manual reconciliation, not a pricing change. **[x]
+  Done this session (2026-08-29).**
 - **Demographic priority for a live campaign** — `target_countries`/
   `target_genres` (same table) — explicitly called out by the product
   owner as something admin needs to change **even during a live
@@ -6134,7 +6158,9 @@ immediately" invariant or Task 38's wallet-deduction accounting:
   currently reads these columns as fixed-at-creation (e.g. a cached
   copy elsewhere, a running job that snapshotted them at start) before
   assuming a live edit here takes effect immediately — don't guess,
-  trace the actual read path per this file's own convention.
+  trace the actual read path per this file's own convention. **[x]
+  Done this session (2026-08-29) — traced, confirmed no caching (see
+  below), safe as a plain UPDATE.**
 - **Pause/resume, cancel** — `is_paused`/`is_active` already exist as
   columns; confirm whether an admin-initiated pause/cancel needs to
   reuse `api/campaigns/cancel/route.ts`'s existing refund-math (Task 35
@@ -6142,7 +6168,77 @@ immediately" invariant or Task 38's wallet-deduction accounting:
   whether an admin override should behave differently (e.g. no refund
   at all for a fraud-driven admin cancellation) — this is a real
   product decision, not an implementation detail, and needs its own
-  confirmation before building.
+  confirmation before building. **[ ] Still blocked, not attempted this
+  session** — see "What was NOT done" below for why plain pause wasn't
+  carved out as unblocked either.
+
+**What was built (2026-08-29):** New `PATCH
+/api/admin/campaigns/[id]/route.ts` (`requireAdmin()`-gated, matching
+every other Task 46 admin route's convention), covering only the two
+unblocked sub-items above. Body: any non-empty subset of `{
+totalStreams, realStreams, seededStreams, targetCountries,
+targetGenres }`. Wired into a new inline "Override" edit row on
+`admin/campaigns/page.tsx` (pencil icon next to the existing pause
+toggle) — comma-separated text inputs for the two array fields,
+matching 46a's own `EditableReferenceTable`'s stringArray convention
+rather than inventing a different pattern for the same kind of input.
+
+**Traced, not assumed, per this task's own instruction:**
+`seedEngine.service.ts`'s `getActiveCampaigns()` does a fresh
+`.select('*')` from `track_campaigns` on every cron tick (every 15
+minutes per that file's own header comment) — no caching, no
+snapshot-at-campaign-start anywhere. A targeting edit here takes
+effect on the very next tick; nothing else needed.
+
+**Design decision worth flagging, not just implemented silently:**
+`record_campaign_stream` (the RPC every real play event calls,
+`supabase_schema.sql`) keeps `total_streams`/`real_streams`/
+`seeded_streams` in lockstep with `spent_cents`, `current_stage`,
+`is_active`, and `completed_at` — every one of those moves together
+atomically on a real play. This route deliberately does **NOT** touch
+`spent_cents`/`is_active`/`completed_at` when an admin corrects a
+count — read as "corrects the progress number, not a pricing change"
+per this task's own framing above. It DOES recompute `current_stage`
+from the new `total_streams`, but unlike the RPC's own monotonic
+(only-ever-upgrades) logic, this recomputes bidirectionally — a fraud
+correction reducing an inflated count should be able to move the stage
+back down too, not leave a stale "full_bloom" label after the count
+that earned it was corrected away. This is a genuine, reasoned
+departure from the RPC's own logic, not an oversight — flagged here in
+case the product owner disagrees with treating stage-downgrade as
+correct behavior for an admin override.
+
+**Audit trail wired in as part of this work, not deferred to 46e:**
+every successful PATCH writes to `admin_actions` (migration 015) —
+**two distinct action names**, `campaign.override_views` and
+`campaign.override_targeting` (both logged as separate rows if a
+single PATCH touches both kinds of field), matching the exact example
+names migration 015's own header comment anticipated for this task
+rather than inventing new ones. This closes one piece of 46e's
+"46a's and 46c's own writes don't call `admin_actions` yet" gap — the
+46c piece specifically; 46a's own writes still don't (46e's own,
+separate, not attempted here), and 46e's broader confirmation-dialog
+pattern is untouched.
+
+**What was NOT done, and why:** plain pause/resume was considered for
+a narrower carve-out (it has no refund implications, unlike cancel) but
+left alone — the task's own bullet bundles "Pause/resume, cancel" as
+one item requiring "its own confirmation before building," without
+separating the two, and unilaterally deciding pause is exempt risks
+guessing at an unstated reason they were grouped together. The
+pre-existing `togglePause()` in `admin/campaigns/page.tsx` (a direct
+client-side write, no `requireAdmin()` gate, no audit log — flagged as
+known tech debt by Task 46d's own comment) is untouched by this
+session. Task 46c's own top-level checkbox stays `[ ]` until the
+pause/cancel product decision is resolved and built.
+
+Verified: `npx tsc --noEmit` clean across the repo. Confirmed Next.js
+14.2.5 uses sync (not async/Promise) route params, matching every
+other dynamic route in this codebase (`verify/[reference]/route.ts`)
+— checked rather than assumed, since that convention differs across
+Next.js versions and getting it wrong would silently break at runtime
+without `tsc` catching it (both shapes type-check under 14's own
+types if written carelessly).
 
 ### 46d — Admin dashboard buildout (routes, pages, navigation, icons) [x]
 The actual UI surface for 46a/46b/46c above — today's single
