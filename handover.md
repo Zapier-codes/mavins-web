@@ -5322,6 +5322,97 @@ to hook into — confirm it actually fires on an admin write, don't
 assume it does without checking, per this whole file's own "confirm,
 don't assert" convention.
 
+**Backend half done, this session — API routes only, UI explicitly not
+started, stopped here on direct instruction before any UI code.**
+
+- **New shared helper, `src/lib/auth/requireAdmin.ts`** — extracted
+  from an identical ~15-line block that was independently copy-pasted
+  across `api/admin/dashboard/route.ts`, `api/campaigns/cancel/
+  route.ts`, `api/campaigns/create/route.ts`, and `api/campaigns/
+  add-funds/route.ts` (confirmed via grep before extracting, not
+  assumed). Only swapped into `dashboard/route.ts` this session — that
+  route's semantics (admin-or-reject, no ownership fallback) match the
+  helper exactly. **Deliberately did NOT touch `cancel`/`create`/
+  `add-funds`** — those three let a *non-admin* act on their own
+  resource and only use `isAdmin` as an additional flag, not a hard
+  gate; force-fitting them onto a helper shaped for the dashboard
+  route's stricter case would have risked changing real behavior on
+  payment-adjacent routes for the sake of a cosmetic dedup. Left as
+  their own inline checks, unchanged.
+- **Five new routes, one per table**, all funneled through
+  `requireAdmin()`:
+  - `api/admin/pricing-tiers/route.ts` — POST (create) / PATCH
+    (update by `id`) / DELETE (by `id`).
+  - `api/admin/duration-slots/route.ts` — same shape.
+  - `api/admin/countries/route.ts` — same shape, keyed on `code`
+    instead of `id`; also handles the `korapay_channels`/
+    `korapay_default_channel` columns Task 30b added (migration 012).
+    Deleting a country **cascades into `genre_country_affinity`** —
+    every affinity row for that country is removed automatically by
+    the existing FK (migration 010's own `ON DELETE CASCADE`), not
+    handled specially in this route. Worth a confirm-dialog warning
+    about that once a UI exists (46e's job).
+  - `api/admin/genres/route.ts` — same shape, keyed on `id`. Same
+    cascade-delete note as countries.
+  - `api/admin/genre-country-affinity/route.ts` — **shaped
+    differently on purpose**: this table has a composite PK
+    (`genre_id`, `country_code`), not a single `id`, and 350 rows (14
+    genres × 25 countries) rather than a handful, so "edit the
+    Afrobeats/Nigeria score" is the same action whether that pair
+    already has a row or not — POST is an **upsert** (Supabase's own
+    `.upsert()`, keyed on the composite PK), not separate strict-
+    create/strict-update verbs like the other four routes. No PATCH;
+    POST covers both. `score` is validated 0-100 both here (a clear
+    400 with a useful message) and at the DB level (migration 010's
+    own `CHECK` constraint, as a backstop).
+- **Realtime propagation confirmed by reading the code, not
+  assumed** (per this task's own explicit instruction): `useReferenceData.ts`
+  subscribes to `postgres_changes` on all five tables and invalidates
+  the shared TanStack Query key on any INSERT/UPDATE/DELETE — a write
+  through any of these five new routes reaches the promote page's live
+  slider with no manual cache-invalidation call needed from the routes
+  themselves. Not manually re-verified against a live Supabase
+  instance this session (no live credentials in this sandbox) — the
+  mechanism existing and being correctly wired is confirmed by reading
+  Task 45 Part 2's own code, which is not the same claim as "watched it
+  actually fire." A session with deploy access should do one real
+  end-to-end check (edit a price via one of these routes, confirm the
+  promote page updates without a refresh) before treating this as
+  fully proven.
+- **Deliberately shallow validation across all five routes** — types
+  and required-field presence only. None of the routes check
+  cross-row business rules (e.g. whether a new/edited `pricing_tiers`
+  row creates a gap or overlap in `min_views`/`max_views` coverage
+  across tiers — `calculatePricing()`'s tier lookup falls back to the
+  last tier if nothing matches, so a gap wouldn't crash anything, but
+  could produce a confusing/wrong price for some view counts). Flagged
+  as a known limitation, not fixed here — a fuller validation pass
+  (or a UI that visualizes tier coverage as it's edited) is a
+  reasonable follow-up, out of this session's scope.
+- **UI: not started, stopped here on direct instruction** ("give me
+  the patch for this only first, before adding any other UI creation
+  or anything else on top") — before starting the actual admin editing
+  surface (which this task's own scope still needs — "Full create/edit/
+  delete admin **UI** + API routes", not routes alone), a session
+  picking this back up should re-check `frontend-design`'s own
+  guidance against Task 46d's explicit note ("matching this app's
+  existing design system... rather than inventing a new visual
+  language for just the admin section") — this is functional internal
+  CRUD tooling extending an existing page's established visual
+  language (`admin/page.tsx`'s glass-card/tab conventions), not
+  greenfield brand design; leaned toward the former reading before
+  stopping, worth confirming explicitly rather than re-deriving from
+  scratch next session.
+- **Verified:** `npx tsc --noEmit` clean across all six new/changed
+  files. A throwaway Node script (deleted after use, not committed)
+  mirrored each route's field-validation logic against valid-create,
+  missing-required-field, valid-partial-update, invalid-number, and
+  the affinity route's score-boundary cases (0/100/101/-1/NaN) — all
+  correct. **Not verified — no way to check this from a sandbox:** an
+  actual authenticated admin request against a live Supabase instance
+  (no live credentials here) — same limitation flagged on the Realtime
+  propagation point above.
+
 ### 46b — Platform-fee arithmetic control (campaign %, deposit %) [ ]
 Move `PLATFORM_FEE_PERCENT` (`src/lib/campaign/pricing.ts`, currently
 `10`) and `DEPOSIT_FEE_RATE` (`supabase/functions/korapay-webhook/
