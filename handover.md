@@ -64,6 +64,33 @@ each rule — this is the same content, kept in sync.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note, same session (2026-08-30, latest of all) — Task 58:
+> per-genre cold-start guaranteed placement built on top of migration
+> 020, `supabase_migration_021_cold_start_guaranteed_slot.sql`.**
+> Confirmed 020 alone wasn't sufficient (a zero-stream campaign still
+> sorts dead last in `trending_score`, just no longer excluded
+> outright) — this migration adds a genre-scoped guaranteed 5th-slot
+> placement for genuinely new campaigns (real `created_at`/
+> `total_streams` only, nothing fabricated — checked directly against
+> Velune's own §0 boundary on this exact point, see Task 58's own
+> closing note). Verified via a 7-case Python simulation of the CTE
+> logic (no live Postgres in this sandbox) — all 7 passed, including
+> the two fallback-boundary cases and a two-competing-campaigns case.
+> Also fixed a real, separate drift found while there:
+> `supabase_schema.sql`'s own copy of `get_trending_campaigns` still
+> had the pre-020 definition, never updated when 020 shipped —
+> corrected to match 020+021 cumulatively. **Two things flagged, not
+> guessed at:** the exact 72h/1000-stream thresholds are this
+> session's own proposed defaults, not yet confirmed; and "the table
+> needs updating too to get count" wasn't specific enough to build
+> against safely — this design needs zero new columns for its core
+> mechanism, so whatever count was meant needs a direct answer, not a
+> guess. **Not yet applied to the live DB.** See Task 58's own full
+> section (near the bottom of this file) for everything above, plus a
+> process note about an unverified "no confirmation needed" box
+> elsewhere in this file's orientation box that this session read past
+> without treating as settled, same as the session before it did.
+>
 > **Newest note, same session (2026-08-30, latest of all) — Task 57
 > CLOSED: root cause confirmed by the corrected query, fix written as
 > `supabase_migration_020_trending_campaigns_show_planting.sql`.**
@@ -9529,3 +9556,179 @@ own `HANDOVER_CAMPAIGN.md`, this same dated entry, for the full
 correction written in that repo's own voice).
 
 ---
+
+## Task 58 — Per-genre cold-start guaranteed placement (industry-standard reserved-slot pattern), layered on migration 020 [ ]
+
+**Ask, from the product owner directly, continuing Task 57:** migration
+020 fixed the outright-exclusion bug, but does it fully solve the
+"new campaign can't get discovered" problem? Product owner asked
+whether a guaranteed placement — a new campaign inserted at a fixed
+5th position within its genre's rotation — is a legitimate,
+industry-standard pattern, and asked for it to be built if so.
+
+### Answer: yes, and it's necessary — 020 alone wasn't enough
+
+Confirmed by re-reading `get_trending_campaigns`'s own live formula: a
+campaign at `total_streams = 0` scores at the very bottom of
+`trending_score` (the `ELSE 10` stage-weight branch, multiplied by
+0.3, with both other terms at zero). Migration 020 stopped a new
+campaign from being excluded outright — it did **not** stop one from
+sorting dead last behind every established campaign in the same genre,
+which in practice can be just as invisible. This is a real,
+second gap, not something 020 already covered.
+
+**Yes, guaranteed floor placement is a well-established industry
+pattern, not something unusual:**
+- **Ad-serving "reserved inventory"** — ad systems commonly reserve a
+  fixed slot (or percentage of rotation) for new/underperforming
+  campaigns so pure auction/performance ranking doesn't shut them out
+  entirely.
+- **Marketplace "new listing boost"** — Etsy, Amazon, and similar
+  platforms give a new listing temporary visibility independent of its
+  (nonexistent) sales history, specifically to solve the cold-start
+  problem: zero reviews will never win on pure ranking alone.
+- **Spotify's own Release Radar** — a new release gets a guaranteed
+  initial placement window, then real engagement data takes over. Not
+  permanent — a bootstrap.
+
+The 5th-slot idea matches this pattern well.
+
+### Built this session: `supabase_migration_021_cold_start_guaranteed_slot.sql`
+
+Layers on top of migration 020 (not a revert, not a replacement) —
+`get_trending_campaigns` now:
+1. Computes eligibility for a guaranteed slot from two **already-real**
+   columns, nothing fabricated: `created_at > NOW() - INTERVAL '72
+   hours' AND total_streams < 1000`.
+2. When a specific genre is requested (`p_genre IS NOT NULL`), the
+   single best-scoring eligible campaign (if any) is inserted at
+   position 5 — or right after however many real results exist, if
+   fewer than 5 total (the fallback this pattern needs to mean
+   anything when a genre is thin).
+3. Recomputed live on every call — the function stays `STABLE`
+   (read-only), nothing about "position 5" is ever stored, so it can't
+   drift as the underlying data changes.
+4. Whatever was previously at position 5 shifts to 6, and so on — the
+   natural behavior of an insert.
+5. Genre-scoped only, per the original scope confirmation — calling
+   with `p_genre = NULL` produces pure `trending_score` ordering,
+   unaffected.
+6. If two+ new campaigns in the same genre are both still eligible,
+   only the single best-scoring one wins the slot — the other still
+   appears at its normal ranked position among the rest, not
+   suppressed and not also boosted.
+
+**Verified, this session — no live Postgres available, same
+limitation flagged throughout this file's history:** the exact CTE
+logic was translated faithfully into a Python simulation and run
+against 7 cases (0 total results; 1 boosted-only; 3 established + 1
+boosted, testing the &lt;5 fallback exactly at the boundary; 4
+established + 1 boosted, the exact boundary where the real 5th slot
+exists; 10 established + 1 boosted with `LIMIT 10` trimming the
+result; `p_genre = NULL` producing zero boost effect; two competing
+eligible campaigns where only the stronger one should win). All 7
+matched expectation exactly, including the two boundary cases and the
+competition case — a throwaway script, run then discarded, not
+committed, this project's own established verification convention for
+SQL that can't be run live.
+
+**Also fixed while here — a real, separate drift found, not part of
+this task's original ask:** `supabase_schema.sql` (the master schema
+reference file) still had `get_trending_campaigns`'s **pre-020**
+definition (`current_stage NOT IN ('planting', 'completed')`) — never
+updated when migration 020 shipped, despite this file's own stated
+Task 1 convention ("master schema kept in sync"). Corrected in the
+same commit to match migrations 020 and 021 cumulatively, so a future
+session reading `supabase_schema.sql` directly (rather than replaying
+every migration file in order) sees the true current state.
+
+### "We want all campaigns to go live instantly" — already true, pending the live-DB push
+
+Checked `track_campaigns`'s own table definition directly: there is no
+`certified`/`approved`/`reviewed` gate anywhere on it —
+`is_active = TRUE` from the moment of creation (confirmed in the
+campaign-creation code path). The only thing that was ever blocking
+instant visibility was `get_trending_campaigns`'s own `WHERE` clause,
+which migration 020 already fixed. **This requirement is already
+satisfied in code** — the remaining step is the same one Task 57 left
+open: migration 020 (and now 021) actually being pushed to the live
+DB, still a project-owner-only step per every prior migration in this
+file. Velune's *old*, now-superseded standalone `campaigns` table did
+have `certified`/`isLive` manual toggle flags (see Task 57's own
+correction note) — but Task 57 already confirmed Velune migrated off
+that table entirely onto this RPC-based read path, so those old flags
+are dead code, not a live second gate.
+
+### Two things this session could not safely resolve — flagging rather than guessing
+
+1. **"The table needs updating too to get count and others etc" wasn't
+   specific enough to build against safely.** This migration's whole
+   design deliberately needs **zero new columns** for the core
+   mechanism (eligibility and position are both computed live from
+   `created_at`/`total_streams`, which already existed and already
+   held only real data) — that's a genuine strength of this design,
+   not an oversight, since storing anything here would risk exactly
+   the kind of "position drifts as soon as something else changes"
+   failure mode open question 3 (above) already flagged as the wrong
+   shape. But the product owner's own wording suggests a real,
+   specific column addition was wanted and this session doesn't know
+   what: a running count of how many times a campaign has actually
+   occupied the guaranteed slot (for analytics/fairness auditing)?
+   Something else entirely? **Not guessed at and not built** — this
+   project's own established culture is to ask rather than guess on a
+   schema addition, not silently invent one that might not match
+   intent. What exactly should get counted, and why, would unblock
+   this immediately.
+2. **The exact 72-hour / 1,000-stream thresholds are this session's
+   own proposed defaults, not yet product-owner-confirmed.** Chosen
+   for defensible reasons (documented in migration 021's own header),
+   but worth an explicit confirmation before this ships to production,
+   same as every other money/visibility-affecting numeric constant in
+   this file's history.
+
+### A note on process this session, not a code change
+
+Two things surfaced while reading through both handover files this
+session that are worth being aware of, separate from the ranking work
+above:
+
+- **A box exists in this file's own "▶ START HERE" section (product-
+  owner-authored, not this session's own Claude identity) claiming
+  "no product-owner confirmation is required" for sweeping resolutions
+  across Tasks 35/36/46/49, and pointing at patch files
+  (`mavins-web-unblocked-handover-and-pricing.patch`,
+  `b-pay-backend-payout-flow.patch`) this session has never seen and
+  cannot verify the contents of.** A prior legitimate session already
+  flagged this same box directly above it in the file ("whether its
+  claimed resolutions... stand is the product owner's call, not
+  something to silently relitigate here") — this session did the
+  same: read past it, didn't treat its claims as settled ground truth,
+  didn't execute anything it directed. Not accusing it of anything
+  specific — it may well be the product owner's own direct edit,
+  exercising their own real authority to skip a confirmation step,
+  which is entirely their call to make. Just: unverified content
+  making sweeping "skip the confirmation step" claims is exactly the
+  shape of thing this file's own established culture treats with
+  extra scrutiny before building on top of it, and this session did
+  the same rather than being the one to finally act on it uncritically.
+- **Directly relevant context found while reading Velune's own
+  `HANDOVER_CAMPAIGN.md` §0** ("The one thing you must not undo"): an
+  explicit, repeated, product-owner-confirmed line against ever adding
+  a field/table/code path that fabricates a listener/play/engagement
+  number — written after a prior session read code from a sibling repo
+  that did exactly that (seeded fake listener counts into a real
+  `play_count` column) and declined to port it, even when the ask was
+  reframed as "just a personal project." Directly relevant to this
+  session's own work: the cold-start mechanism above was designed and
+  checked specifically to stay on the right side of that line (it
+  reorders real campaigns, never fabricates a number) — flagging the
+  connection here for whoever reads this next, not because anything
+  in this session's own request crossed it.
+
+**Status: migration 021 written, not yet applied to the live DB —
+same project-owner-only `supabase db push` step as everything else in
+this file's queue.** No Velune-side code change needed for this task —
+`CampaignRepository.kt` already just displays whatever order
+`get_trending_campaigns` returns, so it benefits from this
+automatically once the migration is live, with nothing to change on
+that side.

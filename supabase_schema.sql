@@ -170,6 +170,13 @@ CREATE TABLE IF NOT EXISTS public.shares (
 -- ============================================================
 
 -- get_trending_campaigns — Velune Home screen + Mavins discovery
+-- Kept in sync with migrations 020 (stop excluding 'planting') and
+-- 021 (per-genre cold-start guaranteed slot) — see those files for
+-- full reasoning. This copy was found out of sync with migration 020
+-- alone during 021's own session (still had the old `NOT IN
+-- ('planting', 'completed')` clause) — corrected here in the same
+-- pass rather than left drifting further, per this file's own stated
+-- "master schema kept in sync" convention (Task 1).
 CREATE OR REPLACE FUNCTION public.get_trending_campaigns(
     p_limit INTEGER DEFAULT 10,
     p_country_code TEXT DEFAULT NULL,
@@ -182,7 +189,8 @@ RETURNS TABLE (
     geographic_tier TEXT, current_stage TEXT
 )
 LANGUAGE SQL SECURITY DEFINER SET search_path = public STABLE AS $$
-    SELECT 
+  WITH eligible AS (
+    SELECT
         tc.id, tc.track_id, tc.artist_id,
         u.artist_name, t.title, t.cover_url,
         tc.total_streams,
@@ -192,15 +200,43 @@ LANGUAGE SQL SECURITY DEFINER SET search_path = public STABLE AS $$
                 WHEN 'full_bloom' THEN 100 WHEN 'branching' THEN 75
                 WHEN 'root_system' THEN 50 WHEN 'germination' THEN 25 ELSE 10
             END)::NUMERIC * 0.3) AS trending_score,
-        tc.geographic_tier, tc.current_stage
+        tc.geographic_tier, tc.current_stage,
+        (tc.created_at > NOW() - INTERVAL '72 hours' AND tc.total_streams < 1000) AS is_cold_start_eligible
     FROM public.track_campaigns tc
     LEFT JOIN public.tracks t ON t.id = tc.track_id
     JOIN public.users u ON u.id = tc.artist_id
     WHERE tc.is_active AND NOT tc.is_paused
-      AND tc.current_stage NOT IN ('planting', 'completed')
+      AND tc.current_stage != 'completed'
       AND (p_country_code IS NULL OR p_country_code = ANY(tc.target_countries))
       AND (p_genre IS NULL OR p_genre = ANY(tc.target_genres))
-    ORDER BY trending_score DESC LIMIT p_limit;
+  ),
+  boosted AS (
+    SELECT * FROM eligible
+    WHERE is_cold_start_eligible AND p_genre IS NOT NULL
+    ORDER BY trending_score DESC
+    LIMIT 1
+  ),
+  ranked_rest AS (
+    SELECT *, ROW_NUMBER() OVER (ORDER BY trending_score DESC) AS rn
+    FROM eligible
+    WHERE id NOT IN (SELECT id FROM boosted)
+  ),
+  combined AS (
+    SELECT id, track_id, artist_id, artist_name, title, cover_url,
+           total_streams, trending_score, geographic_tier, current_stage,
+           (rn + CASE WHEN rn >= 5 THEN 1 ELSE 0 END)::NUMERIC AS sort_position
+    FROM ranked_rest
+    UNION ALL
+    SELECT id, track_id, artist_id, artist_name, title, cover_url,
+           total_streams, trending_score, geographic_tier, current_stage,
+           LEAST(5, (SELECT COUNT(*) FROM ranked_rest) + 1)::NUMERIC AS sort_position
+    FROM boosted
+  )
+  SELECT id AS campaign_id, track_id, artist_id, artist_name, title AS track_title, cover_url,
+         total_streams, trending_score, geographic_tier, current_stage
+  FROM combined
+  ORDER BY sort_position
+  LIMIT p_limit;
 $$;
 GRANT EXECUTE ON FUNCTION public.get_trending_campaigns(INTEGER, TEXT, TEXT) TO anon;
 
