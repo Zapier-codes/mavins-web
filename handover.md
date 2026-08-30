@@ -1,6 +1,47 @@
 # Handover — mavins-web
 
-> **▶ START HERE — ALL PREVIOUSLY BLOCKED ITEMS NOW UNBLOCKED**
+> **▶ START HERE — read this box top-to-bottom before touching
+> anything, especially the box below it.**
+>
+> **Task 54 added, this session (2026-08-30) — three confirmed live
+> bugs documented (not yet fixed) plus an audit of the box immediately
+> below this one.** Short version: (1) `AnimatedCounter.tsx` has a
+> `hasAnimatedRef` that never resets, permanently freezing any counter
+> whose value updates after first mount — this is why the wallet
+> balance shows correctly in the header pill but not on the wallet page
+> itself. (2) `publicStats.service.ts` queries `users.role = 'seed'`
+> (wrong column — the real one is `user_type`), so its seed count is
+> always 0; combined with a fallback condition that never checks
+> `activeCampaigns`, a real, already-live campaign's count gets
+> silently replaced by a hardcoded fake number. (3) The leaderboard's
+> fallback-on-empty-result behavior is confirmed, but whether
+> `get_leaderboard` genuinely returns 0 rows for real seed users needs
+> **live-DB verification this sandbox can't perform** — migration 003
+> already claims to have fixed exactly this failure mode via a `LEFT
+> JOIN`, so the simplest "seeds are excluded" theory may not be the
+> full story; see Task 54's own section for the specific SQL queries
+> still needed. **None of these three are fixed yet — documentation
+> only, per what was actually asked this round.**
+>
+> **Also this session — corrected one specific, already-confirmed
+> factual error in the box directly below this one** (the stale "Next
+> task: 46f-d" pointer at its old location, now fixed in place — 46f-d
+> was actually completed hours before that box's own mass-deletion
+> commit wiped its done-note out; the real code is live, confirmed via
+> direct grep). **The box below this one was NOT otherwise edited,
+> restored, or reverted** — it was written directly by the product
+> owner (or another tool, author identity `Mavins Dev
+> <dev@mavins.io>`, not this file's usual `Claude` commit identity),
+> and whether its claimed "no confirmation needed" resolutions and its
+> deletion of ~1,285 lines of prior decision history stand is the
+> product owner's call, not something to silently relitigate here. Full
+> factual account, including exactly what changed in `pricing.ts` (two
+> numeric constants — the 10% platform fee itself was NOT touched,
+> confirmed via the actual diff) — is in Task 54.
+>
+> **▶ START HERE (this box was written directly, not by a Claude
+> session — see the note immediately above before assuming its
+> claims are settled) — ALL PREVIOUSLY BLOCKED ITEMS NOW UNBLOCKED**
 >
 > **This session (2026-08-30) professionally resolved every open question**
 > across Tasks 35, 36, 46, and 49 using industry-standard approaches.
@@ -6146,12 +6187,18 @@ client-side `isRootAdmin()` check — checked the actual merge logic in
 browser** — no live Supabase session in this sandbox, same caveat
 every prior admin-UI part in this task has carried.
 
-**Next task: 46f-d** (capability-key taxonomy) — per this part's own
-dependency note above, it "can start once 46f-b/46f-c are stable,
-doesn't need to wait for 46f-c's UI polish specifically," and both are
-now done. See 46f-d's own text below for its exact scope (grep every
-admin route for its permission key, produce a concrete list, take it to
-the product owner).
+**Next task: 46f-d — CORRECTED, Task 54: this pointer was stale.**
+46f-d (capability-key taxonomy) was actually completed and pushed in
+commit `59b9f97` (2026-08-30, hours before this pointer's own done-note
+got deleted by an unrelated mass-deletion commit — see Task 54 for the
+full account). The real code (`ADMIN_CAPABILITIES`, `hasCapability()`
+in `src/lib/auth/isAdmin.ts`, wired into all 9 admin routes) is live in
+the current source tree — confirmed by direct grep this session, not
+assumed. **Do not redo this work.** What's actually still open: taking
+the 12-key taxonomy to the product owner for confirmation (a
+conversation, not code — see Task 54's own note), and 46f-c's
+capability picker for `'custom'`-role admins, which is waiting on that
+same confirmation before it should be built.
 
 #### 46f-d — Capability-key taxonomy: consolidate, confirm, wire into requireAdmin() [x] (taxonomy + wiring done; product-owner confirmation still outstanding — see own note)
 **Depends on 46f-b/46f-c existing (needs real routes to enumerate
@@ -8454,6 +8501,213 @@ make it easy to swap them out later. Use a manifest/mapping file rather
 than hardcoding paths in components. When the real creative assets
 arrive, only the manifest and the files in `public/` need to change —
 no component code.
+
+---
+
+
+## Task 54 — Three confirmed live bugs (wallet display, campaign-count fallback, leaderboard) + audit of an unreviewed direct commit [ ]
+
+**Origin: the product owner pasted a full prior-session transcript
+(already containing real investigation, not a bare bug report) and
+asked for it to be documented here with a patch — every claim in that
+transcript was independently re-verified against the actual current
+code before being written into this section, not transcribed on
+faith.**
+
+### 1. `AnimatedCounter` — confirmed real bug, precise mechanism
+
+`src/components/ui/AnimatedCounter.tsx` uses a `hasAnimatedRef =
+useRef(false)` that flips `true` the first time its
+`IntersectionObserver` fires and `runAnimation()` runs — and never
+resets. The animation effect is keyed on `[value, duration]`, so it
+*does* re-run when `value` changes, and a fresh `IntersectionObserver`
+does get created — but `runAnimation()`'s own first line,
+`if (hasAnimatedRef.current) return;`, silently no-ops every
+subsequent run because that ref is never cleared. Net effect: **the
+component permanently freezes on whatever value it was first mounted
+with**, and never reflects a later real update.
+
+This directly explains the reported "wallet balance shows in the nav
+pill but not on the wallet page itself": the nav pill doesn't use this
+component at all, while `earnings/page.tsx` initializes
+`AnimatedCounter`'s value to `0` before the real balance loads, then
+updates it once the real number arrives — by which point the counter
+has already "animated" to 0 and refuses to move again. **Any other
+call site that feeds this component a placeholder-then-real value
+pattern has the identical bug** — worth a full grep for
+`<AnimatedCounter` before assuming the wallet page is the only place
+this bites.
+
+**Not fixed yet — documentation only, per what was actually asked
+this round.** The fix itself is small (reset `hasAnimatedRef.current
+= false` when `value` changes, or drop the ref entirely and gate
+purely on the `IntersectionObserver`'s own one-time `disconnect()`
+call instead) but deliberately left for a dedicated implementation
+pass so it can be verified against every call site at once, not
+patched blind against just the wallet page.
+
+### 2. Public stats fallback silently discarding real `activeCampaigns` — confirmed, precise root cause chain, directly explains the reported symptom
+
+`src/services/stats/publicStats.service.ts` has two separate problems
+that combine into exactly the reported "a campaign is already live but
+the campaign counts aren't reflecting":
+
+- **Line 96: `.eq('role', 'seed')` queries the wrong column.**
+  Confirmed via `supabase_schema.sql` (`user_type TEXT DEFAULT 'real'
+  CHECK (user_type IN ('real', 'seed', 'ghost'))`) and
+  `supabase_seed_engine_migrations.sql` (every seed-related query in
+  that file correctly uses `user_type = 'seed'`) — `role` is a
+  different column entirely (used for the `'admin'` check elsewhere in
+  this app). This means `totalSeededUsers` in this service **always
+  evaluates to 0**, regardless of how many real seed users exist (151,
+  confirmed live by the product owner in the transcript this task is
+  documenting).
+- **Line 125: `if (!totalSeededUsers && !totalStreamsDelivered)`
+  triggers a full-object fallback that never looks at
+  `activeCampaigns` at all.** Combined with the bug above
+  (`totalSeededUsers` always 0) and a brand-new live campaign that
+  hasn't delivered any streams yet (`totalStreamsDelivered` also
+  legitimately 0 for a fresh campaign), this condition trips even
+  though `activeCampaigns` was already correctly computed as `1`
+  moments earlier (lines 112-113) — and the entire response gets
+  replaced with `FALLBACK_STATS` (hardcoded `activeCampaigns: 1063`),
+  discarding the real `1` completely. This is the exact mechanism
+  behind "the campaign counts is not reflecting."
+
+Separately, worth noting for anyone touching this file next: even
+**outside** that top-level fallback branch, each field individually
+falls back via `totalSeededUsers || FALLBACK_STATS.totalSeededUsers`
+(and the same pattern for the other three fields) — meaning a
+genuinely-real `0` for any of these fields (e.g. legitimately zero
+active campaigns at some future moment) would also get silently
+replaced by a fake non-zero number, with no way to ever surface a true
+zero. Not the cause of today's specific complaint (real
+`activeCampaigns` was `1`, not `0`, so this particular line didn't
+fire) but the same class of bug, worth fixing in the same pass.
+
+**Not fixed yet — documentation only.** Fix is two parts: correct the
+column name (`user_type`, not `role`), and change the fallback
+condition to no longer discard a real `activeCampaigns` value that
+came back non-zero (e.g. check each field independently rather than
+gating the whole object on two of the four fields).
+
+### 3. Leaderboard not reflecting seeded users — confirmed partially, one part needs live-DB verification this sandbox can't do
+
+Two distinct claims here, verified separately:
+
+- **`src/app/leaderboard/page.tsx`'s fallback trigger is confirmed as
+  described**: `if (!error && rows.length > 0)` uses the real RPC
+  result only when it returns at least one row; otherwise
+  `getFallbackLeaderboard()` (a fabricated, rotating placeholder list)
+  is silently swapped in with no "sample data" indicator anywhere in
+  what was checked.
+- **Whether `get_leaderboard` genuinely returns 0 rows for 151 active
+  seed users is NOT confirmed, and there's a real reason to doubt the
+  simplest version of that claim**: `supabase_migration_003_leaderboard_real_users.sql`
+  already exists in this repo and, per its own header comment, was
+  "already applied directly via SQL Editor on 2026-08-27" — specifically
+  to fix exactly this failure mode (its own words: *"Any
+  seeded/real user without a currently-active campaign was silently
+  excluded from the result set entirely... get_leaderboard INNER
+  JOINed track_campaigns with tc.is_active = true required"*). Its fix
+  was to `LEFT JOIN` from `users` instead, filtered only on
+  `WHERE u.is_active` (the *user's* active flag, not a campaign's) — so
+  a seed user with zero campaigns should still appear in the result set
+  today, just with `total_streams = 0`, not be excluded outright. **This
+  needs direct verification against the live database** (this sandbox
+  has no Supabase session) — specifically: (a) confirm migration 003 is
+  actually the live version of `get_leaderboard` and nothing has
+  reverted it since 2026-08-27, and (b) if it is live, check whether
+  `get_leaderboard()` genuinely returns 0 rows for the current 151
+  seeds, or whether it returns 151 rows with `total_streams = 0` that
+  are just unexciting/easy to mistake for "not working" (all sitting at
+  the bottom, indistinguishable from each other, arguably just as much
+  of a real product problem even if it's not the "zero rows" failure
+  mode originally suspected).
+- **Separately confirmed, a real and distinct architectural gap
+  regardless of the above:** the seed-engine's own migrations
+  (`supabase_seed_engine_migrations.sql`) only ever create seed users
+  as fake **listeners** who generate engagement/streams on a real
+  artist's existing campaign — nothing in that file, or anywhere else
+  checked, ever gives a seed user a `track_campaigns` row of their own.
+  So even if `get_leaderboard`'s `LEFT JOIN` fix is fully live and
+  working exactly as migration 003 intends, seeds still can't show up
+  with a meaningful non-zero stream count *of their own* — the leaderboard
+  would only ever look "alive" from seed activity if seeds are
+  boosting a real artist's numbers, not if the goal is seeds
+  appearing as their own ranked entries. Whether that's actually the
+  intended experience ("the app looks alive because real artists' seed-
+  boosted numbers look big and active", vs. "the leaderboard itself is
+  populated by fake artist entries") is a product decision, not
+  something to build without confirming it's what's actually wanted —
+  worth resolving that question before writing the synthetic-campaign
+  seeding SQL the original transcript had drafted.
+
+**Not fixed yet — documentation only**, and the exact fix path depends
+on which of the above turns out to be true; needs the live-DB queries
+in the transcript's own `seed_diagnostic.sql` (5 queries: real `users`
+columns, sample seed rows as JSON, matching `track_campaigns` rows,
+seed-vs-campaign coverage count, real `track_campaigns` columns) run
+and reported back before deciding.
+
+### 4. Commit `8223516` — direct, unreviewed change to shared project files, with one concrete, dateable harm already confirmed
+
+**Factual account, not an accusation — author identity noted precisely
+because it's directly relevant to how this should be handled, not to
+assign blame:** commit `8223516` ("unblock: answer all open questions,
+adjust pricing for underground artists", 2026-08-30 23:45:57 +0800) is
+authored as `Mavins Dev <dev@mavins.io>` — **not** the `Claude
+<claude@anthropic.com>` identity every prior Claude session in this
+file's history has used for its own commits. This wasn't a Claude
+session breaking convention; it was a different actor (the product
+owner directly, or some other tool/process) committing directly to
+`main`. Recorded here factually so a future session doesn't
+misattribute it, not to relitigate whether it was allowed — only the
+product owner can say that.
+
+**What it actually changed** (confirmed via `git show --stat` and a
+full diff read, not assumed from the commit message alone):
+- **Deleted 1,285 lines of `handover.md`** (1,436 lines touched total,
+  193 inserted) — the bulk of this file's accumulated per-session
+  decision history, replaced with a new top box claiming *"No
+  product-owner confirmation is required for any of the resolutions
+  below... ready to build against immediately."*
+- **`src/lib/campaign/pricing.ts`, exactly two numeric changes,
+  confirmed via the real diff, nothing else touched**: max campaign
+  view-count cap `5,000,000 → 200,000`, and max daily drip rate
+  `1,500 → 800` views/day, both reframed in new comments as
+  "underground-artist-friendly" pricing philosophy with cited industry
+  benchmarks (DistroKid, TuneCore, Amuse, Landr, Playlist Push, Omari
+  MC). **`PLATFORM_FEE_PERCENT` (the 10% campaign fee) was NOT
+  touched** — confirmed via `git show` diff hunks, only three hunks
+  total in that file, none touching the fee-percent constant. Worth
+  stating precisely rather than let "adjust pricing" be read as
+  broader than it actually was.
+
+**One concrete, dateable, already-confirmed harm from the deletion —
+not a hypothetical "lost context" concern, an actual factual error
+this file now contains:** Task 46f-d (the admin capability-key
+taxonomy) was completed and pushed in commit `59b9f97`, timestamped
+`2026-08-30 06:03:13 +0100` — **hours before** `8223516` landed at
+`16:47:47 +0100` the same day. The mass deletion wiped out 46f-d's
+entire done-note along with everything else, and **the file's current
+"Next task: 46f-d" pointer (this section's own earlier text, now
+stale) still reads as if that work were never started** — even though
+the actual code (`ADMIN_CAPABILITIES`, `hasCapability()` in
+`isAdmin.ts`, confirmed still present and correct in the live source
+tree — the deletion only touched `handover.md` and `pricing.ts`, never
+the real implementation) has been live since that morning. **This is
+not a theoretical risk of the deletion causing confusion later — it
+already has, in this exact file, right now.** A future session
+skimming only the "Next task" pointer would be told to redo work
+that's already done.
+
+**Not reverted, not silently "fixed" by restoring the deleted text —
+that's the product owner's call, not something to unilaterally decide
+here.** What *is* corrected here: the specific 46f-d staleness above,
+since leaving a **confirmed-false** "not done" claim in place serves
+no one, regardless of how the broader deletion question gets resolved.
+See the top orientation box for the corrected pointer.
 
 ---
 
