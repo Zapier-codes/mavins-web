@@ -8432,44 +8432,72 @@ surface must read correctly against the dark background.
 
 ---
 
-## Task 51 — "Your Campaign Is Live" success page [ ]
+## Task 51 — "Your Campaign Is Live" success page [x]
 
-**New task, this session.** After a user successfully places a campaign
-(whether wallet-funded for returning users or direct-pay for guests), there
-is **no dedicated success/confirmation page**. The promote page currently
-shows:
-- For authenticated users: `showSuccess = true` renders a brief inline banner
-- For guests: `showGuestCampaignSuccess = true` renders a similar inline notice
+**Ask:** After a user successfully places a campaign (whether
+wallet-funded for returning users or direct-pay for guests), there
+was no dedicated success/confirmation page — the promote page just
+showed a brief inline banner (`showSuccess` / `showGuestCampaignSuccess`)
+that disappeared on refresh, with no shareable URL.
 
-Both of these are **insufficient** — they disappear on refresh, provide no
-shareable URL, and don't give the user a sense of completion or next steps.
+**Done, this session.** Built `/campaign-live?id={campaign_id}`: reads
+the campaign via the existing `getCampaignById()`, reuses
+`CampaignSuccessVisualization` for the country-pipeline animation,
+adds a growth-stage timeline (all 6 `current_stage` values), a real
+campaign summary section, Track Progress / Share Campaign / Start
+Another CTAs, a "Create Your Account" CTA for non-owners, and a
+CSS-only confetti burst that respects `prefers-reduced-motion`.
 
-**What to build:** A dedicated `/campaign-live` (or `/campaign/success`) page
-that:
-- Is reachable via a unique, shareable URL (e.g. `/campaign-live?id={campaign_id}`)
-- Shows a celebratory confirmation (confetti animation or similar, using the
-  app's existing `framer-motion` or CSS animation patterns)
-- Displays the campaign summary: song link, target views, selected countries
-  (with flags), estimated duration, total cost
-- Shows the campaign's current stage in the growth lifecycle ("Planting" →
-  "Germination" → etc.) with a visual timeline
-- CTA buttons:
-  - "Track Progress" → routes to `/analytics`
-  - "Share Campaign" → copies a shareable link to clipboard
-  - "Start Another" → routes back to `/promote`
-- For guests: includes a prominent "Create Your Account" CTA (since they
-  placed the campaign without being logged in, this is the conversion moment)
-- Follows the app's glassmorphism dark-theme design system throughout
+**Real gap found and fixed first, not worked around:** the spec asks
+for "target views" and "estimated duration" in the summary, but
+neither was ever persisted on `track_campaigns` — `calculatePricing()`'s
+result is computed at insert time in both `create/route.ts` and the
+guest webhook's `createDirectCampaign()`, used to size the wallet
+debit/stored budget, then discarded. Re-deriving either from
+`total_budget_cents` after the fact would be lossy (many view counts
+can map to the same subtotal near a tier boundary) and could silently
+disagree with what the artist actually saw at checkout. Added
+**migration 022** (`target_view_count BIGINT`, `estimated_duration_days
+INT`, both nullable, no backfill — old rows genuinely have nothing
+accurate to backfill from) and updated both insert sites to persist
+them from the `pricing` object each already has in hand at insert
+time. `initialize-campaign/route.ts`'s payment-session snapshot also
+gained `pricing.durationDays` so the guest webhook path has it too
+(`viewCount` was already snapshotted one level up). `supabase_schema.sql`
+updated to match.
 
-**Route structure:**
-```
-src/app/campaign-live/page.tsx          # The success page
-src/app/api/campaigns/success/route.ts  # Optional: server-side data fetch
-```
+**Wired the authenticated flow:** `promote/page.tsx`'s `handleSubmit`
+success branch now does `router.push('/campaign-live?id=...')` instead
+of the old `showSuccess` inline banner. Removed `showSuccess`/
+`lastCampaignCountries`, both now fully dead.
 
-**Data source:** The page reads `?id={campaign_id}` from the URL and fetches
-that campaign from `track_campaigns` via the existing `getArtistCampaigns()`
-or a new lightweight `getCampaignById()` service function.
+**Guest flow — deliberately NOT migrated to this page, not an
+oversight.** The existing code already documents why: a guest's
+campaign is created asynchronously by the Korapay webhook, and there's
+no reliable campaign id available at the moment they land back from
+checkout via the verify-redirect (a real, already-flagged race — see
+Task 36 Part 4's own note in this file). Wiring guests into
+`/campaign-live` needs that resolved first; a half-fix that shows this
+page with no real data most of the time would be worse than the
+current inline banner. Left `showGuestCampaignSuccess`'s banner as-is,
+but added the same "Create Your Account" CTA to it directly (needs no
+campaign id at all), so guests still get that specific ask without
+waiting on the harder problem.
+
+**Verified:** `npx tsc --noEmit` clean (after clearing a stale `.next/`
+cache referencing a deleted route — unrelated to this change).
+`npm run build` still fails on the same pre-existing, sandbox-only
+Google Fonts network issue noted since Task 8 — got past
+type-checking and into webpack compilation before hitting it, which is
+as far as any build has gotten in this sandbox. ESLint itself is
+currently broken in this sandbox (`eslint.config.mjs` importing a
+subpath ESLint 8.57.1 doesn't export) — unrelated to this change, but
+means lint couldn't be run either; manually checked both new/edited
+files for dead imports and stale state references instead.
+
+**Not done / worth a follow-up:** the guest-path race in Task 36 Part
+4 itself — resolving it is what would let guests reach this same page
+too, not something to bolt onto this task as a partial fix.
 
 ---
 
