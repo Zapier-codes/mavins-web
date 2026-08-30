@@ -3,23 +3,22 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest session (2026-08-30, latest of all) — Task 48's Group 2
-> answered: full 69-column `users` schema.** Big finding — confirmed,
-> not just suspected, that `public.users` is Nakama's own native user
-> table (its exact standard columns are all present verbatim),
-> extended with this app's custom columns bolted on top. Also found:
-> two duplicate-looking column pairs (`create_time`/`update_time` vs
-> `created_at`/`updated_at`; `metadata` vs `metadata_json`) whose
-> "which side does this app actually use" question is still open; a
-> separate `auth_user_id` identity column that Task 48's admin-
-> reassignment endpoint will need to key off correctly (Nakama's own
-> `id` vs this); `previous_role` confirmed live (46f-e Part 1 applied
-> successfully). Full write-up, plus two flagged-not-chased findings
-> (triplicate "monthly listeners" columns; a large seed-artist-roster-
-> looking column cluster), is in Task 48's own Group 2 entry below.
-> **Group 3 is next in queue — give the product owner that exact
-> query next** (gamification-data population check), then Groups 4-6,
-> then the two open product questions.
+> **Newest session (2026-08-30, latest of all) — Task 48's Group 3
+> answered: gamification is substantially populated already, not
+> dormant.** 88% of 171 users have points, 83% have a streak, 53% are
+> past base tier, chart_position is set for 170/171 (near-universal —
+> a very different pattern from the earned stats, suggesting it's
+> computed/assigned rather than earned). **This is finishing/extending
+> a live system real users depend on, not greenfield.** **New
+> product-owner direction, recorded verbatim: "all real users should
+> be authenticated through the Nakama instance so that they join the
+> gamified logic fully"** — bears directly on Group 2's still-open
+> `auth_user_id`-vs-Nakama-`id` question; flags a good follow-up query
+> (are there `auth_user_id` rows that bypassed real Nakama auth?) not
+> yet run. Full write-up in Task 48's own Group 3 entry below. **Group
+> 4 is next in queue — give the product owner that exact query next**
+> (`role`×`tier` cross-tab), then Groups 5-6, then the two open product
+> questions.
 >
 > **Newest session (2026-08-30, latest of all) — Task 48 opened,
 > discovery only, no code, per explicit instruction. Supersedes
@@ -7861,25 +7860,50 @@ resolve:**
   flagging so a future session doesn't have to rediscover the
   connection from scratch if it becomes relevant.
 
-**Group 3 (queued after Group 2, NEXT IN QUEUE — give this to the
-product owner next) — is the gamification data actually
-populated, or is the
-system built but unused so far** (code confirms the routes exist and
-are wired; this checks whether real users have actually accumulated
-anything through them yet):
-```sql
-select
-  count(*) filter (where points is not null and points != 0) as rows_with_points,
-  count(*) filter (where streak is not null and streak != 0) as rows_with_streak,
-  count(*) filter (where tier is not null and tier != 'T4') as rows_above_base_tier,
-  count(*) filter (where chart_position is not null) as rows_with_chart_position,
-  count(*) filter (where archetype is not null) as rows_with_archetype,
-  count(*) filter (where narrative_arc is not null) as rows_with_narrative_arc,
-  count(*) as total_rows
-from public.users;
-```
+**Group 3 — ANSWERED (2026-08-30), do not re-run.** Result:
 
-**Group 4 (queued after Group 3) — `role` × `tier` cross-tab** (directly tests the naming-
+| rows_with_points | rows_with_streak | rows_above_base_tier | rows_with_chart_position | rows_with_archetype | rows_with_narrative_arc | total_rows |
+| ------------------ | ------------------ | ----------------------- | --------------------------- | ---------------------- | --------------------------- | ------------ |
+| 151                 | 142                 | 91                       | 170                          | 151                     | 151                          | 171           |
+
+**This settles Group 3's own original question decisively: the
+gamification system is substantially POPULATED, not built-but-dormant.**
+88% of all 171 users have non-zero points (151), 83% have a streak
+(142), just over half (91, 53%) have progressed past the base tier
+`T4`, and 88% have an `archetype`/`narrative_arc` set (151 — the exact
+same count for both, suggesting these two get set together, likely at
+the same lifecycle moment). Most striking: `chart_position` is set for
+**170 of 171** — effectively universal, a very different population
+pattern from points/streak/archetype, suggesting it's computed/
+assigned to nearly everyone (e.g. via a ranking job) rather than
+earned through active engagement the way points/streak are. **Whoever
+picks up the actual "wire gamification fully" implementation should
+treat this as finishing/extending a live system real users are already
+using, not flipping on something dormant** — that changes the risk
+profile of any change here (existing users have real accumulated state
+to not break) compared to greenfield work.
+
+**Product-owner direction, stated directly alongside this result, not
+inferred:** *"all real users should be authenticated through the
+Nakama instance so that they join the gamified logic fully."* Recorded
+verbatim as a real architectural decision for this task, not a
+passing comment. This directly bears on Group 2's own still-open
+`auth_user_id`-vs-Nakama-`id` question above: it points toward
+**Nakama's own authentication (and by extension Nakama's own `id`) as
+the required/primary path for a "real" user**, not an optional
+alternative to Supabase Auth. Practical implication for whoever builds
+the admin reassignment endpoint or any new-signup-default code: **confirm
+whether every row with a non-null `auth_user_id` also went through real
+Nakama authentication, or whether some rows have `auth_user_id` set
+via a path that bypassed Nakama** — if any exist, those are exactly the
+accounts that would NOT be getting wired into gamification per this
+stated direction, and are worth surfacing as a data-quality question,
+not silently left alone. No query for this was run this session (it
+wasn't part of the original 6 groups) — flagging as a good candidate
+follow-up query once Groups 4-6 are done, not blocking them.
+
+**Group 4 (queued after Group 3, NEXT IN QUEUE — give this to the
+product owner next) — `role` × `tier` cross-tab** (directly tests the naming-
 overlap question above — if every `role='listener'` row is also
 `tier='T4'` and every `role='curator'` row has a high tier, that's
 real evidence they're meant to move together despite no code coupling
