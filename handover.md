@@ -20,9 +20,11 @@
 > full reasoning, flagged in case this reading is wrong. **Task 46c's
 > own top-level checkbox is now `[x]`.** With this, 46a/46b/46c are
 > all done — **Task 46's own top-level checkbox stays `[ ]`** since
-> 46e's own broader, still-open items (a general reusable
-> confirmation-dialog component, the unresolved user-management scope
-> question) remain — see 46e's own entry for what's actually left.
+> 46e's own broader confirmation-dialog component (still not built)
+> and the fully-specified-but-not-yet-built admin user-management
+> CRUD remain — see 46e's own entry for what's actually left (the
+> user-management scope itself is already resolved with the product
+> owner, just not implemented).
 > **Next session: re-check the queue — Task 47 (UI/UX polish, spec
 > only) is the next item added but not yet started; otherwise confirm
 > nothing else is unblocked before starting fresh work.**
