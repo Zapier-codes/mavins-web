@@ -34,6 +34,25 @@
 > reasonable alternate pickup if the taxonomy conversation is still
 > pending.
 >
+> **Even newer session (2026-08-30, later still) — investigated 46f-e,
+> found a bigger blocker than that part's own text anticipated; not
+> resolved, documented for the next session to pick up cleanly.**
+> `set_role` only works on an already-admin user — there is no
+> first-time-admin-promotion endpoint at all yet, so 46f-e's cap has
+> nothing to actually enforce against until that's built. Ran the
+> queries `set_role`'s own header comment said were needed first:
+> `role` has **three** non-admin values, not one —
+> `creator`/`listener`/`curator` (23/112/35 rows) — and
+> `public.users` turns out to be a much bigger (65-column), likely
+> **shared/non-Mavins-owned table** (several columns read like a
+> game-server/Nakama system, not this app) — worth keeping in mind for
+> any future migration touching this table, not just this task. **Two
+> real product questions still open, three more SQL queries asked but
+> not yet answered** — full detail, exact queries, and results so far
+> are in Task 46f-e's own entry below; don't re-run what's already
+> been run, just get the outstanding answers and the two open
+> questions before building the promotion endpoint.
+>
 > **Newest session (2026-08-30, later) — Task 47 item 5 fully closed,
 > commit `13fdf6c`. Task 47's only remaining open item is item 4.**
 > Item 5's confirmation-screen build-out (the half a prior session in
@@ -7271,6 +7290,107 @@ right?") at the product owner's convenience — this part is the
 natural place to actually ask it, since it's the part that hard-codes
 the number, rather than leaving it perpetually "still open" across
 every future session that touches this area.
+
+**Headcount number itself is actually already confirmed — see Task
+46e's own "Confirmed decisions" section further up (Option A, 4
+total). The paragraph above predates that confirmation and is now
+stale on that specific point; the constant/enforcement work it
+describes is still accurate and still open.**
+
+**A bigger blocker found this session (2026-08-30), investigated but
+NOT resolved — documented here rather than guessed past, since it's an
+access-control field:**
+
+`api/admin/users/[id]/route.ts`'s `set_role` action only works on a
+user who **already** has `role = 'admin'` — first-time promotion (a
+regular user becoming an admin for the first time) has no endpoint at
+all yet. This means 46f-e's cap, as literally scoped above ("enforced
+server-side in 46f-b's role-assignment route"), has nothing to
+actually enforce against — 46f-b's route can't create a 4th admin
+today regardless of any cap, because it can't create a *1st* one
+either past the existing root. The real next step is building that
+promotion endpoint first, with the cap enforced on it — not extending
+46f-b's existing route, which is scoped to changing an *already*-admin
+user's role/permissions, not granting admin status in the first place.
+
+That route's own header comment already flagged why this wasn't built
+yet: `role`'s exact schema/allowed values were never captured in this
+repo's tracked migration history (added directly against the live DB
+outside this workflow), so what a "not admin" value should be
+couldn't be confirmed without guessing at an access-control field.
+This session ran the queries to actually find out, rather than leave
+it as an abstract "worth confirming" note further:
+
+```sql
+select role, count(*) from public.users group by role;
+```
+**Result:** `admin: 1`, `creator: 23`, `listener: 112`, `curator: 35`.
+**Not a single "not admin" value — three.** This is bigger than the
+route's own comment anticipated (it read as if there'd be one
+non-admin default to fall back to).
+
+```sql
+select column_name, data_type from information_schema.columns
+where table_schema = 'public' and table_name = 'users'
+order by ordinal_position;
+```
+**Result:** 65 columns — far more than anything in this repo's own
+tracked migrations accounts for. Several (`gamecenter_id`, `steam_id`,
+`pool_id`, `narrative_arc`, `points`, `streak`, `chart_position`,
+`archetype`, `facebook_instant_game_id`) don't correspond to anything
+in the Mavins-web codebase at all and read like a different (likely
+game-server/Nakama-style) system's schema. **`public.users` is very
+likely a shared table this app only reads/writes a subset of columns
+on, not a table this app owns outright** — worth keeping in mind for
+*any* future migration that touches this table (a `DROP COLUMN` or a
+`NOT NULL` added here could break something entirely outside this
+app's own code, invisible to this repo's own tests/tsc). No dedicated
+"previous role" column exists — confirmed by reading the full column
+list, not inferred — so a future revocation flow restoring someone's
+original role would need to be captured at promotion time, if that's
+even the intended behavior (see the open question below).
+
+**Still pending — asked, not yet answered, don't re-derive these,
+just get the results:**
+```sql
+select * from public.users where role = 'admin';
+```
+(what, if anything, survives on the one real admin's row that would
+hint at their pre-admin identity)
+
+```sql
+select u.role, count(distinct u.id) as user_count,
+       count(distinct tc.id) as campaigns_created
+from public.users u
+left join public.track_campaigns tc on tc.artist_id = u.id
+group by u.role;
+```
+(whether `listener`/`curator` can hold a wallet/create campaigns at
+all today — if they structurally can't or never have, that's a real
+signal admin promotion should plausibly be `creator`-only, not
+something to guess at either way without this)
+
+```sql
+select role, user_type, count(*) from public.users
+group by role, user_type order by role, user_type;
+```
+(whether `user_type` — a separate column from `role`, found in the
+column-list query above — is actually the more relevant "is this
+person a creator/artist" signal, and whether it cuts across `role`
+cleanly or in some more tangled way)
+
+**Two real product questions this data can only partially answer, not
+settle outright — get these directly, don't infer them from query
+results alone:**
+1. **Who's eligible for admin promotion** — all four existing `role`
+   values, or only `creator` (the one this app's campaign/wallet logic
+   is actually built around)? The pending campaign-creation-by-role
+   query above is suggestive evidence either way, not a substitute for
+   asking.
+2. **On revocation, what does `role` revert to** — the person's
+   original pre-admin value (meaning the promotion endpoint needs to
+   capture and store it somewhere, since no column does today), or a
+   single fixed fallback regardless of what they were before?
 
 ---
 
