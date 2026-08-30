@@ -3,7 +3,30 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest session (2026-08-30, latest of all) — 46f-e's remaining
+> **Newest session (2026-08-30, latest of all) — Task 48 opened,
+> discovery only, no code, per explicit instruction. Supersedes
+> 46f-e's "who's eligible for promotion" framing entirely.** Product
+> owner wants admin able to reassign **any** user to **any** role (not
+> a restricted promotion flow), plus a new `'artist'` role as the
+> default for every new signup, plus this wired into "the website's
+> gamification logic" starting "fully." **Big finding: that
+> gamification system already substantially exists** —
+> `src/app/api/gamification/*` (5 real routes, 49-154 lines each,
+> genuinely wired to `points`/`streak`/`tier`) — this is finishing/
+> activating something real, not building from nothing. Also found a
+> striking but currently-uncoupled naming overlap (tier labels
+> T4-T1 = Listener/Contributor/Creator/Curator, nearly identical to
+> `role`'s own values, but zero code connects them today) — flagged as
+> an open design question, not resolved either way. Confirmed
+> `users.wallet` JSONB is correctly kept in sync by
+> `credit_wallet_deposit` (checked because of a separate old
+> `create-user` route also touching it directly — no bug found, but
+> checked rather than assumed given how relevant it is here). **Full
+> discovery query set (6 groups) + two open product questions are in
+> Task 48's own entry below — nothing built yet, waiting on live-DB
+> results and those two answers.**
+>
+> **Before this — newest session (2026-08-30) — 46f-e's remaining
 > work split into 3 parts; part 1 done, commit `d5c52d0`.** Migration
 > 017 adds `previous_role` to `public.users` — schema prep that's safe
 > regardless of how the two open product questions resolve (see
@@ -7574,7 +7597,192 @@ nothing below has been implemented yet.**
 
 ---
 
-## Task 47 — UI/UX polish pass: wallet nav, fund-wallet entry point, IP geolocation on landing, mobile scroll positioning, theme consistency, terminology [ ]
+## Task 48 — Full role-system overhaul: admin any→any reassignment + new 'artist' default role + gamification schema wiring [ ]
+
+**Supersedes 46f-e's "who's eligible for admin promotion" framing
+entirely.** Product owner's direction this session, recorded
+verbatim: admin should be able to **see all roles and reassign any
+user to any role** — not a restricted "promotion" endpoint gated to
+one eligible source role. Additionally, a **new role, `artist`, should
+become the default role for every new signup**, replacing the current
+hardcoded default. The product owner also wants this wired into "the
+website's gamification logic" starting "fully" — this task turned out
+to touch a real, already-substantial existing subsystem, not a small
+addition; see findings below.
+
+**This session: discovery only, no schema or code changes, per
+explicit instruction ("until you give me the command to query my DB…
+let's begin the findings").** Everything below is either confirmed
+directly from this repo's own code (cited per-file), or is an open
+question that needs a live-DB query this sandbox can't run — Supabase
+credentials aren't available here, same reason every prior migration
+in this file has needed a `supabase db push`/SQL-editor hand-off.
+
+### What's already confirmed from code alone (no DB query needed)
+
+- **Current signup default, and everything else set at signup:**
+  `src/app/api/auth/create-user/route.ts` inserts a new `users` row
+  with `role: 'listener'`, `points: 0`, `streak: 0`, `tier: 'T4'`,
+  `is_active: false`, `user_type: 'real'`, `wallet: { balance: 0 }`.
+  This is the exact line that needs to change to default to `'artist'`
+  instead — but see the open questions below before touching it, since
+  several of the other fields set alongside `role` here may need to
+  change in the same commit, not just the role value in isolation.
+- **`role` has (at least) four live values today, not one "not admin"
+  default** (confirmed via query in 46f-e's own entry above, still the
+  most recent real count available): `admin: 1`, `creator: 23`,
+  `listener: 112`, `curator: 35`.
+- **There is an existing, real, non-trivial gamification subsystem
+  already built** — `src/app/api/gamification/{streak/update,
+  tasks/update, tasks/claim, points/history, tier/check}/route.ts`,
+  each 49-154 lines, genuinely wired to `points`/`streak`/`tier`, not
+  dead code. This matters directly: it means "make the gamification
+  logic start fully" is asking to **finish/activate a real, partially-
+  built system**, not build one from nothing — whoever picks this up
+  should read all five of those files before assuming anything about
+  what does or doesn't already work.
+- **A striking, worth-flagging naming overlap with no actual code
+  coupling behind it, confirmed by grep:** `tier/check/route.ts`'s own
+  `TIERS` array labels each point-based tier as `T4 = "Listener"`,
+  `T3 = "Contributor"`, `T2 = "Creator"`, `T1 = "Curator"` — nearly
+  identical wording to `role`'s own values. But grepping all five
+  gamification route files for `role` found **zero matches** — nothing
+  in the tier/points/streak system reads or writes the `role` column
+  at all today. So either (a) `role`'s values were chosen to visually
+  echo the tier ladder for display purposes, with the two meant to
+  stay in sync via logic that doesn't exist yet — which would itself
+  be a real, currently-*not*-built part of "make gamification start
+  fully" — or (b) they're coincidentally similar words describing two
+  genuinely unrelated concepts (an account-type/permission field vs.
+  a points-earned tier), and no syncing was ever intended. **This is a
+  real, open design question worth asking the product owner directly,
+  not something to infer either way from the DB alone** — no query
+  can settle "was this intentional," only more data about *current*
+  state.
+- **`users.wallet` (JSONB) is confirmed the correct, single, in-sync
+  source of truth for wallet balance** — checked this session because
+  the coincidence of an old `create-user` route setting
+  `wallet: { balance: 0 }` directly, alongside this whole file's
+  extensive `wallet_ledger`/RPC-based work, raised a real "are there
+  two competing balance sources" concern. Traced
+  `credit_wallet_deposit`'s actual SQL (migration 004): it **does**
+  update `public.users.wallet` atomically in the same statement it
+  writes the `wallet_ledger` audit row — the JSONB column is the live
+  balance, `wallet_ledger` is the audit trail, not a second competing
+  balance. No bug found here, but flagging that this was checked and
+  confirmed rather than assumed, given how directly relevant it is to
+  anything touching signup defaults.
+- **This app also integrates with a separate, hosted Nakama game
+  server** (`src/services/nakama/nakama.service.ts`,
+  `nakama-mmpb.onrender.com`) for leaderboards and real-time features,
+  with its own webhook (`api/webhooks/nakama/route.ts`). Checked: that
+  webhook does **not** touch `points`/`streak`/`tier`/`role` on
+  `public.users` at all — Nakama and this table's own gamification
+  columns appear to be separate systems today, not one syncing into
+  the other. Worth keeping in mind (per `public.users`'s own likely-
+  shared-table finding in 46f-e above) since some of the odder columns
+  there (`gamecenter_id`, `steam_id`, `facebook_instant_game_id`) read
+  like they could be Nakama/game-platform-adjacent, but nothing found
+  this session actually connects them.
+
+### Discovery queries needed — live DB access required, run and paste results back
+
+**Group 1 — exact `role` column definition, needed before adding
+`'artist'` as a new allowed value:**
+```sql
+-- 1a: type, nullability, default
+select column_name, data_type, is_nullable, column_default, character_maximum_length
+from information_schema.columns
+where table_schema = 'public' and table_name = 'users' and column_name = 'role';
+
+-- 1b: any CHECK constraint restricting role's allowed values (this
+-- would need altering to add 'artist' if one exists)
+select conname, pg_get_constraintdef(oid) as definition
+from pg_constraint
+where conrelid = 'public.users'::regclass and contype = 'c';
+
+-- 1c: is role backed by a Postgres ENUM type rather than plain TEXT?
+-- (an enum would need ALTER TYPE ... ADD VALUE, not just a CHECK edit)
+select t.typname, e.enumlabel
+from pg_type t join pg_enum e on t.oid = e.enumtypid
+where t.typname ilike '%role%';
+```
+
+**Group 2 — full `users` schema with nullability + defaults** (fuller
+than 46f-e's earlier column-name-only query — needed for anything this
+task touches, not just `role`):
+```sql
+select column_name, data_type, is_nullable, column_default
+from information_schema.columns
+where table_schema = 'public' and table_name = 'users'
+order by ordinal_position;
+```
+
+**Group 3 — is the gamification data actually populated, or is the
+system built but unused so far** (code confirms the routes exist and
+are wired; this checks whether real users have actually accumulated
+anything through them yet):
+```sql
+select
+  count(*) filter (where points is not null and points != 0) as rows_with_points,
+  count(*) filter (where streak is not null and streak != 0) as rows_with_streak,
+  count(*) filter (where tier is not null and tier != 'T4') as rows_above_base_tier,
+  count(*) filter (where chart_position is not null) as rows_with_chart_position,
+  count(*) filter (where archetype is not null) as rows_with_archetype,
+  count(*) filter (where narrative_arc is not null) as rows_with_narrative_arc,
+  count(*) as total_rows
+from public.users;
+```
+
+**Group 4 — `role` × `tier` cross-tab** (directly tests the naming-
+overlap question above — if every `role='listener'` row is also
+`tier='T4'` and every `role='curator'` row has a high tier, that's
+real evidence they're meant to move together despite no code coupling
+existing yet; if they're scattered independently, that's evidence
+they're genuinely unrelated fields):
+```sql
+select role, tier, count(*) from public.users group by role, tier order by role, tier;
+```
+
+**Group 5 — RLS policies on `users` referencing `role`** (needed
+before admin gets free-form write access to this column — confirm
+nothing in RLS assumes `role` can only ever be set to today's four
+values, which would silently block writing `'artist'` even after the
+column/constraint itself allows it):
+```sql
+select policyname, cmd, qual, with_check
+from pg_policies
+where schemaname = 'public' and tablename = 'users';
+```
+
+**Group 6 — any insert/update triggers on `users`** (confirms whether
+`role`'s default is ever set at the DB level, not just in this app's
+own `create-user` route — relevant since `public.users` is likely
+shared with another system per 46f-e's own finding, which could have
+its own trigger-based default this repo's code doesn't know about):
+```sql
+select trigger_name, event_manipulation, action_timing, action_statement
+from information_schema.triggers
+where event_object_schema = 'public' and event_object_table = 'users';
+```
+
+**Two open product questions, not answerable from any query above —
+get these directly once the data comes back, since they shape how the
+admin role-editing UI and the new signup default actually get built:**
+1. Is the `role`/`tier` naming overlap intentional (should the two
+   systems be wired together as part of "starting gamification fully"),
+   or genuinely two separate concepts that happen to share vocabulary?
+2. Does `'artist'` replace `'listener'` as literally the only thing
+   that changes at signup, or does becoming an "artist" by default
+   also imply a different starting `tier`/`points` baseline than a
+   plain listener would get (e.g., should a brand-new artist start at
+   a different tier than someone who's just browsing/listening)?
+
+**Not started: any schema migration, any code change to
+`create-user/route.ts`'s default, any admin role-editing UI.** All of
+that depends on the queries and questions above landing first.
+
+---
 
 **Product owner request, written up as a spec only per explicit
 instruction this session ("adjust the handover file only") — no code
