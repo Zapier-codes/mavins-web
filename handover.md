@@ -3,7 +3,22 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest session (2026-08-30, latest of all) — Task 46f-d done:**
+> **Newest session (2026-08-30, latest of all) — 46f-e's remaining
+> work split into 3 parts; part 1 done, commit `d5c52d0`.** Migration
+> 017 adds `previous_role` to `public.users` — schema prep that's safe
+> regardless of how the two open product questions resolve (see
+> 46f-e's own entry for the exact split and why part 1 doesn't need to
+> wait). **Parts 2 (the actual promotion endpoint) and 3 (cap
+> enforcement) are still blocked** on those two questions — asked
+> directly this session rather than left as an abstract note:
+> (1) is admin promotion open to all four `role` values
+> (creator/listener/curator/admin-already), or `creator`-only, and
+> (2) on revocation, does `role` revert to the person's original
+> pre-admin value, or a fixed fallback regardless? The 3 pending SQL
+> queries in that section are also still outstanding — whoever has
+> live DB access should run those too before parts 2/3 start.
+>
+> **Before this — newest session (2026-08-30) — Task 46f-d done:**
 > `ADMIN_CAPABILITIES` (12 keys, `isAdmin.ts`) + `hasCapability()`
 > built and wired into every one of the 9 real `requireAdmin()`-gated
 > route files (8 single-capability routes pass their key directly;
@@ -7391,6 +7406,27 @@ results alone:**
    original pre-admin value (meaning the promotion endpoint needs to
    capture and store it somewhere, since no column does today), or a
    single fixed fallback regardless of what they were before?
+
+**Split into 3 parts this session, since the remaining work is
+blocked on the two questions above but not all of it needs to be:**
+
+1. **Schema prep that doesn't presuppose either answer.** **Done, this
+   session, commit `d5c52d0`.** Migration 017 adds `previous_role`
+   (nullable, no constraint) to `public.users` — captures a user's
+   role at the moment of first-time promotion, before it gets
+   overwritten to `'admin'`, so the original value isn't lost
+   regardless of which way question 2 gets answered. If the eventual
+   answer is "fixed fallback regardless," this column simply stays
+   unused — nothing needs undoing either way.
+2. **The actual promotion endpoint** (a regular user → their first
+   `role = 'admin'`, with `admin_role`/`admin_permissions` from
+   migration 016 set alongside it). **Still blocked** — needs both
+   open questions answered first; don't guess at either.
+3. **Headcount cap enforcement**, wired onto whatever endpoint part 2
+   builds (not 46f-b's existing route, which only handles an
+   *already*-admin user — see this section's own finding above for
+   why). **Depends on part 2**, not separately blocked once that
+   lands.
 
 ---
 
