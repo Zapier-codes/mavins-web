@@ -3,6 +3,18 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
+> **Newest session (2026-08-30, latest of all) — Task 48's Group 1a/1c
+> query answered, documented, do not re-run.** `role` is plain
+> `character varying(20)`, nullable, DB-level default `'listener'`
+> (matches the app's own code-level default) — and since a plain
+> `character varying` data_type can never secretly be an enum, this
+> also fully closes 1c without needing to run it. **Still open in
+> Group 1: 1b (CHECK constraint check)** — see Task 48's own Group 1
+> entry below for the exact query and full reasoning. Groups 2-6 and
+> both open product questions are still outstanding too — this was a
+> documentation-only patch, no schema/code change, matching Task 48's
+> own explicit "discovery only, no code" scope until those land.
+>
 > **Newest session (2026-08-30, latest of all) — Task 48 opened,
 > discovery only, no code, per explicit instruction. Supersedes
 > 46f-e's "who's eligible for promotion" framing entirely.** Product
@@ -7689,23 +7701,52 @@ in this file has needed a `supabase db push`/SQL-editor hand-off.
 
 **Group 1 — exact `role` column definition, needed before adding
 `'artist'` as a new allowed value:**
-```sql
--- 1a: type, nullability, default
-select column_name, data_type, is_nullable, column_default, character_maximum_length
-from information_schema.columns
-where table_schema = 'public' and table_name = 'users' and column_name = 'role';
 
--- 1b: any CHECK constraint restricting role's allowed values (this
--- would need altering to add 'artist' if one exists)
+**1a and 1c: ANSWERED (2026-08-30), do not re-run.** Query 1a's
+result, run directly against the live DB and reported back:
+
+| column_name | data_type         | is_nullable | column_default                | character_maximum_length |
+| ----------- | ----------------- | ----------- | ------------------------------ | ------------------------- |
+| role        | character varying | YES         | 'listener'::character varying | 20                        |
+
+What this settles, precisely:
+- **`role` is plain `character varying(20)`, NOT a Postgres enum.**
+  This also fully answers 1c without needing to run it separately —
+  an enum-backed column's `data_type` in `information_schema.columns`
+  is *always* `USER-DEFINED` (with the enum's own type name in
+  `udt_name`), never `character varying`; there is no scenario where a
+  column reports `character varying` here and is secretly enum-backed.
+  Practical upshot: adding `'artist'` as a value is an ordinary
+  `UPDATE`/`INSERT`, not an `ALTER TYPE ... ADD VALUE` migration.
+- **Nullable: YES.** `role` can be `NULL` in principle, even though
+  this app's own `create-user/route.ts` always sets it explicitly at
+  signup — worth remembering if `public.users` really is shared with
+  another system (per 46f-e's finding) that might insert rows without
+  setting it.
+- **Column-level default is `'listener'`, matching this app's own
+  code-level default exactly.** Two separate places currently agree on
+  `'listener'`: the DB column default, and `create-user/route.ts`'s
+  explicit `role: 'listener'` on insert (the explicit insert value
+  wins over the column default for rows this app creates, but the
+  column default still matters for any OTHER writer — same
+  shared-table caveat as above). **Switching to `'artist'` needs BOTH
+  updated in the same change** — the app code (the one that actually
+  determines what real signups get today) AND, for defense-in-depth
+  given the shared-table possibility, a migration altering the column
+  default too (`ALTER TABLE public.users ALTER COLUMN role SET DEFAULT
+  'artist'`) — don't ship a code-only fix and assume the DB-level
+  default doesn't matter.
+- `character_maximum_length: 20` — `'artist'` (6 chars) fits with
+  room to spare, no truncation concern.
+
+**1b: still open, this is the only real remaining unknown in Group
+1** — whether a `CHECK` constraint restricts `role` to today's known
+values (which would need altering, separately from anything above, to
+actually allow `'artist'` to be written):
+```sql
 select conname, pg_get_constraintdef(oid) as definition
 from pg_constraint
 where conrelid = 'public.users'::regclass and contype = 'c';
-
--- 1c: is role backed by a Postgres ENUM type rather than plain TEXT?
--- (an enum would need ALTER TYPE ... ADD VALUE, not just a CHECK edit)
-select t.typname, e.enumlabel
-from pg_type t join pg_enum e on t.oid = e.enumtypid
-where t.typname ilike '%role%';
 ```
 
 **Group 2 — full `users` schema with nullability + defaults** (fuller
