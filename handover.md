@@ -3,6 +3,31 @@
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Task 56 added, this session (2026-08-30) — three product-owner
+> items, documentation only, no code changed.** (a) Synthesized an
+> answer to "will a new user see the leaderboard already populated" —
+> short answer: not yet, needs BOTH Task 54's `get_leaderboard()` bug
+> fixes AND Task 55's synthetic-campaign seeding, both still
+> unimplemented; no new work item, just points at those two existing
+> tasks in the right order (54 first). (b) New spec: a streak-linked
+> earnings bonus — genuinely new (Task 49's existing gamification reuse
+> is for task-progress, not the payout amount itself), four real open
+> product questions before it's buildable (what "streak" means here,
+> bonus shape, funding source, streak-break behavior) — see Task 56b.
+> (c) Nakama-as-primary-auth — the SAME direction a prior session
+> already recorded verbatim from the product owner (Task 48's Group 3
+> note), now restated with an explicit reversed-foreign-key framing.
+> Confirmed via reading the real code that this is currently **100%
+> Supabase Auth** for every real user session — Nakama's own service
+> (`nakama.service.ts`) is entirely server-side/system-account-only,
+> zero per-user Nakama login exists anywhere in this codebase today.
+> This is a **major, high-risk architecture change** (every protected
+> route in the app depends on the current auth system), not a config
+> flag — four concrete open questions posed (token-bridging approach is
+> the biggest fork) before any implementation should start. See Task
+> 56's own three sub-sections for the full write-up — don't start
+> building any of the three without reading them, especially 56c.
+>
 > **Task 55 added, this session (2026-08-30) — real-celebrity-identity
 > finding in the seed data, confirmed product-owner decision, spec
 > only.** Diagnostic query confirmed `user_type = 'seed'` rows are real
@@ -8855,5 +8880,236 @@ doesn't have to rediscover these:
   listener *interactions* on other campaigns, never a seed's own
   campaign numbers) — this needs to be designed fresh, not copied from
   an existing pattern.
+
+---
+
+## Task 56 — Three product-owner questions this session: leaderboard-population answer (synthesis, not new research), streak-linked earnings bonus (new spec), and Nakama-as-primary-auth (major architecture proposal + open questions) [ ]
+
+**Spec/documentation only, per explicit instruction — no code changed
+this session.** Three genuinely separate items, bundled into one task
+number only because they arrived in the same message; treat them as
+independently startable, not sequential parts of one build.
+
+### 56a — "If [the leaderboard bug] is fixed, will a new user see it already populated?"
+
+**Answer, synthesized from Task 54/55's already-completed
+investigation, not new research — those two tasks already contain
+everything needed to answer this precisely:**
+
+**Short answer: not automatically, and not yet, even after Task 54's
+bugs are fixed.** Three separate things all have to be true for a new
+user to land on a populated leaderboard, and today at most one of them
+is:
+
+1. **`get_leaderboard()`'s own `LEFT JOIN` fix (migration 003) needs to
+   actually be the live version.** Task 54 flagged this as *not
+   confirmed* — the migration file claims it was applied via SQL
+   Editor on 2026-08-27, but nothing in this sandbox can verify nothing
+   has reverted it since. **First thing to check, not assumed.**
+2. **Even if #1 holds, that fix alone was only about seed users not
+   being silently *excluded*** (rows with zero campaigns previously
+   vanished entirely from the result set). It does **not** give seed
+   users a non-zero stream count of their own — the seed-engine's
+   migrations only ever make seed rows act as *listeners* on a real
+   artist's campaign, never grant them a `track_campaigns` row of
+   their own. So even a fully-working #1 likely means "151 rows appear,
+   all near the bottom with `total_streams = 0`" — technically
+   populated, not *convincingly* populated.
+3. **Task 55 is the actual fix for #2** (give seed rows their own
+   visible campaigns, with plausible per-seed stream counts) — **the
+   product owner already confirmed proceeding with this**, but it is
+   **not implemented yet**, only spec'd. Until it lands, a new user
+   sees, at best, a technically-non-empty but visually-unconvincing
+   leaderboard (a wall of zeros), not the "looks alive" experience the
+   product owner is asking about here.
+
+**So: a new user will NOT see a genuinely populated, convincing
+leaderboard until both Task 54's `get_leaderboard()` bugs are fixed
+*and* Task 55's synthetic-campaign seeding is actually built** — two
+separate, both still-unimplemented pieces of work, not one. Worth
+saying plainly since "is this fixed" could easily be read as "yes"
+once Task 54 alone ships, which would be an incomplete answer.
+
+**No new work item created here** — this is fully covered by Task
+54 (bug fixes) and Task 55 (synthetic campaigns) already existing in
+this file; a future session should pick up those two, in that order
+(54 first — no point seeding campaigns for a query that's still
+excluding rows), not treat this as a third, separate task.
+
+### 56b — Streak-linked earnings bonus (new feature, not yet spec'd anywhere)
+
+**Genuinely new — checked against Task 49's own existing gamification
+write-up first, not assumed to be missing.** `streak` already exists
+as a real, populated column on the shared Nakama-native `public.users`
+table (Task 48's Group 3 finding: 142 of 171 real users already have a
+non-zero streak), and Task 49's own roadmap already mentions reusing
+"existing gamification routes" (`api/gamification/streak/update`,
+among others) for **task-progress tracking** on the listener-earnings
+feature. **What's genuinely new in this request**: using streak as an
+input to the **payout amount itself** — a bonus/multiplier on
+earnings for a sustained streak — not just as a separate stat sitting
+alongside earnings. Nothing in Task 49's existing spec (the revenue-
+pool formula, the >=60s qualifying-play gate, the NET-50 payout cycle)
+currently references `streak` as a variable in the payout calculation
+at all — confirmed by re-reading that task's full "Round 2" answers
+and implementation roadmap, not assumed from a gap.
+
+**Open questions, needed before this is buildable — not answered by
+the request as given, and genuinely product decisions, not technical
+ones:**
+1. **What does "streak" mean in this context?** Nakama's existing
+   `streak` column/route presumably tracks *daily app-open or
+   listening-activity streaks* (consecutive days of some activity) —
+   is that the same streak this bonus should key off, or does
+   "earnings streak" mean something narrower (e.g. consecutive days
+   with at least one *qualifying, payment-eligible* play specifically,
+   which is a stricter, not-yet-tracked-anywhere condition)? These are
+   genuinely different numbers and the existing column may not
+   directly answer the earnings-specific version.
+2. **Bonus shape**: a flat percentage bump on the listener's share of
+   the revenue pool (e.g. +1% per consecutive day, capped at some
+   ceiling)? A tiered bonus (streak milestones unlock a fixed bump,
+   like the existing `tier` ladder)? A multiplier applied before or
+   after the 20%-of-revenue-pool split Task 49 already defines?
+3. **Funding source**: does a streak bonus come out of the same
+   revenue pool (meaning non-streaking listeners implicitly get a
+   smaller share so streaking listeners can get more — a genuine
+   zero-sum redistribution), or is it additive on top (meaning the
+   platform absorbs the extra cost, changing Task 49's own "20% of the
+   pool" arithmetic to no longer be the true payout ceiling)? This is
+   the single most consequential open question — it changes whether
+   this feature costs the platform money beyond what Task 49 already
+   commits to, or just redistributes an existing fixed pool.
+4. **Streak-break behavior**: does a missed day reset the bonus to
+   zero immediately, decay gradually, or grant some grace period?
+   Existing `streak/update` route behavior (not read in full this
+   session) may already have an opinion here worth checking before
+   inventing a new rule for the earnings-specific version.
+
+**Not started — no schema, no code, no RPC.** A future session should
+get at least questions 2 and 3 above answered directly before writing
+any implementation, since both change the actual arithmetic Task 49's
+payout RPC would need (which doesn't exist as working code yet either
+— Task 49 itself is still spec-only per its own status).
+
+### 56c — "All Auth must pass through the Nakama instance... Supabase [becomes] the foreign relationship for the Nakama auth" — major architecture proposal, NOT a small config change
+
+**This is the same direction a prior session already recorded
+verbatim from the product owner** (Task 48's Group 3 note: *"all real
+users should be authenticated through the Nakama instance so that
+they join the gamified logic fully"*) — **restated here, more
+strongly, with the reversed-foreign-key framing spelled out
+explicitly for the first time** ("Supabase is the foreign relationship
+for the Nakama auth" — i.e. Nakama's own identity becomes primary,
+Supabase's `auth.users`/`public.users.auth_user_id` becomes a
+secondary system linked *from* Nakama, not the other way around as it
+implicitly is today). Recording this as confirmation the direction is
+real and repeated, not a one-off comment — but **restating a goal is
+not the same as it being buildable yet**; the questions below are
+genuinely unanswered and this is a large, high-risk change that
+deserves real scoping before any code gets written.
+
+**Current actual state, confirmed by reading the real code this
+session, not assumed:**
+- `src/services/nakama/nakama.service.ts` (the only Nakama integration
+  in this repo) is **entirely server-side and service-account-based**.
+  Every method authenticates as a single fixed system identity
+  (`authenticateCustom('mavins-server-system', ...)`) — there is **no
+  per-user Nakama login anywhere in this codebase today.** It's used
+  only for writing/reading leaderboard records and storage objects on
+  the server's own behalf, never as "this real human logging in."
+- **Real user authentication today is 100% Supabase Auth** —
+  `src/app/api/auth/create-user/route.ts` (confirmed elsewhere in this
+  file) creates a Supabase `auth.users` row directly via the anon-key
+  client, and every session/RLS check in this entire app
+  (`supabase.auth.getUser()`, `requireAdmin()`, every RLS policy that
+  references `auth.uid()`) is built on top of that Supabase-issued JWT.
+  This is confirmed to be the load-bearing identity system for
+  literally every protected route in this app, not a legacy path
+  alongside a working Nakama-auth alternative.
+- `public.users` is confirmed (Task 48's own finding) to be **Nakama's
+  own native user table**, shared directly — this app's code writes
+  its own columns onto rows that Nakama's system already owns the
+  base shape of. The `auth_user_id` column on that same table is the
+  existing bridge *to* Supabase's `auth.users.id` — today's actual
+  relationship is "Nakama's table, with a foreign pointer out to
+  Supabase," which is **already halfway toward** what's being asked
+  for, just not with Nakama handling the actual login/session
+  issuance side yet.
+
+**What "all auth passes through Nakama" would actually require —
+scoped honestly, not minimized:**
+1. **A real per-user Nakama authentication flow**, client-side —
+   Nakama's own SDK supports `authenticateEmail`/`authenticateDevice`/
+   `authenticateCustom` per real user (not just the server's fixed
+   system identity this repo currently uses) — none of this exists in
+   this codebase yet. This is new client-side auth UI/flow work, not a
+   config flag.
+2. **A session-bridging decision**: Nakama issues its own session
+   tokens, which are not Supabase-compatible JWTs. Every RLS policy
+   and every `supabase.auth.getUser()` call in this app assumes a real
+   Supabase session. Making Nakama "primary" means either (a) a custom
+   token-exchange step where a valid Nakama session mints a
+   corresponding Supabase session server-side (Supabase supports
+   custom/third-party JWT verification for exactly this kind of
+   bridging, but this app doesn't have that wired up today — would
+   need real research into Supabase's own supported approach, not
+   guessed at here), or (b) a broader move away from Supabase Auth/RLS
+   entirely toward Nakama-issued tokens being verified directly by
+   this app's own server routes, which is a much bigger rewrite
+   touching every RLS policy in the schema. **Which of these two the
+   product owner actually wants is the single most important open
+   question below** — they imply very different amounts of work and
+   very different risk profiles.
+3. **Existing-user migration**: 171 real users already exist today,
+   with real Supabase Auth accounts and (per Task 48's own findings)
+   already-populated Nakama-native rows on the same shared
+   `public.users` table. Whatever the new flow is, it needs to work
+   for these existing accounts without locking anyone out — a genuine
+   migration concern, not just new-signup logic.
+4. **Guest checkout's own auth-adjacent logic** (Task 33's
+   `resolveOrCreateGuestAccount`, the Korapay webhook's own guest
+   account creation) currently creates real Supabase `auth.users` rows
+   directly, server-side, via the admin API — this pattern would need
+   to either also go through Nakama, or be an explicitly-scoped
+   exception, and that's a product decision, not something to assume
+   either way.
+
+**Open questions — genuinely need direct product-owner answers before
+this is buildable, not just a "some day" architecture note:**
+1. **Token-bridging approach**: of the (a)/(b) options in point 2
+   above, which is actually wanted? This is the single biggest fork in
+   how much work this is.
+2. **Does this apply to brand-new signups only, or does it also
+   require migrating the 171 existing accounts onto the new flow?**
+   If existing accounts are grandfathered on Supabase-native auth
+   while only new signups go through Nakama, that's a much smaller,
+   much safer first step than a full swap — worth explicitly
+   confirming rather than assuming a full migration is wanted on day
+   one.
+3. **What happens to guest checkout** (a real, working, revenue-
+   generating flow today, per Task 36's own completed work) under the
+   new model — does a guest still get a lightweight Supabase-only
+   account at checkout time, or does guest checkout also need to
+   create a Nakama identity now?
+4. **Is there an existing Nakama-side email/password (or other)
+   authentication method already configured on the hosted instance**
+   (`nakama-mmpb.onrender.com`) that this app could actually call, or
+   would that also need to be set up on the Nakama server side first —
+   outside this repo's own code entirely?
+
+**Deliberately NOT started: no code, no schema change, no client-side
+auth flow.** Given the size and risk of this change (every protected
+route in the app depends on the current auth system working correctly;
+a wrong move here risks locking out real, paying users) this needs the
+four questions above answered directly, in writing, before any
+implementation session begins — not inferred from this note's own
+best guesses the way some smaller open questions elsewhere in this
+file have been. Recommend the first real implementation step, once
+questions are answered, be scoped to **new signups only** (point 2
+above) rather than attempting the full existing-user migration in the
+same pass, regardless of which token-bridging approach is chosen —
+smaller blast radius, and it de-risks the harder existing-user
+migration by proving the new flow works end-to-end first.
 
 ---
