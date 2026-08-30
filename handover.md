@@ -3,16 +3,23 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest session (2026-08-30, latest of all) — Task 48's Group 1 is
-> fully closed** (NULL-role audit: zero rows; CHECK constraint check:
-> none restrict `role`; combined with 1a/1c already answered — plain
-> `varchar(20)`, not an enum, DB default `'listener'`). Adding
-> `'artist'` needs zero schema changes. **Group 2 is next in queue —
-> give the product owner that exact query next** (full `users` schema
-> with nullability/defaults), then Groups 3-6 in order, then the two
-> open product questions — see Task 48's own entry below, each group
-> is now marked with its status so there's no need to re-derive
-> ordering.
+> **Newest session (2026-08-30, latest of all) — Task 48's Group 2
+> answered: full 69-column `users` schema.** Big finding — confirmed,
+> not just suspected, that `public.users` is Nakama's own native user
+> table (its exact standard columns are all present verbatim),
+> extended with this app's custom columns bolted on top. Also found:
+> two duplicate-looking column pairs (`create_time`/`update_time` vs
+> `created_at`/`updated_at`; `metadata` vs `metadata_json`) whose
+> "which side does this app actually use" question is still open; a
+> separate `auth_user_id` identity column that Task 48's admin-
+> reassignment endpoint will need to key off correctly (Nakama's own
+> `id` vs this); `previous_role` confirmed live (46f-e Part 1 applied
+> successfully). Full write-up, plus two flagged-not-chased findings
+> (triplicate "monthly listeners" columns; a large seed-artist-roster-
+> looking column cluster), is in Task 48's own Group 2 entry below.
+> **Group 3 is next in queue — give the product owner that exact
+> query next** (gamification-data population check), then Groups 4-6,
+> then the two open product questions.
 >
 > **Newest session (2026-08-30, latest of all) — Task 48 opened,
 > discovery only, no code, per explicit instruction. Supersedes
@@ -7778,18 +7785,84 @@ was moot once the count itself came back zero, so it was not run.
 This closes the "check for users with no role" part of "let's wire it
 fully" cleanly — nothing else to do here, no lingering unknown.
 
-**Group 2 — NEXT IN QUEUE, give this to the product owner next.** Full
-`users` schema with nullability + defaults (fuller than 46f-e's
-earlier column-name-only query — needed for anything this task
-touches, not just `role`):
-```sql
-select column_name, data_type, is_nullable, column_default
-from information_schema.columns
-where table_schema = 'public' and table_name = 'users'
-order by ordinal_position;
-```
+**Group 2 — ANSWERED (2026-08-30), do not re-run.** Full 69-column
+schema returned; full result kept out of this file (too long to be
+useful inline — ask the project owner to re-paste if a future session
+genuinely needs every row again) but every load-bearing finding from
+it is captured below.
 
-**Group 3 (queued after Group 2) — is the gamification data actually
+**Big finding: `public.users` is confirmed — not just "likely" per
+46f-e's earlier hedge — to be Nakama's own native user table**,
+extended with this app's custom columns bolted directly onto it. The
+tell: `id (uuid)`, `username`, `display_name`, `avatar_url`,
+`lang_tag`, `location`, `timezone`, `metadata (jsonb)`, `email`,
+`password (bytea)`, `facebook_id`, `google_id`, `gamecenter_id`,
+`steam_id`, `custom_id`, `edge_count`, `create_time`/`update_time`/
+`verify_time`/`disable_time`, `facebook_instant_game_id`, `apple_id`,
+`pool_id` are Nakama's own standard user-table columns, verbatim. This
+isn't a new table this app owns that happens to share a name — it's
+Nakama's actual table, shared for real. Everything past that point in
+the column list (`tier` onward) is this app's own addition layered on
+top.
+
+**Two duplicate-looking column pairs found — worth resolving which
+side is authoritative before Task 48's code touches either, not
+assumed either way here:**
+- `create_time`/`update_time` (Nakama-native, **NOT NULL**, default
+  `now()`) vs `created_at`/`updated_at` (this app's own bolt-on,
+  nullable, default `now()`). Two timestamp pairs on the same row.
+- `metadata` (Nakama-native, **NOT NULL**, default `'{}'`) vs
+  `metadata_json` (this app's own bolt-on, nullable, default `'{}'`).
+  Two JSON blobs on the same row.
+
+Neither pair's "which one does this app's code actually read/write"
+question was answered this session (out of scope for a schema-shape
+query) — but a future session touching either timestamps or metadata
+here should check both columns exist before assuming there's only one,
+and grep for which this app's own routes actually use.
+
+**`auth_user_id` (uuid, nullable)** — a second identity column,
+separate from Nakama's own `id` primary key, almost certainly the
+bridge to Supabase's own `auth.users`. Directly relevant to Task 48's
+"reassign any user to any role" admin work: **confirm which id an
+admin role-reassignment route should key off — Nakama's `id` or this
+`auth_user_id`** — before writing that endpoint, not after.
+
+**`password` is `bytea`, not text** — consistent with (and now
+explains) the earlier-found `users_password_check` constraint
+(`length(password) < 32000`, which works identically on bytea as on
+text in Postgres) — worth knowing explicitly if any future code change
+near auth assumes a string type.
+
+**`previous_role` is live** (`text`, nullable) — confirms 46f-e Part
+1's migration 017 applied successfully; matches that commit's own
+intent exactly.
+
+**`role`/`tier`/`points`/`streak` all nullable with defaults**
+(`'listener'` / `'T4'` / `0` / `0`) — consistent with everything
+already documented in this task; no surprise here, just confirming the
+fuller picture agrees with the narrower Group-1-only view.
+
+**Flagged, not chased down — real but out of this task's scope to
+resolve:**
+- **Three separate "monthly listeners" columns**:
+  `monthly_listeners_est`, `monthly_listeners_current`,
+  `monthly_listeners`. Striking redundancy — worth a "which one is
+  actually used where" pass whenever someone next touches artist-
+  profile/chart code, not this session's job.
+- A large cluster of artist/music-profile columns (`chart_position`,
+  `primary_genre`, `track_count`, `cooldown_until`,
+  `strategic_rest_active`, `high_yield_multiplier`, `spotify_id`/
+  `spotify_url`, `youtube_id`/`youtube_url`, `discography_count`,
+  `latest_release`, `latest_release_year`, `archetype`,
+  `narrative_arc`) suggests this table also serves as a seed/simulated-
+  artist-roster system — plausibly tied to the `SeedEngine` service
+  mentioned in Task 46c's own notes. Not investigated further here;
+  flagging so a future session doesn't have to rediscover the
+  connection from scratch if it becomes relevant.
+
+**Group 3 (queued after Group 2, NEXT IN QUEUE — give this to the
+product owner next) — is the gamification data actually
 populated, or is the
 system built but unused so far** (code confirms the routes exist and
 are wired; this checks whether real users have actually accumulated
