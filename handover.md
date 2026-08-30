@@ -3,7 +3,33 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest session (2026-08-29, latest) — Task 46c: two of three
+> **Newest session (2026-08-29, latest of all) — product owner
+> confirmed the 46c pause/cancel decision, split into 3 parts, part a
+> done.** "Close out" (cancel) refunds identically for admin and user —
+> "use the industry standard mitigation... platform's 10% is not
+> refundable." Traced both halves directly rather than assumed: the
+> 10%-non-refundable half was already fully satisfied by existing code
+> (`total_budget_cents` already nets the fee out, confirmed against
+> `campaigns/create/route.ts`'s own comment); "industry standard
+> mitigation" interpreted as trusting `spent_cents` (genuinely
+> real-time-accurate for every campaign this can currently reach — see
+> full reasoning in `campaignCancellation.service.ts`'s file header,
+> including why a time-based or Fresh-Connect-reconciliation
+> alternative was considered and rejected as not currently buildable/
+> reachable, not just unnecessary). **Part a done:** extracted the
+> already-correct refund logic from `api/campaigns/cancel/route.ts`
+> into a shared `cancelCampaignAndRefund()`
+> (`campaignCancellation.service.ts`), zero behavior change, verified
+> via `npx tsc --noEmit`. **Parts b (wire into the admin PATCH route +
+> plain pause/resume) and c (admin UI + confirmation dialog) still
+> open** — see 46c's own entry under Task 46 below,
+> "46c-cancel-a/b/c". **Also flagged, not fixed:** a real, separate bug
+> in the currently-dormant Fresh Connect webhook (bypasses the atomic
+> refund RPC entirely) — worth its own task if that integration is
+> ever actually wired in; zero live impact today since it's unreachable
+> dead code. **Next session: 46c-cancel-b.**
+>
+> **Newest session (2026-08-29) — Task 46c: two of three
 > sub-items done, one still blocked.** Delivered-count corrections and
 > live demographic-targeting edits are both built (new `PATCH
 > /api/admin/campaigns/[id]`, wired into a new inline edit row on
@@ -22,10 +48,7 @@
 > including a deliberate departure from `record_campaign_stream`'s
 > monotonic stage logic (this override recomputes `current_stage`
 > bidirectionally, not upgrade-only) — flagged there in case the
-> product owner disagrees. **Next session: 46c's pause/cancel decision
-> (ask the product owner), or 46e's remaining cross-cutting scope, or
-> Task 47's UI/UX items (spec only, not started) — genuinely open,
-> pick whichever fits.**
+> product owner disagrees.
 >
 > **Newest session (2026-08-29, after the above) — 46e's audit-logging
 > gap closed for 46a.** New `src/lib/admin/auditLog.ts`
@@ -6184,9 +6207,91 @@ immediately" invariant or Task 38's wallet-deduction accounting:
   whether an admin override should behave differently (e.g. no refund
   at all for a fraud-driven admin cancellation) — this is a real
   product decision, not an implementation detail, and needs its own
-  confirmation before building. **[ ] Still blocked, not attempted this
-  session** — see "What was NOT done" below for why plain pause wasn't
-  carved out as unblocked either.
+  confirmation before building. **[x] Product owner decision confirmed
+  (2026-08-29): admin cancel refunds identically to user cancel** — no
+  fraud-exemption distinction. Split into three parts (a/b/c) below;
+  **part a done this session**, b and c still open.
+
+**Product owner's "close out" decision (2026-08-29), recorded in
+full:** "use the industry standard mitigation... platform's 10% is not
+refundable." Traced both halves directly against the actual code
+rather than assumed — full reasoning lives in
+`campaignCancellation.service.ts`'s own file header, summarized here:
+
+- **"10% not refundable"** — already fully satisfied, structurally, by
+  existing code: `total_budget_cents` is the 90% subtotal only (fee
+  netted out at creation, `api/campaigns/create/route.ts`'s own
+  comment confirms this was already a separate, earlier product-owner
+  decision). Nothing new needed for this half.
+- **"Industry standard mitigation"** — interpreted as: trust
+  `spent_cents` as the real-consumption figure, since for every
+  campaign this logic can actually reach today, it genuinely is
+  real-time-accurate (`record_campaign_stream` increments it on every
+  simulated play, no lag). A genuinely time-based proration was
+  considered and rejected as **not currently buildable**, not just
+  unnecessary: `track_campaigns` has no stored campaign-duration or
+  start-date column anywhere in this schema. A Fresh-Connect-specific
+  live-reconciliation mitigation was also considered and rejected as
+  **not currently reachable**: `addOrder()` (`freshconnect.service.ts`)
+  is never called anywhere in this codebase, so `fresh_connect_order_id`
+  is never set on a real campaign — that whole delivery channel is
+  dormant. If either of these interpretations is closer to what was
+  actually meant, flag it — this was a genuine judgment call among a
+  few plausible readings, made transparently rather than silently.
+
+**Real, separate bug found while tracing this, deliberately NOT fixed
+here:** `api/webhooks/freshconnect/route.ts`'s own refund path inserts
+directly into `wallet_ledger` (`type: 'bonus'`), bypassing
+`credit_wallet_refund` (migration 008) entirely — never actually
+updates `users.wallet.balance`, isn't idempotent against a retried
+webhook, and mislabels a refund as a bonus. Currently dead code (zero
+live traffic, per the above), so fixing it now would blur this task's
+scope for no live benefit — worth its own task if Fresh Connect is
+ever actually wired into campaign creation.
+
+**Split into 46c-cancel-a/b/c, this session:**
+
+#### 46c-cancel-a — Extract the shared cancel-and-refund function [x]
+**Done this session, commit pending.** New
+`src/services/campaign/campaignCancellation.service.ts` —
+`cancelCampaignAndRefund(admin, campaignId)`, a pure extraction of
+`api/campaigns/cancel/route.ts`'s existing logic (fetch campaign,
+compute `unspent = total_budget_cents - spent_cents`, credit via the
+atomic `credit_wallet_refund` RPC with `cancel-${campaignId}` as the
+idempotency reference, update campaign status), with zero behavior
+change — the route keeps its own auth/ownership check, only the
+mutation moved. This exists so 46c-cancel-b (below) can call the exact
+same logic instead of a second, duplicated implementation, matching
+Task 40's own "one place computes it" rule. Verified: `npx tsc
+--noEmit` clean; the route's own auth/ownership logic (401/403/404
+paths) is untouched, only its internal call to the refund mechanics
+changed from inline code to a function call — read the diff directly
+to confirm this before trusting this note alone.
+
+#### 46c-cancel-b — Wire cancel (and plain pause/resume) into the admin PATCH route [ ]
+**Depends on 46c-cancel-a.** Extend `PATCH
+/api/admin/campaigns/[id]/route.ts` to accept a new action for
+cancel — reusing `cancelCampaignAndRefund()` from part a rather than
+reimplementing it — plus plain pause/resume (`is_paused` toggle, no
+refund implications, genuinely simpler). Audit-log each distinct
+action separately (`campaign.cancel`, `campaign.pause`,
+`campaign.resume` — matching migration 015's own anticipated naming,
+same convention 46c's already-built views/targeting overrides used).
+Also worth closing out while touching this file: the pre-existing
+`togglePause()` in `admin/campaigns/page.tsx` is a direct client-side
+write with no `requireAdmin()` gate and no audit log (flagged as known
+tech debt by Task 46d's own comment) — this part should replace it
+with a call through this same route instead of leaving two parallel
+pause mechanisms (one gated/audited, one not).
+
+#### 46c-cancel-c — Admin UI: cancel button + confirmation dialog [ ]
+**Depends on 46c-cancel-b.** The actual button in
+`admin/campaigns/page.tsx` — given this action refunds real money and
+is irreversible, this is exactly the kind of "destructive/high-impact
+action" 46e's own still-open confirmation-dialog pattern is meant to
+cover; build that pattern here if 46e hasn't landed it first by the
+time this is picked up, rather than shipping a bare button with no
+confirmation step for an action this consequential.
 
 **What was built (2026-08-29):** New `PATCH
 /api/admin/campaigns/[id]/route.ts` (`requireAdmin()`-gated, matching
@@ -6236,17 +6341,14 @@ rather than inventing new ones. This closes one piece of 46e's
 separate, not attempted here), and 46e's broader confirmation-dialog
 pattern is untouched.
 
-**What was NOT done, and why:** plain pause/resume was considered for
-a narrower carve-out (it has no refund implications, unlike cancel) but
-left alone — the task's own bullet bundles "Pause/resume, cancel" as
-one item requiring "its own confirmation before building," without
-separating the two, and unilaterally deciding pause is exempt risks
-guessing at an unstated reason they were grouped together. The
-pre-existing `togglePause()` in `admin/campaigns/page.tsx` (a direct
-client-side write, no `requireAdmin()` gate, no audit log — flagged as
-known tech debt by Task 46d's own comment) is untouched by this
-session. Task 46c's own top-level checkbox stays `[ ]` until the
-pause/cancel product decision is resolved and built.
+**Note, superseded by the 2026-08-29 "close out" decision above:** an
+earlier pass through this session considered a narrower carve-out for
+plain pause/resume (no refund implications, unlike cancel) but left it
+alone pending the product-owner decision — that decision has since
+landed (see above) and applies to cancel specifically; pause/resume's
+own wiring is now part 46c-cancel-b, not a separate open question.
+Task 46c's own top-level checkbox stays `[ ]` until parts b and c are
+both done.
 
 Verified: `npx tsc --noEmit` clean across the repo. Confirmed Next.js
 14.2.5 uses sync (not async/Promise) route params, matching every

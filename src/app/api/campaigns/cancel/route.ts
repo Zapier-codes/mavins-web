@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { isAdmin } from '@/lib/auth/isAdmin';
+import { cancelCampaignAndRefund } from '@/services/campaign/campaignCancellation.service';
 
 /**
  * POST /api/campaigns/cancel
@@ -15,6 +16,16 @@ import { isAdmin } from '@/lib/auth/isAdmin';
  * credit_wallet_refund is locked to service_role only (same lockdown
  * as migrations 004/007). Moving this server-side, same pattern as
  * /api/campaigns/create and /api/campaigns/add-funds.
+ *
+ * The actual cancel-and-refund mechanics now live in
+ * campaignCancellation.service.ts's cancelCampaignAndRefund() — pulled
+ * out this session (part of the 3-way "close out" task split, part A)
+ * so Task 46c's admin dashboard can call the exact same logic instead
+ * of a second, duplicated implementation. This route keeps the
+ * authentication + ownership/admin check, which is genuinely
+ * route-specific (46c's admin route already gates through
+ * `requireAdmin()` instead, a different check) — only the mutation
+ * itself moved.
  *
  * Body: { campaignId: string }
  */
@@ -39,7 +50,7 @@ export async function POST(request: NextRequest) {
 
     const { data: campaign, error: fetchError } = await admin
       .from('track_campaigns')
-      .select('id, artist_id, total_budget_cents, spent_cents')
+      .select('id, artist_id')
       .eq('id', campaignId)
       .single();
 
@@ -54,44 +65,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Not authorized to cancel this campaign' }, { status: 403 });
     }
 
-    const unspent = (campaign.total_budget_cents || 0) - (campaign.spent_cents || 0);
-
-    if (unspent > 0 && campaign.artist_id) {
-      const { data: refundData, error: refundError } = await admin.rpc('credit_wallet_refund', {
-        p_user_id: campaign.artist_id,
-        p_amount_cents: unspent,
-        // Campaign id is a stable, unique key for this specific
-        // refund — reusing it as the idempotency reference means a
-        // duplicate cancel call (e.g. a retried request) can't
-        // double-refund the same unspent balance twice.
-        p_reference: `cancel-${campaignId}`,
-        p_reason: 'campaign_refund',
-      });
-      if (refundError) {
-        console.error('Campaign cancel: credit_wallet_refund failed', refundError);
-        return NextResponse.json({ success: false, error: 'Failed to refund wallet' }, { status: 500 });
-      }
-      const row = Array.isArray(refundData) ? refundData[0] : refundData;
-      if (!row?.credited) {
-        // Already refunded (duplicate call) — not an error, fall
-        // through and still (re-)apply the cancellation status below.
-        console.log(`Campaign cancel: reference cancel-${campaignId} already refunded, continuing`);
-      }
-    }
-
-    const { error: updateError } = await admin
-      .from('track_campaigns')
-      .update({
-        is_active: false,
-        is_paused: false,
-        current_stage: 'completed',
-        completed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', campaignId);
-
-    if (updateError) {
-      return NextResponse.json({ success: false, error: updateError.message }, { status: 500 });
+    const result = await cancelCampaignAndRefund(admin, campaignId);
+    if (!result.success) {
+      return NextResponse.json({ success: false, error: result.error }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });
@@ -100,3 +76,4 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: err?.message || 'Failed to cancel campaign' }, { status: 500 });
   }
 }
+
