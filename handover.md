@@ -3,6 +3,25 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
+> **Newest session (2026-08-30, latest of all) — Task 48 Part 2 of 3
+> done: migration file written, NOT yet applied.** New
+> `supabase_migration_018_artist_default_role.sql` — one statement,
+> `ALTER TABLE public.users ALTER COLUMN role SET DEFAULT 'artist'`.
+> **This is the piece that actually matters for the guest-checkout gap
+> Part 1's own note flagged** — until this migration is applied,
+> `guestCheckout.ts` and the `korapay-webhook` Edge Function (neither
+> sets `role` explicitly, both rely on the column default) still create
+> new users with `role: 'listener'`, regardless of Part 1 being merged
+> and live. Deliberately no `UPDATE` for existing rows — only changes
+> what a future insert gets when it doesn't specify `role`. Needs a
+> human `supabase db push` hand-off (exact commands in Task 48's own
+> Part 2 section) — this sandbox has no live DB access to apply it
+> directly. A future session should confirm it actually landed (query
+> the live column default) before treating Task 48 as fully closed.
+> **Next: Part 3** (admin any→any role-reassignment endpoint,
+> independent of Part 2, can go in either order) — or confirm Part 2
+> actually applied if the product owner reports having run the push.
+>
 > **Newest session (2026-08-30, latest of all) — product owner
 > answered Task 48's last open question directly, and Part 1 of 3 is
 > done.** Confirmed: every new signup gets the new `artist` role, full
@@ -8383,3 +8402,67 @@ every prior migration in this file has needed, this sandbox has no
 live DB access to run it directly. Part 3 (admin any→any
 role-reassignment endpoint) is independent of Parts 1/2 and could be
 picked up in either order.
+
+---
+
+## Task 48 — Part 2 of 3: `role` column-level default, migration 018 [x] (file written; NOT yet applied to the live DB)
+
+New `supabase_migration_018_artist_default_role.sql`:
+`ALTER TABLE public.users ALTER COLUMN role SET DEFAULT 'artist';` —
+exactly the one statement Group 1's own earlier finding already said
+this task would need, no more. Confirmed clean against everything
+Group 1 already established: `role` is a plain `varchar(20)`, no
+CHECK constraint restricting it to a fixed set of values, `'artist'`
+(6 chars) needs no type/constraint change — a pure `DEFAULT` swap.
+
+**Why this migration is not optional/defense-in-depth-only, restated
+plainly since it's easy to under-rate given Part 1 already shipped
+working code:** grepped (Part 1's own session) every `.from('users')
+.insert(...)` call in the app and both Supabase Edge Functions.
+`create-user/route.ts` — the one Part 1 fixed — is the *only* one that
+sets `role` explicitly. `src/lib/auth/guestCheckout.ts`'s
+`resolveOrCreateGuestAccount()` and the Edge Function's own ported copy
+(`supabase/functions/korapay-webhook/index.ts`) both insert a new
+`users` row with **no `role` field at all**, relying entirely on this
+column default. Concretely: **until this migration is actually
+applied, a guest who creates an account through the direct-pay
+campaign flow (Task 36) still gets `role: 'listener'`**, even with
+Part 1's commit fully merged and live. Task 48 is not functionally
+complete until this migration ships, regardless of Part 1's status.
+
+**Deliberately does NOT touch any existing row** — no `UPDATE`
+statement in this migration. Every user who already has
+`role = 'listener'` today stays exactly that; this only changes what a
+*future* insert gets when it doesn't specify `role` explicitly. The
+product owner's answer was specifically about new signups going
+forward — retroactively reclassifying existing users would be a real,
+unrequested behavior change, not a natural extension of what was
+asked, and isn't done here.
+
+**Grepped, this session, for the "Edge-Function-side insert sites' own
+comments" Part 1's note flagged checking** — neither
+`guestCheckout.ts` nor `korapay-webhook/index.ts` has any comment
+claiming or describing what the column default currently is (both
+simply omit `role` from their insert with no accompanying remark) — so
+there was nothing stale to update in either file. Confirmed by reading
+both in full, not assumed from the earlier grep alone.
+
+**Not yet applied to the live DB — needs the human hand-off every
+prior migration in this file has needed:**
+```
+mkdir -p supabase/migrations
+cp supabase_migration_018_artist_default_role.sql "supabase/migrations/$(date +%Y%m%d%H%M%S)_artist_default_role.sql"
+supabase db push
+```
+(project ref `atojskxrxfsbpeefigtm`, per this file's own "Supabase CLI
+workflow" section — `supabase link` only needed once per container
+setup, already done as of that note.) A future session should confirm
+this actually landed (same pattern as migration 017's own
+confirmation, found via a direct `information_schema` query against
+the live column default) before assuming Task 48 is fully closed.
+
+**Verified this session:** no code changed, migration file only — `npx
+tsc --noEmit` still passes (sanity check, not expected to catch
+anything in a `.sql`-only change). Read both Edge-Function-adjacent
+files in full to confirm the "nothing to update" claim above rather
+than trusting the earlier grep's absence-of-a-match alone.
