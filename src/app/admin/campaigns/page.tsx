@@ -1,26 +1,34 @@
 'use client';
 
 // Task 46d (handover.md): split verbatim from the old admin/page.tsx
-// monolith's 'campaigns' tab — same table, same togglePause() call,
-// only the data source changed from shared closure state to this
-// page's own useAdminDashboardData() call.
+// monolith's 'campaigns' tab — same table, only the data source
+// changed from shared closure state to this page's own
+// useAdminDashboardData() call.
 //
-// Task 46c (this session, 2026-08-29): added the inline "Override"
-// edit row — delivered stream counts + demographic targeting, via the
-// new PATCH /api/admin/campaigns/[id] route. See that route's own
-// header comment for the full reasoning (what's covered, what's
-// deliberately NOT — pause/resume/cancel stays out, still blocked on
-// an unresolved product decision). togglePause() below is unchanged,
-// pre-existing tech debt (direct client write, no requireAdmin() gate,
-// no audit log) flagged by 46d's own comment — not addressed by this
-// session's 46c work, which is scoped to the two unblocked sub-items
-// only.
+// Task 46c (2026-08-29): added the inline "Override" edit row —
+// delivered stream counts + demographic targeting, via
+// PATCH /api/admin/campaigns/[id]. See that route's own header
+// comment for the full reasoning.
+//
+// Task 46c-cancel-b/c (this session, 2026-08-29): togglePause() no
+// longer writes to track_campaigns directly — it now calls the same
+// PATCH route (action: 'pause'|'resume'), closing the pre-existing
+// gap Task 46d's own comment flagged (no requireAdmin() gate, no
+// audit log on the old direct write). Also adds a Cancel button +
+// confirmation dialog — cancelling refunds real money and is
+// irreversible, exactly the "destructive/high-impact action" 46e's
+// confirmation-dialog pattern is meant to cover (46e's own broader,
+// reusable version of that pattern hadn't landed yet as of this
+// session, so this dialog is purpose-built here rather than left
+// unbuilt pending it — a generic 46e version can replace this later
+// without changing the route it calls). Requires a reason (see the
+// route's own header comment for why a reason is still captured even
+// though the refund amount no longer branches on it).
 
 import { useState, Fragment } from 'react';
-import { AlertCircle, PauseCircle, PlayCircle, CheckCircle2, XCircle, Pencil, Check, X, Loader2 } from 'lucide-react';
+import { AlertCircle, PauseCircle, PlayCircle, CheckCircle2, XCircle, Pencil, Check, X, Loader2, Ban } from 'lucide-react';
 import { formatCents, formatNumber } from '@/lib/campaign/pricing';
 import { cn } from '@/lib/utils/cn';
-import { supabase } from '@/lib/supabase/client';
 import { useAdminDashboardData } from '../useAdminDashboardData';
 
 interface OverrideBuffer {
@@ -47,17 +55,67 @@ export default function AdminCampaignsPage() {
   const [buffer, setBuffer] = useState<OverrideBuffer | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [pauseErrorId, setPauseErrorId] = useState<string | null>(null);
+  // 46c-cancel-c — the campaign id currently showing its cancel
+  // confirmation dialog (at most one at a time), the reason typed into
+  // it, and any error from a failed cancel attempt.
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelSubmitting, setCancelSubmitting] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
-  // Unchanged from the old monolith — a direct browser-client write
-  // to track_campaigns, not a new admin API route. Out of this task's
-  // own scope (routes/nav/pages, not an RLS/write-path audit) to
-  // change how this works, only where it lives.
+  // 46c-cancel-b — now goes through PATCH /api/admin/campaigns/[id]
+  // (requireAdmin()-gated, audit-logged) instead of a direct
+  // browser-client write, closing the gap Task 46d's own comment had
+  // flagged.
   async function togglePause(campaign: any) {
-    const { error } = await supabase
-      .from('track_campaigns')
-      .update({ is_paused: !campaign.is_paused })
-      .eq('id', campaign.id);
-    if (!error) reload();
+    setPauseErrorId(null);
+    try {
+      const res = await fetch(`/api/admin/campaigns/${campaign.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: campaign.is_paused ? 'resume' : 'pause' }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || `Failed (${res.status})`);
+      reload();
+    } catch (e: any) {
+      setPauseErrorId(campaign.id);
+      console.error('togglePause failed', e);
+    }
+  }
+
+  function openCancelDialog(campaignId: string) {
+    setCancelingId(campaignId);
+    setCancelReason('');
+    setCancelError(null);
+  }
+
+  function closeCancelDialog() {
+    setCancelingId(null);
+    setCancelReason('');
+    setCancelError(null);
+  }
+
+  async function confirmCancel() {
+    if (!cancelingId || cancelReason.trim() === '') return;
+    setCancelSubmitting(true);
+    setCancelError(null);
+    try {
+      const res = await fetch(`/api/admin/campaigns/${cancelingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cancel', reason: cancelReason.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || `Failed (${res.status})`);
+      closeCancelDialog();
+      reload();
+    } catch (e: any) {
+      setCancelError(e.message || 'Failed to cancel campaign');
+    } finally {
+      setCancelSubmitting(false);
+    }
   }
 
   function startEdit(c: any) {
@@ -175,8 +233,9 @@ export default function AdminCampaignsPage() {
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => togglePause(c)}
-                          className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
-                          title={c.is_paused ? 'Resume' : 'Pause'}
+                          disabled={!c.is_active}
+                          className="p-1.5 rounded-lg hover:bg-white/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                          title={!c.is_active ? 'Campaign has ended' : c.is_paused ? 'Resume' : 'Pause'}
                         >
                           {c.is_paused ? <PlayCircle className="w-4 h-4" /> : <PauseCircle className="w-4 h-4" />}
                         </button>
@@ -187,9 +246,68 @@ export default function AdminCampaignsPage() {
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
+                        <button
+                          onClick={() => openCancelDialog(c.id)}
+                          disabled={!c.is_active}
+                          className="p-1.5 rounded-lg hover:bg-rose-500/10 text-rose-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                          title={!c.is_active ? 'Campaign has ended' : 'Cancel & refund'}
+                        >
+                          <Ban className="w-4 h-4" />
+                        </button>
                       </div>
+                      {pauseErrorId === c.id && (
+                        <p className="text-[10px] text-rose-400 mt-1">Failed to update — try again.</p>
+                      )}
                     </td>
                   </tr>
+
+                  {/* 46c-cancel-c — confirmation dialog. Cancelling refunds real
+                      money and is irreversible, so this asks for an explicit
+                      reason and a distinct confirm action rather than firing
+                      straight off the Ban button above. */}
+                  {cancelingId === c.id && (
+                    <tr className="border-b border-white/5 bg-rose-500/5">
+                      <td colSpan={6} className="px-4 py-4">
+                        <div className="space-y-3">
+                          <div className="flex items-start gap-2">
+                            <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
+                            <p className="text-xs">
+                              Cancel this campaign and refund the unspent budget
+                              ({formatCents((c.total_budget_cents || 0) - (c.spent_cents || 0))}) to the artist's
+                              wallet? The platform's fee is not refundable. This cannot be undone.
+                            </p>
+                          </div>
+                          <label className="text-xs block">
+                            <span className="block text-[var(--muted-foreground)] mb-1">Reason (required, logged to the audit trail)</span>
+                            <input
+                              autoFocus
+                              value={cancelReason}
+                              onChange={(e) => setCancelReason(e.target.value)}
+                              placeholder="e.g. artist requested, ToS violation, technical issue"
+                              className="w-full px-2 py-1.5 rounded-lg bg-black/30 border border-white/10 text-xs focus:outline-none focus:border-rose-400/50"
+                            />
+                          </label>
+                          {cancelError && <p className="text-xs text-rose-400">{cancelError}</p>}
+                          <div className="flex items-center gap-2">
+                            <button
+                              disabled={cancelSubmitting || cancelReason.trim() === ''}
+                              onClick={confirmCancel}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500 text-white text-xs font-medium hover:brightness-110 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {cancelSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />} Confirm Cancel
+                            </button>
+                            <button
+                              disabled={cancelSubmitting}
+                              onClick={closeCancelDialog}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg glass-card text-xs font-medium disabled:opacity-50"
+                            >
+                              <X className="w-3.5 h-3.5" /> Back
+                            </button>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
 
                   {editingId === c.id && buffer && (
                     <tr className="border-b border-white/5 bg-white/5">
