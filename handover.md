@@ -7828,3 +7828,601 @@ migration in this file has gone through.
 - Play history table
 - Task progress / gamification widgets
 
+
+
+---
+
+## Task 50 — "Campaign already running" modal: platform theming [ ]
+
+**New task, this session.** The promote page shows a modal/dialog when
+a user tries to create a campaign for a link that already has an active
+campaign. Currently this modal does **not** follow the platform's glassmorphism
+dark-theme design system (see `globals.css` CSS variables: `--background`,
+`--glass-border`, `--accent`, `--muted-foreground`, etc.).
+
+**What needs theming:**
+- Modal backdrop: should use `bg-black/60 backdrop-blur-sm` (standard across
+  the app's other modals, e.g. `TypeToConfirm.tsx`)
+- Modal card: should use `glass-card` class (rounded-2xl, border, bg with
+  transparency — matches every other card surface in the app)
+- Text colors: should use `text-[var(--foreground)]` for headings,
+  `text-[var(--muted-foreground)]` for body, `text-[var(--subtle-foreground)]`
+  for secondary — NOT hardcoded `text-gray-900` or `text-black`
+- Accent buttons: primary CTA should use `bg-[#1db954] text-black` (the app's
+  established Spotify-green accent), secondary/dismiss should use the
+  ghost/outline style (`chip-card` or `border-white/10`)
+- Icons: any icon inside the modal should use the app's `lucide-react` icon
+  set, colored with the same CSS variable system
+
+**Current location:** The error is thrown from `api/campaigns/create/route.ts`
+as a JSON response `{ success: false, error: 'You already have...' }`. The
+frontend (`promote/page.tsx`'s `handleSubmit`) renders this via a generic
+error state — it needs to be promoted to a **proper themed modal** with:
+- Clear title: "Campaign Already Active"
+- Body: explain the link already has a live campaign, show the existing
+  campaign's stage/remaining budget if available
+- Primary CTA: "View My Campaigns" (routes to `/analytics`)
+- Secondary CTA: "Dismiss"
+- Optional: "Cancel Existing & Start New" (if cancellation is allowed)
+
+**Do NOT use:** any hardcoded light-mode colors (`bg-white`, `text-gray-900`,
+`shadow-xl` without dark-aware variants). The app is dark-mode-first; every
+surface must read correctly against the dark background.
+
+---
+
+## Task 51 — "Your Campaign Is Live" success page [ ]
+
+**New task, this session.** After a user successfully places a campaign
+(whether wallet-funded for returning users or direct-pay for guests), there
+is **no dedicated success/confirmation page**. The promote page currently
+shows:
+- For authenticated users: `showSuccess = true` renders a brief inline banner
+- For guests: `showGuestCampaignSuccess = true` renders a similar inline notice
+
+Both of these are **insufficient** — they disappear on refresh, provide no
+shareable URL, and don't give the user a sense of completion or next steps.
+
+**What to build:** A dedicated `/campaign-live` (or `/campaign/success`) page
+that:
+- Is reachable via a unique, shareable URL (e.g. `/campaign-live?id={campaign_id}`)
+- Shows a celebratory confirmation (confetti animation or similar, using the
+  app's existing `framer-motion` or CSS animation patterns)
+- Displays the campaign summary: song link, target views, selected countries
+  (with flags), estimated duration, total cost
+- Shows the campaign's current stage in the growth lifecycle ("Planting" →
+  "Germination" → etc.) with a visual timeline
+- CTA buttons:
+  - "Track Progress" → routes to `/analytics`
+  - "Share Campaign" → copies a shareable link to clipboard
+  - "Start Another" → routes back to `/promote`
+- For guests: includes a prominent "Create Your Account" CTA (since they
+  placed the campaign without being logged in, this is the conversion moment)
+- Follows the app's glassmorphism dark-theme design system throughout
+
+**Route structure:**
+```
+src/app/campaign-live/page.tsx          # The success page
+src/app/api/campaigns/success/route.ts  # Optional: server-side data fetch
+```
+
+**Data source:** The page reads `?id={campaign_id}` from the URL and fetches
+that campaign from `track_campaigns` via the existing `getArtistCampaigns()`
+or a new lightweight `getCampaignById()` service function.
+
+---
+
+## Task 52 — Growth Metrics Seeding Package: services table + daily shuffle RPC [ ]
+
+**New task, this session.** This is the **draft implementation** for how
+campaigns achieve their promised growth metrics (views, streams, saves,
+shares, comments). It is **NOT the final production architecture** — it is
+a working draft that routes campaign budget through a pool of growth-metric
+providers, shuffled daily, to deliver the estimated target. All references
+to external provider names are removed; this is documented as the
+"Mavins-Web Seeding Growth Package" internally.
+
+### The model
+
+When a campaign is placed and goes live (by a **user**, not an admin), the
+system:
+
+1. **Splits the campaign budget:**
+   - 50% → Listener payout pool (Task 49's `daily_payout_pool`)
+   - 50% → Growth-metric procurement pool (this task)
+
+2. **Computes daily target:** From the campaign's `daily_drip_rate`
+   (already calculated in `calculatePricing()`), e.g. 143 views/day.
+
+3. **Shuffles the services table:** The `growth_services` table holds all
+   available growth-metric providers. Each row has a per-1K rate. The RPC
+   `shuffle_daily_services()`:
+   - Takes the campaign's target metric (e.g. "views") and daily count
+   - Shuffles the full services list (random order)
+   - Picks **exactly 4 distinct services** from the shuffled list
+   - Divides the daily count (143) across the 4 services proportionally
+     based on each service's rate and reliability score
+   - Returns the 4 selected service IDs + the quantity assigned to each
+
+4. **Purchases the package:** The system calls the growth-metric provider's
+   API (server-side only, API key never touches client) using the app's
+   token key, purchasing the assigned quantity from each of the 4 selected
+   service IDs.
+
+5. **Tracks fulfillment:** Each purchase gets an order ID. The system polls
+   order status and records delivered metrics back into `campaign_daily_metrics`.
+
+### SQL Schema — `growth_services` table
+
+```sql
+-- ============================================================
+-- Migration: growth_services table
+-- Run in Supabase SQL Editor
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS public.growth_services (
+  id              SERIAL PRIMARY KEY,
+  service_id      INTEGER NOT NULL UNIQUE,     -- Provider's own service ID
+  name            TEXT NOT NULL,               -- e.g. "Views — Standard"
+  type            TEXT NOT NULL DEFAULT 'Default',
+  category        TEXT NOT NULL,               -- e.g. "Spotify", "YouTube"
+  rate_per_1k     NUMERIC(10,5) NOT NULL,      -- Cost per 1,000 units in USD
+  min_order       INTEGER NOT NULL DEFAULT 50,
+  max_order       INTEGER NOT NULL DEFAULT 10000,
+  refill          BOOLEAN NOT NULL DEFAULT false,
+  cancelable      BOOLEAN NOT NULL DEFAULT true,
+  reliability_score NUMERIC(3,2) NOT NULL DEFAULT 1.00, -- 0.00-1.00, used in shuffle weighting
+  is_active       BOOLEAN NOT NULL DEFAULT true,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Index for fast shuffle + active filtering
+CREATE INDEX IF NOT EXISTS idx_growth_services_active_category
+  ON public.growth_services(is_active, category);
+
+-- Index for reliability-based selection
+CREATE INDEX IF NOT EXISTS idx_growth_services_reliability
+  ON public.growth_services(reliability_score DESC)
+  WHERE is_active = true;
+
+-- RLS: only service_role can write; authenticated can read
+ALTER TABLE public.growth_services ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY growth_services_select_authenticated
+  ON public.growth_services FOR SELECT
+  TO authenticated USING (true);
+
+CREATE POLICY growth_services_select_anon
+  ON public.growth_services FOR SELECT
+  TO anon USING (true);
+
+CREATE POLICY growth_services_all_service_role
+  ON public.growth_services FOR ALL
+  TO service_role USING (true) WITH CHECK (true);
+
+-- Trigger to auto-update updated_at
+CREATE OR REPLACE FUNCTION public.update_growth_services_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_growth_services_updated_at ON public.growth_services;
+CREATE TRIGGER trg_growth_services_updated_at
+  BEFORE UPDATE ON public.growth_services
+  FOR EACH ROW EXECUTE FUNCTION public.update_growth_services_updated_at();
+
+-- Grant permissions
+GRANT SELECT ON public.growth_services TO anon, authenticated;
+GRANT ALL ON public.growth_services TO service_role;
+```
+
+### SQL — RPC: `shuffle_daily_services()`
+
+```sql
+-- ============================================================
+-- RPC: shuffle_daily_services
+-- Shuffles the growth_services table, picks 4 active services,
+-- and divides the daily target across them.
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION public.shuffle_daily_services(
+  p_campaign_id     UUID,
+  p_metric_category TEXT,      -- e.g. 'Spotify', 'YouTube'
+  p_daily_target    INTEGER,   -- e.g. 143 (views per day)
+  p_budget_cents    INTEGER    -- daily budget in cents for this metric
+)
+RETURNS TABLE (
+  service_id      INTEGER,
+  service_name    TEXT,
+  assigned_qty    INTEGER,
+  cost_cents      INTEGER,
+  reliability     NUMERIC
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_selected RECORD;
+  v_total_weight NUMERIC := 0;
+  v_remaining INTEGER := p_daily_target;
+  v_service_count INTEGER := 0;
+BEGIN
+  -- 1. Pick 4 random active services for this category, weighted by reliability
+  --    Higher reliability = higher chance of being picked.
+  FOR v_selected IN
+    SELECT
+      gs.id,
+      gs.service_id AS sid,
+      gs.name,
+      gs.rate_per_1k,
+      gs.reliability_score,
+      gs.min_order,
+      gs.max_order,
+      (gs.reliability_score * random()) AS shuffle_score
+    FROM public.growth_services gs
+    WHERE gs.is_active = true
+      AND gs.category = p_metric_category
+    ORDER BY shuffle_score DESC
+    LIMIT 4
+  LOOP
+    v_service_count := v_service_count + 1;
+    v_total_weight := v_total_weight + v_selected.reliability_score;
+  END LOOP;
+
+  -- If fewer than 4 services exist, return what we have
+  -- If zero services, return empty (caller must handle)
+  IF v_service_count = 0 THEN
+    RETURN;
+  END IF;
+
+  -- 2. Divide daily target proportionally by reliability weight
+  v_remaining := p_daily_target;
+  FOR v_selected IN
+    SELECT
+      gs.id,
+      gs.service_id AS sid,
+      gs.name,
+      gs.rate_per_1k,
+      gs.reliability_score,
+      gs.min_order,
+      gs.max_order,
+      (gs.reliability_score * random()) AS shuffle_score
+    FROM public.growth_services gs
+    WHERE gs.is_active = true
+      AND gs.category = p_metric_category
+    ORDER BY shuffle_score DESC
+    LIMIT 4
+  LOOP
+    service_id   := v_selected.sid;
+    service_name := v_selected.name;
+    reliability  := v_selected.reliability_score;
+
+    -- Proportional share, rounded, clamped to min/max
+    IF v_service_count = 1 THEN
+      assigned_qty := v_remaining; -- last one gets remainder
+    ELSE
+      assigned_qty := GREATEST(
+        v_selected.min_order,
+        LEAST(
+          v_selected.max_order,
+          ROUND(p_daily_target * (v_selected.reliability_score / v_total_weight))
+        )
+      );
+    END IF;
+
+    -- Cost = (qty / 1000) * rate_per_1k, in cents
+    cost_cents := ROUND((assigned_qty::NUMERIC / 1000.0) * v_selected.rate_per_1k * 100);
+
+    v_remaining := GREATEST(0, v_remaining - assigned_qty);
+    v_service_count := v_service_count - 1;
+
+    RETURN NEXT;
+  END LOOP;
+
+  RETURN;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.shuffle_daily_services(UUID, TEXT, INTEGER, INTEGER)
+  TO anon, authenticated, service_role;
+```
+
+### SQL — Table: `campaign_service_orders` (tracks purchases)
+
+```sql
+-- ============================================================
+-- Table: campaign_service_orders
+-- Tracks every growth-metric purchase made for a campaign.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS public.campaign_service_orders (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  campaign_id     UUID NOT NULL REFERENCES public.track_campaigns(id) ON DELETE CASCADE,
+  service_id      INTEGER NOT NULL REFERENCES public.growth_services(service_id),
+  provider_order_id TEXT,        -- The order ID returned by the provider API
+  metric_type     TEXT NOT NULL DEFAULT 'views', -- views, streams, saves, shares, comments
+  quantity_ordered INTEGER NOT NULL,
+  quantity_delivered INTEGER NOT NULL DEFAULT 0,
+  cost_cents      INTEGER NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'pending', -- pending, in_progress, completed, partial, failed, cancelled
+  order_date      DATE NOT NULL DEFAULT CURRENT_DATE,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_campaign_service_orders_campaign
+  ON public.campaign_service_orders(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_campaign_service_orders_status
+  ON public.campaign_service_orders(status)
+  WHERE status IN ('pending', 'in_progress', 'partial');
+CREATE INDEX IF NOT EXISTS idx_campaign_service_orders_date
+  ON public.campaign_service_orders(order_date DESC);
+
+-- RLS
+ALTER TABLE public.campaign_service_orders ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY campaign_service_orders_select_own
+  ON public.campaign_service_orders FOR SELECT
+  TO authenticated USING (
+    EXISTS (
+      SELECT 1 FROM public.track_campaigns tc
+      WHERE tc.id = campaign_service_orders.campaign_id
+        AND tc.user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY campaign_service_orders_all_service_role
+  ON public.campaign_service_orders FOR ALL
+  TO service_role USING (true) WITH CHECK (true);
+
+GRANT SELECT ON public.campaign_service_orders TO authenticated;
+GRANT ALL ON public.campaign_service_orders TO service_role;
+```
+
+### Server-side purchase flow (pseudocode for implementation)
+
+```typescript
+// src/lib/growth/purchaseMetrics.ts
+// Server-side ONLY. The API key is injected via env var,
+// never sent to the client.
+
+interface PurchasePayload {
+  service: number;      // growth_services.service_id
+  link: string;         // the campaign's source_url (Spotify/YouTube link)
+  quantity: number;     // assigned_qty from shuffle_daily_services()
+}
+
+interface PurchaseResponse {
+  order: number;        // provider's order ID
+}
+
+interface OrderStatusResponse {
+  charge: string;
+  start_count: string;
+  status: 'Pending' | 'In progress' | 'Completed' | 'Partial' | 'Cancelled';
+  remains: string;
+  currency: string;
+}
+
+const GROWTH_API_BASE = 'https://growth-metrics-provider.com/api/v2';
+const GROWTH_API_KEY = process.env.GROWTH_METRICS_API_KEY!; // server-side only
+
+export async function purchaseGrowthMetrics(payload: PurchasePayload): Promise<PurchaseResponse> {
+  const res = await fetch(`${GROWTH_API_BASE}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      key: GROWTH_API_KEY,
+      action: 'add',
+      service: payload.service,
+      link: payload.link,
+      quantity: payload.quantity,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    throw new Error(data.error || 'Growth metrics purchase failed');
+  }
+  return { order: data.order };
+}
+
+export async function getOrderStatus(orderId: string): Promise<OrderStatusResponse> {
+  const res = await fetch(`${GROWTH_API_BASE}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      key: GROWTH_API_KEY,
+      action: 'status',
+      order: orderId,
+    }),
+  });
+  return await res.json();
+}
+
+export async function getBulkOrderStatus(orderIds: string[]): Promise<Record<string, OrderStatusResponse>> {
+  const res = await fetch(`${GROWTH_API_BASE}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      key: GROWTH_API_KEY,
+      action: 'status',
+      orders: orderIds.join(','),
+    }),
+  });
+  return await res.json();
+}
+
+export async function requestRefill(orderId: string): Promise<{ refill: string }> {
+  const res = await fetch(`${GROWTH_API_BASE}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      key: GROWTH_API_KEY,
+      action: 'refill',
+      order: orderId,
+    }),
+  });
+  return await res.json();
+}
+
+export async function cancelOrders(orderIds: string[]): Promise<Array<{ order: number; cancel: any }>> {
+  const res = await fetch(`${GROWTH_API_BASE}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      key: GROWTH_API_KEY,
+      action: 'cancel',
+      orders: orderIds.join(','),
+    }),
+  });
+  return await res.json();
+}
+
+export async function getProviderBalance(): Promise<{ balance: string; currency: string }> {
+  const res = await fetch(`${GROWTH_API_BASE}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      key: GROWTH_API_KEY,
+      action: 'balance',
+    }),
+  });
+  return await res.json();
+}
+```
+
+### Daily cron / edge function flow
+
+```
+1. For every live campaign in track_campaigns where current_stage != 'completed':
+   a. Read campaign.daily_drip_rate (e.g. 143)
+   b. Read campaign.source_url (the link to promote)
+   c. Call shuffle_daily_services(campaign.id, 'Spotify', 143, daily_budget_cents)
+   d. For each of the 4 returned rows:
+      - Call purchaseGrowthMetrics({ service, link, quantity })
+      - Insert into campaign_service_orders with status 'pending'
+      - Store provider_order_id for polling
+
+2. Every 15 minutes (or via pg_cron):
+   a. Select all campaign_service_orders with status IN ('pending', 'in_progress', 'partial')
+   b. Batch-call getBulkOrderStatus(orderIds)
+   c. Update each row: status, quantity_delivered, updated_at
+   d. Update campaign_daily_metrics with the newly delivered counts
+   e. Update track_campaigns.total_streams / saves / shares / comments
+```
+
+### Budget split (the 50/50 rule)
+
+```
+Campaign total budget (from calculatePricing().totalCostCents):
+  → 50% → listener payout pool (Task 49)
+      → 20% of that net pool = daily_payout_pool_cents
+      → Distributed pro-rata to listeners who played ≥60s
+  → 50% → growth metric procurement pool (this task)
+      → Divided by campaign duration in days = daily_metric_budget_cents
+      → shuffle_daily_services() spends this budget across 4 services
+      → Any unspent daily budget rolls forward to next day
+```
+
+### Admin override: post with or without metrics
+
+When an **admin** creates or launches a campaign via the admin dashboard
+(`admin/campaigns/page.tsx`), a **modal** appears before final submission:
+
+```
+┌─────────────────────────────────────────┐
+│  Launch Campaign                        │
+│                                         │
+│  Song: [link]                           │
+│  Views: 50,000                          │
+│                                         │
+│  [✓] Purchase growth metrics package    │
+│      (splits budget 50/50, auto-shuffles│
+│       4 services daily)                 │
+│                                         │
+│  [ ] Skip metrics — organic only        │
+│      (100% of budget goes to listener   │
+│       payout pool; no external growth   │
+│       services purchased)               │
+│                                         │
+│  [Cancel]        [Confirm Launch]       │
+└─────────────────────────────────────────┘
+```
+
+- Default: **checked** (purchase metrics)
+- If unchecked: the campaign is created with `skip_metrics = true`,
+  the full budget goes to the listener pool, and no daily shuffle RPC
+  runs for this campaign.
+- This field is stored on `track_campaigns.skip_metrics` (boolean,
+  default false).
+
+For **regular users** placing campaigns via `/promote`, there is **no
+modal** — metrics purchase is automatic and mandatory. The 50/50 split
+happens transparently.
+
+---
+
+## Task 53 — Assets folder: replace dummy data, move to correct locations [ ]
+
+**New task, this session.** An `assets/` folder has been added to the
+repo containing draft images/content. These are **not real people** —
+they are placeholder assets pending the final creative solution. The
+task is to integrate them into the app properly.
+
+### What to do
+
+1. **Inventory the assets folder:**
+   ```bash
+   ls -la assets/
+   # Document what exists: images, icons, banners, avatars, etc.
+   ```
+
+2. **Move assets to correct locations:**
+   - Profile/avatar images → `public/avatars/` or `public/images/avatars/`
+   - Campaign banners/thumbnails → `public/images/campaigns/`
+   - Genre icons → `public/images/genres/`
+   - Country flags (if custom) → `public/images/flags/` (or keep using
+     emoji flags if the assets are image-based)
+   - General UI graphics → `public/images/ui/`
+   - Logo/branding → `public/images/brand/`
+
+3. **Replace horizontal scrolling dummy data:**
+   - Find all places in the app that render placeholder/horizontal-scroll
+     content (e.g. `PublicAnalyticsShowcase`, leaderboard dummy rows,
+     genre carousels with mock data)
+   - Replace the dummy images/names with the real assets from the folder
+   - Ensure each asset displays its correct name/label (read from a
+     manifest or filename mapping)
+
+4. **Update references:**
+   - Any component importing from a hardcoded dummy array should now
+     import from the assets folder or a generated manifest
+   - Image paths should use Next.js `<Image>` component with proper
+     `width`/`height`/`alt` for accessibility
+
+5. **Create an assets manifest** (optional but recommended):
+   ```typescript
+   // src/lib/assets/manifest.ts
+   export const AVATARS = [
+     { id: 'avatar-1', src: '/images/avatars/avatar-1.jpg', name: 'Artist Name' },
+     // ...
+   ];
+   export const GENRE_ICONS = [
+     { id: 'afrobeats', src: '/images/genres/afrobeats.png', name: 'Afrobeats' },
+     // ...
+   ];
+   ```
+
+**Important:** Since these are draft assets, the implementation should
+make it easy to swap them out later. Use a manifest/mapping file rather
+than hardcoding paths in components. When the real creative assets
+arrive, only the manifest and the files in `public/` need to change —
+no component code.
+
+---
+
