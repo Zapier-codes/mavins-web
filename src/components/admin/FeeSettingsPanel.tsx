@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Loader2, Percent, AlertTriangle } from 'lucide-react';
+import { TypeToConfirm, isConfirmed } from './TypeToConfirm';
 
 /**
  * Task 46b-d (handover.md).
@@ -99,10 +100,12 @@ export function FeeSettingsPanel({ feeSettings, isLoading, onSave }: FeeSettings
 
   // Exact-match, not "close enough" — same as AWS's own resource-
   // deletion type-to-confirm, the pattern this UX was explicitly
-  // modeled on (handover.md's own note). A typo in the confirm field
-  // should never accidentally pass.
-  const campaignConfirmed = !campaignChanged || (campaignConfirm.trim() !== '' && Number(campaignConfirm) === campaignParsed);
-  const depositConfirmed = !depositChanged || (depositConfirm.trim() !== '' && Number(depositConfirm) === depositParsed);
+  // modeled on (handover.md's own note). Task 46e (this session):
+  // extracted into shared TypeToConfirm's isConfirmed() — this file
+  // now imports that instead of hand-rolling the comparison, zero
+  // behavior change (same exact-match semantics as before).
+  const campaignConfirmed = !campaignChanged || isConfirmed(campaignConfirm, campaignParsed ?? '');
+  const depositConfirmed = !depositChanged || isConfirmed(depositConfirm, depositParsed ?? '');
 
   const campaignInvalid = campaignDraft.trim() !== '' && campaignParsed === null;
   const depositInvalid = depositDraft.trim() !== '' && depositParsed === null;
@@ -172,20 +175,20 @@ export function FeeSettingsPanel({ feeSettings, isLoading, onSave }: FeeSettings
             </div>
 
             {campaignChanged && campaignParsed !== null && (
-              <ConfirmField
+              <TypeToConfirm
+                expectedValue={campaignParsed}
                 label={`Type ${campaignParsed} to confirm the campaign fee change`}
                 value={campaignConfirm}
                 onChange={setCampaignConfirm}
-                confirmed={campaignConfirmed}
                 disabled={saving}
               />
             )}
             {depositChanged && depositParsed !== null && (
-              <ConfirmField
+              <TypeToConfirm
+                expectedValue={depositParsed}
                 label={`Type ${depositParsed} to confirm the deposit fee change`}
                 value={depositConfirm}
                 onChange={setDepositConfirm}
-                confirmed={depositConfirmed}
                 disabled={saving}
               />
             )}
@@ -234,26 +237,6 @@ function FeeField({ label, draft, onChange, invalid, disabled }: {
         <span className="text-lg font-bold text-[var(--subtle-foreground)]">%</span>
       </div>
       {invalid && <p className="text-[10px] text-rose-400 mt-1">Must be 0-100</p>}
-    </div>
-  );
-}
-
-function ConfirmField({ label, value, onChange, confirmed, disabled }: {
-  label: string; value: string; onChange: (v: string) => void; confirmed: boolean; disabled: boolean;
-}) {
-  return (
-    <div>
-      <label className="text-[11px] text-[var(--subtle-foreground)] block mb-1">{label}</label>
-      <input
-        type="text"
-        inputMode="decimal"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={disabled}
-        className={`w-full px-3 py-2 rounded-lg bg-white/5 border text-sm transition-all disabled:opacity-50 ${
-          value !== '' && confirmed ? 'border-emerald-500/50' : 'border-white/10 focus:border-[#1db954]/50 focus:ring-1 focus:ring-[#1db954]/20'
-        }`}
-      />
     </div>
   );
 }

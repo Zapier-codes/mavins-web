@@ -3,6 +3,26 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
+> **Newest session (2026-08-30, latest of all) — Task 46e's original
+> scope (audit trail + confirmation-dialog pattern) now done.** New
+> `src/components/admin/TypeToConfirm.tsx`, extracted from
+> `FeeSettingsPanel.tsx`'s previously-private `ConfirmField` (zero
+> behavior change there) and wired into the other of 46e's two named
+> high-stakes examples: `admin/campaigns/page.tsx`'s view-count
+> override, which had no confirmation gate at all before this. Gated
+> specifically on the `totalStreams` field changing, not targeting or
+> the other two count fields. Deleting a country/tier a live campaign
+> references — this note's other destructive example — deliberately
+> NOT retrofitted this session (touches `AdminCrudTable`'s own
+> already-shipped delete flow, five call sites — flagged as its own
+> follow-up, not folded in here). **46e's checkbox stays `[ ]`** — its
+> original scope is done, but a much larger later-added scope (user-
+> management CRUD, the admin role system, the starting-capital grant)
+> lives inside the same section and remains entirely unbuilt; see 46e's
+> own new "Scope clarity" note for the full reasoning, including a
+> recommendation to consider splitting that remainder into its own 46f
+> before a future session dives in. `npx tsc --noEmit` clean.
+>
 > **Newest session (2026-08-30, later) — Task 47 item 5 fully closed,
 > commit `13fdf6c`. Task 47's only remaining open item is item 4.**
 > Item 5's confirmation-screen build-out (the half a prior session in
@@ -6612,6 +6632,57 @@ but nothing shared exists yet for 46a/46c's own higher-stakes actions.
 That, plus 46c's still-open pause/cancel product decision (see this
 task's top-of-file note), are what keep both 46c and 46e's own
 checkboxes at `[ ]`.
+
+**Confirmation-dialogs pattern — built (2026-08-30).** New
+`src/components/admin/TypeToConfirm.tsx`: the type-to-confirm gate
+extracted out of `FeeSettingsPanel.tsx`'s previously-private
+`ConfirmField`, generalized (`isConfirmed()` exported standalone, not
+bundled only inside the component) so other callers can reuse the
+exact-match logic without necessarily rendering the input, and
+numeric-aware (`Number(raw) === expectedValue` when `expectedValue` is
+a number, so a value like a leading-zero-padded stream count still
+confirms correctly) rather than only ever doing string equality.
+`FeeSettingsPanel.tsx` now imports this instead of its own copy — pure
+extraction, zero behavior change (confirmed by keeping the exact same
+exact-match semantics, not "improving" the comparison while moving it).
+**Wired into the other of this note's two named examples**:
+`admin/campaigns/page.tsx`'s view-count override (`saveOverride`) had
+no confirmation gate at all before this — any admin could silently
+retype a campaign's delivered-stream count and hit Save with no
+friction. Gated specifically on `totalStreams` changing (not
+`realStreams`/`seededStreams`/targeting — matches this section's own
+"not every edit needs one" framing already on record above; the
+*headline delivered-count* is the number that reads as authoritative
+elsewhere in the app, the other three fields are lower-stakes/more
+routine reconciliation edits). Deleting a country/tier that a live
+campaign references — this note's *other* named destructive example —
+deliberately **not** wired this session: `AdminCrudTable`'s existing
+delete flow (Part A/B-i) is a plain two-click Yes/No, and retrofitting
+it to type-to-confirm touches a different, already-shipped component
+with its own five call sites — a separate, deliberately-scoped
+follow-up, not folded into this session to avoid touching working code
+under time pressure alongside unrelated changes.
+**Verified:** `npx tsc --noEmit` clean across the whole project. A
+throwaway Node script (deleted after use) mirrored `isConfirmed()`
+against 7 cases (exact numeric match, trailing whitespace, a
+leading-zero numeric match, empty string, a near-miss number,
+non-numeric input, and a decimal) — all correct.
+
+**Scope clarity, this session (2026-08-30) — 46e's checkbox stays `[ ]`,
+but two different things are bundled under it and only one is done.**
+This part's *original* defined scope (audit trail + a shared
+confirmation-dialog pattern, both above) is now functionally complete —
+every 46a-c write path is logged, and the two named high-stakes actions
+(fee changes, view-count overrides) both have a real confirm gate.
+Everything from "Possibly missed" onward below (user-management CRUD,
+the root/assigned-admin role system, the admin starting-capital grant)
+is enormously larger, later-added scope that happens to live inside
+this same section rather than its own lettered task — none of it is
+built yet ("nothing below has been implemented yet" per that section's
+own note, still accurate). A future session picking this up should
+treat that as effectively its own body of work — possibly worth
+splitting into a 46f before starting, rather than assuming "finish 46e"
+means one more small addition on top of what's here now.
 
 Every mutation from 46a/46b/46c needs: who made it, when, and the
 before/after value — a new `admin_actions` (or similarly named) table,
