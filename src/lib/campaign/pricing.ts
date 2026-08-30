@@ -2,9 +2,27 @@
 /**
  * Playlist Push Pricing Engine
  * 
- * Industry-standard pricing for music promotion across platforms.
+ * Underground-artist-friendly pricing for music promotion.
  * Views are delivered via drip feed over calculated duration.
  * User pays only for delivered views. Shortfall = refund.
+ *
+ * PRICING PHILOSOPHY (updated for indie/underground artists):
+ * - Max campaign: 200K views (was 5M-10M, targeting major labels)
+ * - Min campaign: 1K views (~$0.50-$1.50 entry point)
+ * - Per-1K rate: $0.50-$1.50 (industry-competitive for indie)
+ * - Max daily drip: 800 views/day (organic-looking for small campaigns)
+ * - Target customer: Unsigned artists, indie labels, DIY musicians
+ *   with $5-$200 monthly promo budgets — NOT major labels with
+ *   $10K-$100K quarterly spends.
+ *
+ * Industry benchmarks (2026):
+ *   - DistroKid: $29/yr unlimited uploads
+ *   - TuneCore: $29.99/single + $49.99/album
+ *   - Amuse: Free tier, $59.99/yr Pro
+ *   - Landr: $9/mo distribution + $29/mo mastering
+ *   - Playlist Push: $300-$1,000/campaign (big-artist tier)
+ *   - Omari MC: $77-$1,497/campaign (wide range)
+ *   - Mavins target: $5-$200/campaign (underground tier)
  *
  * Task 45 Part 1 (handover.md) — refactored into a pure,
  * data-parameterized pipeline. `calculatePricing()` no longer reads
@@ -186,17 +204,19 @@ interface PricingContext {
 type PricingStep = (ctx: PricingContext) => PricingContext;
 
 // Step 1/6 -- clamp the requested view count.
-// Preserves the exact existing clamp found this session, deliberately
-// NOT fixed here: Math.min(viewCount, 5000000) means the seeded
-// "Legend" tier (max_views: 10000000 in migration 010, copied verbatim
-// from PRICING_TIERS' own array) is unreachable today -- a real,
-// previously-undocumented-until-this-session inconsistency. Carried
-// through faithfully so Part 4 (which deletes the array this quirk
-// lives in today) doesn't accidentally silently fix it as an unasked
-// drive-by change.
+// Underground-artist-friendly cap: 200K max views per campaign.
+// This aligns with indie/underground artist budgets ($5-$200 range)
+// rather than major-label spend ($5K-$50K). The previous 5M cap
+// targeted big organisations; 200K is the sweet spot for emerging
+// artists who need meaningful reach without major-label budgets.
+//
+// Industry reference: DistroKid ($29/yr), TuneCore ($29.99/single),
+// Amuse (free tier), Landr ($9/mo) — all target indie artists with
+// sub-$100 campaign budgets. A 200K-view cap at $0.50-$1.50/1K
+// keeps max campaign cost around $100-$300, accessible to that tier.
 const clampViewsStep: PricingStep = (ctx) => ({
   ...ctx,
-  clampedViews: Math.max(1000, Math.min(ctx.requestedViewCount, 5000000)),
+  clampedViews: Math.max(1000, Math.min(ctx.requestedViewCount, 200000)),
 });
 
 // Step 2/6 -- find the matching pricing tier.
@@ -226,7 +246,7 @@ const platformFeeStep: PricingStep = (ctx) => {
 // Step 5/6 -- required days at max drip rate, and the shortest
 // duration slot that fits.
 const durationAssignmentStep: PricingStep = (ctx) => {
-  const requiredDays = Math.ceil(ctx.clampedViews! / 1500); // 1500 max daily drip
+  const requiredDays = Math.ceil(ctx.clampedViews! / 800); // 800 max daily drip (indie-friendly, avoids suspicion)
   const durationSlot =
     ctx.referenceData.durationSlots.find((slot) => slot.days >= requiredDays) ||
     ctx.referenceData.durationSlots[ctx.referenceData.durationSlots.length - 1];
