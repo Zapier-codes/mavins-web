@@ -30,6 +30,16 @@ export const ADMIN_CONFIG = {
   email: 'bossblingzs@gmail.com',
 } as const;
 
+/**
+ * Task 46e's confirmed decision ("Confirmed decisions" section,
+ * Option A): root plus this many *assigned* admins = 4 people total
+ * with any admin access. A single named constant, not inlined into
+ * `api/admin/users/[id]/route.ts`'s cap check or any UI string, per
+ * that same task's own recommendation — if this number ever changes,
+ * it changes in exactly one place.
+ */
+export const MAX_ASSIGNED_ADMINS = 3;
+
 /** Check if a user is admin by DB role OR hardcoded email fallback. */
 export function isAdmin(user: { email?: string | null; role?: string | null } | null | undefined): boolean {
   if (!user) return false;

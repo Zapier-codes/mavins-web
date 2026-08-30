@@ -64,6 +64,21 @@ each rule — this is the same content, kept in sync.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-08-30, latest of all) — Task 48's remaining
+> scope split into parts a-e (per explicit instruction), part (a)
+> fully implemented, b-e not started.** New `reassign_role` action on
+> `PATCH /api/admin/users/[id]` — root-only, sets the base `role`
+> column to any value (first-time admin promotion, full revocation, or
+> any other role change), enforces `MAX_ASSIGNED_ADMINS` (new constant,
+> `isAdmin.ts`, Task 46e's confirmed Option A) on new promotions only,
+> clears `admin_role`/`admin_permissions` on revocation. Verified
+> against 6 concrete branching-logic cases (throwaway Node script) plus
+> `npx tsc --noEmit` clean. Full write-up in Task 48's own "48-a" entry
+> below. **Parts 48-b (duplicate-column/identity resolution) through
+> 48-e (data-quality follow-ups) are scoped but not started** — see
+> that same section for what each covers and their dependency order
+> (48-c blocked on 48-b; 48-d/48-e independent).
+>
 > **Newest note (2026-08-30, latest of all) — Task 59 Round 3: the
 > genre-locking architecture question is resolved, not left open.**
 > Per direct instruction this session to stop surfacing open
@@ -7292,9 +7307,109 @@ admin role-editing UI and the new signup default actually get built:**
    changes" — but this is this note's inference, not a product-owner
    confirmation, so still flagged open rather than assumed.
 
-**Not started: any schema migration, any code change to
-`create-user/route.ts`'s default, any admin role-editing UI.** All of
-that depends on the queries and questions above landing first.
+**Stale as of Parts 1/2 below — corrected, not deleted, so the
+reasoning trail stays intact:** the paragraph above ("not started: any
+schema migration, any code change to create-user's default") predates
+Parts 1 and 2 (both `[x]`, further down this file) actually shipping
+exactly that work. What's genuinely left after Parts 1/2 is the
+broader "admin any→any reassignment" + "gamification wiring fully"
+scope from this task's own title — **split into five parts this
+session, per explicit instruction ("separate the task into a b c d
+e"), with only part (a) implemented this session (also per explicit
+instruction — "do a only full implementation"):**
+
+- **48-a — Admin any→any role reassignment. [x] Fully implemented this
+  session — see its own detailed entry directly below Part 2.**
+- **48-b — Resolve the duplicate-column-pair and identity-column
+  questions Group 2 flagged but didn't chase down** (`create_time`/
+  `update_time` vs `created_at`/`updated_at`; `metadata` vs
+  `metadata_json`; confirm `auth_user_id` vs Nakama's own `id` as the
+  key an admin-facing/gamification route should actually use). **Not
+  started.** A prerequisite for 48-c specifically — don't build Nakama-
+  as-primary-auth wiring on top of an unconfirmed identity column.
+- **48-c — Wire "all real users authenticated through the Nakama
+  instance" per the product owner's own recorded direction** (Group
+  3's note above). The biggest, most architecturally significant
+  remaining piece — a real authentication-flow change, not additive
+  UI. **Not started; blocked on 48-b.**
+- **48-d — Finish/extend the gamification system** so it's "wired
+  fully," informed by Group 3 (substantially populated, not dormant)
+  and Group 4 (role/tier confirmed NOT coupled — manage them as two
+  independent fields, don't retrofit a sync). **Not started.**
+- **48-e — Lower-priority data-quality follow-ups**: the three
+  redundant `monthly_listeners*` columns, the seed-engine/artist-
+  roster column cluster's connection to `SeedEngine`
+  (Task 46c/Task 48's own earlier note), and auditing whether any
+  `auth_user_id`-set row bypassed real Nakama authentication (Group
+  3's own flagged follow-up query, never run). **Not started.**
+
+### 48-a — Admin any→any role reassignment [x]
+
+**Done this session (2026-08-30).** New `reassign_role` action on
+`PATCH /api/admin/users/[id]` (`src/app/api/admin/users/[id]/route.ts`),
+alongside the existing `adjust_wallet`/`grant_starting_capital`/
+`set_role`:
+
+```
+{ action: 'reassign_role', role: string }
+```
+
+- **Root-only** (`isRootAdmin()`, same posture as `set_role`) —
+  matches Task 46e's own "an assigned admin, even a 'full' one,
+  should not be able to grant themselves or another admin more
+  access" decision, extended to the base `role` column too, not just
+  `admin_role`/`admin_permissions`.
+- **No enum/allowlist on `role`'s value** beyond basic shape (trimmed
+  non-empty, ≤20 chars — the DB column's own
+  `character_maximum_length`, confirmed via this task's own Group 1
+  query) — deliberate, per this task's own title ("any→any
+  reassignment"); root can set any user to any role, not a fixed set
+  this route gatekeeps.
+- **First-time promotion** (target isn't already `role='admin'`, new
+  value is) enforces `MAX_ASSIGNED_ADMINS` (new constant in
+  `isAdmin.ts`, `= 3` — Task 46e's confirmed Option A, root + 3 = 4
+  total) by counting existing `role='admin'` rows and rejecting a 4th
+  with a clear `409`, not a generic failure. `admin_role`/
+  `admin_permissions` are left `NULL` on promotion — `hasCapability()`'s
+  own already-documented fallback treats `NULL admin_role` as `'full'`,
+  so this isn't new default-granting logic, just relying on what
+  already existed. Does **not** also trigger `grant_starting_capital`
+  — that stays root's own explicit separate step.
+- **Revocation** (target is `role='admin'`, new value isn't) clears
+  `admin_role`/`admin_permissions` back to `NULL` in the same update.
+  Confirmed (by reading `isAdmin.ts`/`requireAdmin.ts` directly, not
+  assumed) that this is hygiene, not a security requirement —
+  `isAdmin()`'s own `role === 'admin'` check already cuts off access
+  the instant `role` changes, regardless of any stale `admin_role`
+  left behind.
+- **Any other reassignment** (neither side is `'admin'`) is a plain
+  column update, no cap check, no `admin_role` touch.
+- Logged via `logAdminAction()`, `action: 'users.reassign_role'`,
+  capturing both the `role` and `admin_role`/`admin_permissions`
+  before/after state in one audit row.
+- `set_role`'s own guard (still only operates on an already-`admin`
+  user) now points the caller at `reassign_role` first, in its own
+  error message, instead of the old "not yet supported" dead end.
+
+**Verified with concrete cases before treating this as done, not just
+eyeballed:** a throwaway Node script mirroring the exact cap/
+admin-field-clearing branching logic — 6 cases (fresh promotion under
+cap, promotion exactly at cap boundary rejected, promotion with room
+to spare, revocation with a high admin count confirming the cap is
+irrelevant to revocation, non-admin-to-non-admin plain update, and an
+already-admin-staying-admin no-op-ish case confirming the cap check is
+correctly skipped when it's not actually a *new* promotion) — all 6
+passed against the logic as written in the real file.
+
+Verified: `npx tsc --noEmit` clean across the whole repo.
+
+**Deliberately not done as part of 48-a** — left for 48-b/c/d/e or a
+future UI-focused session: no admin-panel UI button wired to this new
+action yet (46f-c's existing user-management page would need a new
+control for it); the "what does role revert to on revocation"
+question (Task 46f-e's own still-open item) is answered at the
+UI-caller layer, not by this route, which just takes whatever `role`
+value it's given.
 
 ---
 

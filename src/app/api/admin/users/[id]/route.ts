@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/requireAdmin';
-import { isRootAdmin, hasCapability, ADMIN_CAPABILITIES } from '@/lib/auth/isAdmin';
+import { isRootAdmin, hasCapability, ADMIN_CAPABILITIES, MAX_ASSIGNED_ADMINS } from '@/lib/auth/isAdmin';
 import { logAdminAction } from '@/lib/admin/auditLog';
 
 /**
@@ -48,26 +48,65 @@ import { logAdminAction } from '@/lib/admin/auditLog';
  *      themselves or another admin more access." A non-root caller
  *      gets a 403 here even though `requireAdmin()` already let them
  *      through the door — this is a second, stricter gate on top,
- *      not a replacement for it.
- *
- * **Deliberately NOT built this session — flagging why rather than
- * silently guessing:** `set_role` only works on a user who ALREADY
- * has `role = 'admin'` in the DB (rejects 400 otherwise, with a
- * message saying so). Two related operations this does NOT cover:
- * promoting a brand-new user to admin for the first time, and fully
- * revoking an existing admin's access back to a regular user. Both
- * would need writing to the base `role` column itself — and per
- * migration 016's own header comment, `role`'s exact schema/allowed
- * values were never found in this repo's tracked migration history
- * (added directly against the live DB outside this workflow at some
- * earlier point) — this route can't confirm what a "not admin" value
- * for that column should be (`'artist'`? `NULL`? something else?)
- * without guessing at an access-control field, which is exactly the
- * kind of silent guess this whole task has repeatedly flagged against
- * doing. Worth a quick confirmation before a future session extends
- * this action to handle first-time promotion/full revocation, same
- * "worth confirming, not silently picked" posture as everything else
- * still open in this task.
+ *      not a replacement for it. Only works on a user who is
+ *      **already** `role = 'admin'` — sets/changes *how much* an
+ *      existing admin can do (`admin_role`/`admin_permissions`), not
+ *      *whether* they're an admin at all. See `reassign_role` below
+ *      for that.
+ *   4. `{ action: 'reassign_role', role: string }` — **Task 48-a**,
+ *      root-only (`isRootAdmin()`, same posture as `set_role` above).
+ *      Sets the base `role` column itself to any value — this is what
+ *      actually makes someone an admin for the first time, or revokes
+ *      an existing admin back to a regular user; `set_role` above
+ *      only ever operates on someone who's already `role = 'admin'`.
+ *      No enum/allowlist restriction on `role`'s value beyond basic
+ *      shape (non-empty, trimmed, ≤20 chars — the DB column's own
+ *      `character_maximum_length`, confirmed via this task's own
+ *      Group 1 query) — deliberately, since this task's whole point
+ *      (per its own title, "admin any→any reassignment") is that root
+ *      can set a user to any role, not a fixed set this route would
+ *      otherwise be gatekeeping. Three things happen together, not as
+ *      separate calls:
+ *        - **Promoting someone to `'admin'` for the first time**
+ *          (target's current `role` isn't already `'admin'`, new
+ *          value is) enforces `MAX_ASSIGNED_ADMINS` (Task 46e's
+ *          confirmed Option A — root + 3 = 4 total) by counting
+ *          existing `role = 'admin'` rows and rejecting a 4th
+ *          assignment with a clear error, not a generic 500 or a
+ *          silently-accepted-then-broken state. `admin_role`/
+ *          `admin_permissions` are deliberately left `NULL` on
+ *          promotion, not defaulted here — `hasCapability()`'s own
+ *          documented fallback already treats a `NULL admin_role` as
+ *          `'full'`, so a freshly-promoted admin has full access
+ *          until root explicitly narrows them via a *separate*
+ *          `set_role` call. This route does **not** also trigger a
+ *          `grant_starting_capital` call — that stays root's own
+ *          explicit second step (per Task 46e's confirmed "one-time,
+ *          locked at assignment" decision, which describes a
+ *          deliberate choice root makes, not something to
+ *          auto-trigger on every promotion regardless of amount).
+ *        - **Revoking an existing admin** (current `role` is
+ *          `'admin'`, new value isn't) clears `admin_role`/
+ *          `admin_permissions` back to `NULL` in the same update —
+ *          not strictly required for security (`isAdmin()`'s own
+ *          `role === 'admin'` check already cuts off access the
+ *          instant `role` changes, regardless of any stale
+ *          `admin_role` left behind — confirmed by reading
+ *          `isAdmin()`/`requireAdmin()` directly before writing this,
+ *          not assumed), but leaving privilege data on a non-admin row
+ *          is bad hygiene and would be actively confusing if that
+ *          person is ever promoted again later without a fresh,
+ *          explicit `set_role` call.
+ *        - **Any other reassignment** (neither side is `'admin'` —
+ *          e.g. `'artist'` → `'listener'`) is a plain column update,
+ *          no cap check, no `admin_role` touch.
+ *      What this does **not** decide: Task 48-e's still-open
+ *      "on revocation, does role revert to `'artist'` specifically or
+ *      something remembered from before promotion" question — this
+ *      route takes whatever `role` value the caller sends and doesn't
+ *      infer or default one on revocation. That's a UI-layer decision
+ *      (what value the revoke button actually sends), not this route's
+ *      job to guess at.
  *
  * Every successful write logs to `admin_actions` (migration 015,
  * `logAdminAction()` — Task 46e's shared helper) with a distinct
@@ -104,9 +143,14 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
   const body = await request.json();
 
-  if (body.action !== 'adjust_wallet' && body.action !== 'grant_starting_capital' && body.action !== 'set_role') {
+  if (
+    body.action !== 'adjust_wallet' &&
+    body.action !== 'grant_starting_capital' &&
+    body.action !== 'set_role' &&
+    body.action !== 'reassign_role'
+  ) {
     return NextResponse.json(
-      { success: false, error: "action must be 'adjust_wallet', 'grant_starting_capital', or 'set_role'" },
+      { success: false, error: "action must be 'adjust_wallet', 'grant_starting_capital', 'set_role', or 'reassign_role'" },
       { status: 400 }
     );
   }
@@ -135,7 +179,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       ? ADMIN_CAPABILITIES.USERS_WALLET_ADJUST
       : body.action === 'grant_starting_capital'
         ? ADMIN_CAPABILITIES.USERS_GRANT_STARTING_CAPITAL
-        : ADMIN_CAPABILITIES.USERS_MANAGE_ROLE;
+        : ADMIN_CAPABILITIES.USERS_MANAGE_ROLE; // covers both set_role and reassign_role
 
   if (
     !hasCapability(
@@ -228,53 +272,145 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     return NextResponse.json({ success: true, ledgerEntry: ledgerRow });
   }
 
-  // --- set_role (root-only) ---
-  if (!isRootAdmin(context.authUser)) {
-    return NextResponse.json({ success: false, error: 'Only the root admin can assign admin roles' }, { status: 403 });
-  }
-
-  if (targetUser.role !== 'admin') {
-    // See this file's own header comment ("Deliberately NOT built
-    // this session") for why first-time promotion isn't handled here.
-    return NextResponse.json(
-      { success: false, error: 'This user is not an admin yet — first-time admin promotion is not yet supported by this route' },
-      { status: 400 }
-    );
-  }
-
-  if (body.adminRole !== 'full' && body.adminRole !== 'monitor' && body.adminRole !== 'custom') {
-    return NextResponse.json({ success: false, error: "adminRole must be 'full', 'monitor', or 'custom'" }, { status: 400 });
-  }
-
-  let adminPermissions: string[] = [];
-  if (body.adminRole === 'custom') {
-    if (!Array.isArray(body.adminPermissions)) {
-      return NextResponse.json({ success: false, error: 'adminPermissions must be an array of strings when adminRole is custom' }, { status: 400 });
+  // --- set_role (root-only) — only ever changes admin_role/
+  // admin_permissions on a user who is ALREADY role='admin'. See
+  // reassign_role below for changing the base role column itself
+  // (including first-time promotion/revocation).
+  if (body.action === 'set_role') {
+    if (!isRootAdmin(context.authUser)) {
+      return NextResponse.json({ success: false, error: 'Only the root admin can assign admin roles' }, { status: 403 });
     }
-    adminPermissions = body.adminPermissions.map(String);
-  }
-  // adminPermissions stays [] for 'full'/'monitor' regardless of what
-  // the request sent — those two roles imply their fixed capability
-  // set in code (per migration 016's own comment), so a stale/
-  // inconsistent permissions array is never persisted for them.
 
-  const { data: updatedUser, error: updateError } = await context.admin
+    if (targetUser.role !== 'admin') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "This user is not an admin yet — use action: 'reassign_role' with role: 'admin' to promote them first, then set_role to configure their admin_role/permissions",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (body.adminRole !== 'full' && body.adminRole !== 'monitor' && body.adminRole !== 'custom') {
+      return NextResponse.json({ success: false, error: "adminRole must be 'full', 'monitor', or 'custom'" }, { status: 400 });
+    }
+
+    let adminPermissions: string[] = [];
+    if (body.adminRole === 'custom') {
+      if (!Array.isArray(body.adminPermissions)) {
+        return NextResponse.json({ success: false, error: 'adminPermissions must be an array of strings when adminRole is custom' }, { status: 400 });
+      }
+      adminPermissions = body.adminPermissions.map(String);
+    }
+    // adminPermissions stays [] for 'full'/'monitor' regardless of what
+    // the request sent — those two roles imply their fixed capability
+    // set in code (per migration 016's own comment), so a stale/
+    // inconsistent permissions array is never persisted for them.
+
+    const { data: updatedUser, error: updateError } = await context.admin
+      .from('users')
+      .update({ admin_role: body.adminRole, admin_permissions: adminPermissions })
+      .eq('id', targetUserId)
+      .select('id, admin_role, admin_permissions')
+      .single();
+
+    if (updateError) return NextResponse.json({ success: false, error: updateError.message }, { status: 500 });
+
+    await logAdminAction(context.admin, {
+      adminId: context.authUser.id,
+      action: 'users.set_admin_role',
+      tableName: 'users',
+      recordId: targetUserId,
+      oldValue: { adminRole: targetUser.admin_role, adminPermissions: targetUser.admin_permissions },
+      newValue: { adminRole: body.adminRole, adminPermissions },
+    });
+
+    return NextResponse.json({ success: true, user: updatedUser });
+  }
+
+  // --- reassign_role (root-only) — Task 48-a. Changes the base `role`
+  // column itself: first-time admin promotion, full revocation back to
+  // a regular user, or any other role→role change. See this file's own
+  // header comment for the full behavior (headcount cap on promotion,
+  // admin_role/admin_permissions cleared on revocation, plain update
+  // otherwise).
+  if (!isRootAdmin(context.authUser)) {
+    return NextResponse.json({ success: false, error: 'Only the root admin can reassign roles' }, { status: 403 });
+  }
+
+  const newRole = typeof body.role === 'string' ? body.role.trim() : '';
+  if (!newRole) {
+    return NextResponse.json({ success: false, error: 'role is required and must be a non-empty string' }, { status: 400 });
+  }
+  // Matches the DB column's own character_maximum_length (confirmed
+  // via this task's own Group 1 information_schema query) — reject
+  // here with a clear message rather than let a too-long value hit an
+  // opaque DB-level truncation/error.
+  if (newRole.length > 20) {
+    return NextResponse.json({ success: false, error: 'role must be 20 characters or fewer' }, { status: 400 });
+  }
+
+  const wasAdmin = targetUser.role === 'admin';
+  const willBeAdmin = newRole === 'admin';
+
+  // First-time promotion: enforce the headcount cap. Root itself isn't
+  // a `role='admin'` row at all (isRootAdmin() is purely the bootstrap
+  // email check — see isAdmin.ts's own doc comment), so counting
+  // `role='admin'` rows here counts *assigned* admins only, which is
+  // exactly what MAX_ASSIGNED_ADMINS caps — root is implicitly the "+1"
+  // in "root + 3 = 4 total" and never counted against its own cap.
+  if (!wasAdmin && willBeAdmin) {
+    const { count: currentAdminCount, error: countError } = await context.admin
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .eq('role', 'admin');
+
+    if (countError) return NextResponse.json({ success: false, error: countError.message }, { status: 500 });
+
+    if ((currentAdminCount ?? 0) >= MAX_ASSIGNED_ADMINS) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Cannot assign a new admin — the maximum of ${MAX_ASSIGNED_ADMINS} assigned admins (plus root) has already been reached.`,
+        },
+        { status: 409 }
+      );
+    }
+  }
+
+  const updatePayload: { role: string; admin_role?: null; admin_permissions?: null } = { role: newRole };
+  // Revocation: clear stale privilege data. Not a security requirement
+  // (isAdmin()'s own role==='admin' check already cuts off access the
+  // moment `role` changes — confirmed by reading isAdmin.ts/
+  // requireAdmin.ts directly, not assumed) — this is hygiene, so a
+  // future re-promotion doesn't inherit stale admin_role/permissions
+  // from before without an explicit fresh set_role call.
+  if (wasAdmin && !willBeAdmin) {
+    updatePayload.admin_role = null;
+    updatePayload.admin_permissions = null;
+  }
+
+  const { data: reassignedUser, error: reassignError } = await context.admin
     .from('users')
-    .update({ admin_role: body.adminRole, admin_permissions: adminPermissions })
+    .update(updatePayload)
     .eq('id', targetUserId)
-    .select('id, admin_role, admin_permissions')
+    .select('id, role, admin_role, admin_permissions')
     .single();
 
-  if (updateError) return NextResponse.json({ success: false, error: updateError.message }, { status: 500 });
+  if (reassignError) return NextResponse.json({ success: false, error: reassignError.message }, { status: 500 });
 
   await logAdminAction(context.admin, {
     adminId: context.authUser.id,
-    action: 'users.set_admin_role',
+    action: 'users.reassign_role',
     tableName: 'users',
     recordId: targetUserId,
-    oldValue: { adminRole: targetUser.admin_role, adminPermissions: targetUser.admin_permissions },
-    newValue: { adminRole: body.adminRole, adminPermissions },
+    oldValue: { role: targetUser.role, adminRole: targetUser.admin_role, adminPermissions: targetUser.admin_permissions },
+    newValue: {
+      role: newRole,
+      adminRole: updatePayload.admin_role !== undefined ? updatePayload.admin_role : targetUser.admin_role,
+      adminPermissions: updatePayload.admin_permissions !== undefined ? updatePayload.admin_permissions : targetUser.admin_permissions,
+    },
   });
 
-  return NextResponse.json({ success: true, user: updatedUser });
+  return NextResponse.json({ success: true, user: reassignedUser });
 }
