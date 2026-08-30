@@ -64,9 +64,37 @@ each rule — this is the same content, kept in sync.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note, new session (2026-08-30, latest of all) — Task 59:
-> product owner correction, campaign discovery is NOT what Tasks
-> 57/58 built.** "You spoilt it completely without reading" — the
+> **Newest note, same session (2026-08-30, latest of all) — Task 59
+> Round 2: cloned Velune and grounded the correction in its real code,
+> per direct instruction.** Real, significant finding: **the core
+> every-4-songs mechanic already exists** —
+> `CampaignInjectedQueue.kt`, a working `Queue` decorator using
+> shuffled (not scored) rotation across campaign slots, architecturally
+> much closer to the true spec than `get_trending_campaigns` — keep
+> it, don't rebuild from scratch. **But genre-locking surfaces a real
+> unresolved architecture question, not a missing parameter**: Velune's
+> queue system has no native "genre queue" concept at all (queue types
+> are playlist/album/radio-based; genre-browsing just navigates to a
+> YouTube catalog link with no genre tag carried into playback) — needs
+> a product-owner decision between two real options (genre-lock only
+> for genre-browse-originated queues, vs. building a new genre-tagging
+> mechanism for arbitrary queues) before Part a can start. **The home
+> banner also doesn't match spec** — confirmed it's a plain
+> user-swiped row today, not a single-card 30-second auto-advancing
+> carousel, and has no reshuffle-on-resume logic at all — real rebuild
+> needed, not a tweak. One thing to explicitly KEEP, not remove: the
+> `certified`/"Reviewed pick" badge (human-moderation signal, a
+> different axis than competitive ranking). One dead-but-conflicting
+> field to drop when rebuilding: `ctaLabel`
+> ("Discover"/"Trending"/"Hot"/"Viral"/"Charting") — confirmed not
+> currently rendered anywhere, so not an active bug, but shouldn't ever
+> get wired to UI given it directly conflicts with the confirmed
+> no-ranking design. **Full findings in Task 59's own "Round 2"
+> section. Documentation only, no code touched, still.**
+>
+> **Newest note, same session (2026-08-30, latest of all) — Task 59
+> Round 1: product owner correction, campaign discovery is NOT what
+> Tasks 57/58 built.** "You spoilt it completely without reading" — the
 > real mechanic is genre-locked periodic queue interleaving (every 4
 > real songs, the 5th is a campaign song, repeating at slots 5/10/15/
 > 20...) plus a *separate* home-page banner carousel (all live
@@ -77,15 +105,10 @@ each rule — this is the same content, kept in sync.
 > built** (migrations 020/021, not yet applied to the live DB, so
 > nothing live is broken by this). "No race to the top... all is
 > accommodated for" is the core design principle Task 58's
-> implementation directly contradicts. **Documentation only this
-> session, per explicit instruction — no code touched, migrations
-> 020/021 not reverted.** Full spec, the exact conflict with what's
-> already built, and 3 proposed (not yet confirmed) industry-standard
-> refinements are all in Task 59's own entry near the end of this
-> file. **Next: get the product owner's confirmation on the 3
-> proposed refinements, then this needs a real rebuild of
-> `get_trending_campaigns`** (or a replacement mechanism entirely) —
-> not a tweak to what exists.
+> implementation directly contradicts. Full spec, 3 proposed (not yet
+> confirmed) industry-standard refinements, and now Round 2's grounded
+> findings above, are all in Task 59's own entry near the end of this
+> file.
 >
 > **Newest note, same session (2026-08-30, latest of all) — Task 58:
 > per-genre cold-start guaranteed placement built on top of migration
@@ -9890,3 +9913,91 @@ questions can address them together with the core mechanic instead of
 being raised piecemeal later.
 
 ---
+
+### Round 2 — grounded directly against Velune's actual code, per explicit instruction to clone it first
+
+Cloned `Velune` fresh and read the real source before writing anything
+further down here — this section corrects/refines Round 1 above with
+what's actually true of the codebase, not further inference.
+
+**Real, significant good news: the core every-4-songs mechanic already
+exists, close to spec.** `app/src/main/kotlin/com/nikhil/yt/playback/
+queues/CampaignInjectedQueue.kt` is a real, working `Queue` decorator
+— injects one campaign after every 4 base songs (indices 4, 9, 14,
+19...), handles pagination and index-adjustment correctly, and
+**already uses shuffled rotation, not scored ranking**, across
+multiple campaigns filling those slots (`campaignOrder =
+campaignMediaItems.indices.shuffled()`, regenerated fresh per queue
+instance). This is architecturally much closer to "no race to the
+top" than `get_trending_campaigns` — worth keeping as the foundation,
+not rebuilding from scratch.
+
+**But it has no genre-locking at all, and this surfaces a real,
+unresolved architecture question, not just a missing filter.**
+`CampaignRepository.fetchActiveCampaignMediaItems()` calls
+`fetchActiveCampaigns(limit = 10)` with **no genre parameter passed**,
+and `MusicService.kt`'s only call site
+(`campaignProvider = { campaignRepo.fetchActiveCampaignMediaItems() }`)
+has no genre context available to pass even if the function accepted
+one. Traced further before concluding this needs a simple parameter
+fix: **Velune's queue system has no native "genre queue" concept at
+all.** The existing queue types are `ListQueue`, `YouTubeQueue`,
+`LocalMixQueue`, `LocalAlbumRadio`, `YouTubeAlbumRadio` — organized
+around playlists/albums/local mixes/radio, never genre. The one
+genre-browsing UI that exists, `MoodAndGenresScreen.kt`, just
+navigates to `youtube_browse/{browseId}` — a YouTube-catalog browse
+link — whose resulting queue is a generic `YouTubeQueue` with no genre
+tag carried anywhere into playback. **This means "an R&B queue" isn't
+a thing this app's architecture currently tracks or knows about for
+any queue except possibly the specific moment right after a genre tile
+tap** — real design decision needed, not a coding detail: either (a)
+genre-lock campaign injection *only* for queues started directly from
+`MoodAndGenresScreen` (narrower than "every queue," but buildable with
+today's architecture), or (b) build a new mechanism to infer/tag a
+genre for arbitrary queues (playlists, albums, radio) so locking can
+apply everywhere — a materially bigger feature on its own. **Flagging
+for the product owner's direct call before Part a starts, not
+guessing between these.**
+
+**The home banner doesn't match the described carousel behavior
+either — confirmed by reading it directly, not assumed.**
+`CampaignCardSection.kt` renders a plain horizontally-scrollable
+`LazyRow` of every live campaign card, user-swiped — **not** a
+single-card-visible, 30-seconds-per-card auto-advancing carousel, and
+has **no reshuffle-on-app-background-then-resume logic anywhere**
+(campaigns are fetched once in a `LaunchedEffect(Unit)` and never
+re-fetched or reordered after that). Building the described behavior
+is a real, separate UI rebuild of this component, not a small tweak.
+
+**One more concrete mismatch, and one thing worth explicitly keeping,
+not removing:**
+- `CampaignBanner` shows a **per-card numeric play count** ("1.2K
+  plays") or a **"New" pill** for low counts — not the uniform "people
+  are listening 🎧 to" framing described. This doesn't reveal the
+  *total number of live campaigns* (the specific thing the product
+  owner said must stay hidden), but a differentiated per-card number
+  still reads as a competitive signal between cards, worth reconciling
+  with "no race to the top" when this gets rebuilt.
+- `campaign.certified` (a "Reviewed pick" badge, shown only when a
+  human moderator actually approved the campaign) is a **legitimate,
+  different kind of signal — trust/moderation, not competitive
+  ranking** — worth explicitly keeping when the ranking-adjacent stuff
+  above gets removed, not thrown out along with it by accident.
+- `CampaignRepository.kt`'s `ctaLabel` field (`"Discover"`/
+  `"Trending"`/`"Hot"`/`"Viral"`/`"Charting"`, tied to
+  `current_stage`) is a real, existing competitive-status-style label
+  in the data model — **confirmed it is NOT currently rendered
+  anywhere in the UI** (only threaded through
+  `CampaignUrlResolver.kt`, never displayed), so it's dead data today,
+  not an active contradiction — but worth removing rather than ever
+  wiring up to a UI, given it directly conflicts with the confirmed
+  no-ranking design.
+
+**Net effect on the plan:** Part a/b/c's shape from Round 1 still
+holds, but "genre-locked queue interleaving" is now known to be a
+bigger question than a parameter addition — the genre-context source
+needs a product-owner decision first. The banner carousel needs a
+real rebuild, not a tweak, once its own open questions (does the
+30-second single-card behavior replace the current scrollable-row
+entirely, or coexist somehow) are confirmed.
+
