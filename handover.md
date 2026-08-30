@@ -3,23 +3,28 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest session (2026-08-30, latest of all) — Task 46f-b done: new
-> `/api/admin/users/[id]` PATCH route** (`adjust_wallet`,
-> `grant_starting_capital`, `set_role`). Product owner confirmed
-> migration 016 was live before this started. `set_role` is root-only
-> — a new `isRootAdmin()` export checked in addition to
-> `requireAdmin()`'s existing any-admin gate, not instead of it, so an
-> assigned `'full'` admin still can't grant admin access. **Scope
-> gap flagged deliberately, not guessed around:** `set_role` only
-> works on users who already have `role='admin'` — first-time
-> promotion and full revocation both need the base `role` column
-> itself, whose non-admin value isn't confirmed anywhere in this
-> repo's tracked history (same gap migration 016 already flagged). See
-> Task 46f-b's own done-note (below, under Task 46) for full detail.
+> **Newest session (2026-08-30, latest of all) — Task 46f-c done:**
+> `/admin/users` is no longer 46d's read-only table. Three real
+> actions wired to 46f-b's routes, each an inline expandable row
+> matching `admin/campaigns/page.tsx`'s own established convention:
+> wallet adjustment (gated behind `TypeToConfirm`, per this part's own
+> instruction), starting-capital grant (plain confirm, added as a
+> reasonable scope extension — 46f-b built the route, this part's own
+> bullet list didn't explicitly name it), and root-only role assignment
+> (hidden client-side from non-root viewers, enforced server-side
+> regardless). The `'custom'`-role capability picker is deliberately
+> NOT built — 46f-d (capability-key taxonomy) hasn't run yet, so
+> there's nothing concrete to build a picker from; `'custom'` stays
+> selectable with a plain notice instead of a fake picker. See
+> 46f-c's own done-note (below, under Task 46) for full detail.
 >
-> **Next task: 46f-c — the actual UI for these routes.** 46d's
-> `/admin/users` page is still exactly the read-only table it always
-> was; nothing user-facing changed this session, only the API side.
+> **Next task: 46f-d — capability-key taxonomy.** Both of its
+> dependencies (46f-b, 46f-c) are now done. Grep every admin route
+> across 46a/46b/46c/46f-b for whatever permission key it already
+> defined (or assign one now if it shipped before that recommendation
+> existed), producing a concrete list to take to the product owner —
+> see 46f-d's own text (below, under Task 46) for the exact framing to
+> use.
 >
 > **Newest session (2026-08-30, later) — Task 47 item 5 fully closed,
 > commit `13fdf6c`. Task 47's only remaining open item is item 4.**
@@ -7070,7 +7075,7 @@ this session only built the API side). 46f-d (capability taxonomy) can
 start once 46f-c stabilizes, per this task's own dependency notes
 above.
 
-#### 46f-c — Admin UI: real user-management page + role assignment + capability picker [ ]
+#### 46f-c — Admin UI: real user-management page + role assignment + capability picker [x]
 **Depends on 46f-b.** Replace 46d's read-only `/admin/users` table
 with real actions wired to 46f-b's routes: a wallet-adjustment form
 (amount + reason, both required — reason logged same as 46c's
@@ -7083,6 +7088,50 @@ wallet-adjustment action specifically — that's exactly the kind of
 high-stakes, easy-to-fat-finger action that component exists for; a
 role change is lower-stakes/more reversible and can stay a plain
 confirm.
+
+**Done, this session (2026-08-30).** `/admin/users/page.tsx` rewritten
+from 46d's read-only table into three real actions, each an inline
+expandable row (same `Fragment` + `colSpan` convention
+`admin/campaigns/page.tsx` already established for its own 46c
+actions, followed for visual consistency, not a modal):
+- **Wallet adjustment** — amount (+/-) + required reason, gated behind
+  `TypeToConfirm` on the amount, exactly as this part's own text asked.
+- **Starting-capital grant** — positive amount only, plain confirm, no
+  `TypeToConfirm` (this part's own text only named wallet-adjustment
+  for that treatment; a fixed-direction one-time credit has nothing to
+  mistype into a wrong sign the way a +/- adjustment does). Not
+  explicitly named in this part's own bullet list above, but 46f-b
+  built the route for it and the overall Task 46f intro names it as
+  one of the three things this whole section rolls up — added as a
+  reasonable extension of scope, flagged here rather than silently
+  assumed in-scope.
+- **Role assignment** — root-only, hidden client-side from non-root
+  viewers via `isRootAdmin()` (called directly against `useAuth()`'s
+  own `user.email`), with the route's own existing `403` remaining the
+  real enforcement, not the client-side hide. Plain confirm, per this
+  part's own "lower-stakes/more reversible" framing.
+- **Capability picker for `'custom'` role — deliberately NOT built,
+  flagged rather than faked:** 46f-d (capability-key taxonomy) hasn't
+  run yet, so there's no concrete list to build a picker from. `'custom'`
+  stays selectable in the role dropdown (not hidden, since it's a real
+  enum value), but shows a plain notice explaining why no picker exists
+  instead of a fake one — consistent with the route's own existing
+  behavior, which already 400s a `'custom'` submission today.
+
+Verified via `npx tsc --noEmit` — clean. Confirmed `useAuth()`'s `user`
+object actually carries `.email` (merged from Supabase Auth's own
+`session.user`, not just the profile row) before relying on it for the
+client-side `isRootAdmin()` check — checked the actual merge logic in
+`AuthProvider.tsx`, not assumed. **Not independently confirmed in a
+browser** — no live Supabase session in this sandbox, same caveat
+every prior admin-UI part in this task has carried.
+
+**Next task: 46f-d** (capability-key taxonomy) — per this part's own
+dependency note above, it "can start once 46f-b/46f-c are stable,
+doesn't need to wait for 46f-c's UI polish specifically," and both are
+now done. See 46f-d's own text below for its exact scope (grep every
+admin route for its permission key, produce a concrete list, take it to
+the product owner).
 
 #### 46f-d — Capability-key taxonomy: consolidate, confirm, wire into requireAdmin() [ ]
 **Depends on 46f-b/46f-c existing (needs real routes to enumerate
