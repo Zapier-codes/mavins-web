@@ -87,8 +87,8 @@ function FundWalletForm() {
     <div className="min-h-screen flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-500 mb-4">
-            <Wallet className="w-7 h-7 text-white" />
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-accent-light to-accent-dark mb-4">
+            <Wallet className="w-7 h-7 text-background" />
           </div>
           <h1 className="text-2xl font-bold">Fund your wallet</h1>
           <p className="text-sm text-muted-foreground mt-2">
@@ -137,8 +137,8 @@ function FundWalletForm() {
             type="submit"
             disabled={isSubmitting}
             className={cn(
-              'w-full flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-semibold text-white',
-              'bg-gradient-to-r from-emerald-500 to-teal-500 hover:opacity-90 transition-opacity',
+              'w-full flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-semibold text-background',
+              'bg-gradient-to-r from-accent-light to-accent hover:brightness-110 transition-all',
               isSubmitting && 'opacity-60 cursor-not-allowed'
             )}
           >

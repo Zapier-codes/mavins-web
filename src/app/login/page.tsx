@@ -90,15 +90,15 @@ function LoginForm() {
   return (
     <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] flex items-center justify-center px-4">
       <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-[#1db954]/5 rounded-full blur-3xl animate-ambient" />
+        <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-[var(--accent)]/5 rounded-full blur-3xl animate-ambient" />
         <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-[#3d91f4]/5 rounded-full blur-3xl animate-ambient-slow" />
       </div>
 
       <div className="relative w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-[#1db954] to-[#169c45] flex items-center justify-center shadow-lg shadow-[#1db954]/20 mb-4">
-            <Zap className="w-7 h-7 text-white" />
+          <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-[var(--accent-light)] to-[var(--accent-dark)] flex items-center justify-center shadow-lg shadow-[var(--accent)]/20 mb-4">
+            <Zap className="w-7 h-7 text-[var(--background)]" />
           </div>
           <h1 className="text-2xl font-bold">{isSignUp ? 'Create Account' : 'Welcome Back'}</h1>
           <p className="text-sm text-[var(--subtle-foreground)] mt-1">
@@ -154,7 +154,7 @@ function LoginForm() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 rounded-xl bg-[#1db954] text-black font-semibold hover:bg-[#1ed760] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full py-3 rounded-xl bg-[var(--accent)] text-[var(--background)] font-semibold hover:brightness-110 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {loading ? (
               <div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
@@ -171,7 +171,7 @@ function LoginForm() {
           {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
           <button
             onClick={() => { setIsSignUp(!isSignUp); setError(''); }}
-            className="text-[#1db954] hover:underline font-medium"
+            className="text-[var(--accent)] hover:underline font-medium"
           >
             {isSignUp ? 'Sign In' : 'Sign Up'}
           </button>
