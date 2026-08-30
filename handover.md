@@ -3,27 +3,45 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest session (2026-08-30, latest of all) — new Task 49 spec'd
-> from the product owner's own detailed description, NOT started.**
-> "Listen and get paid" (the feature Task 48's `listener` role was
-> reserved for) — pay listeners for Velune streams, dynamic
-> Spotify-style pool payout (20% of daily campaign ad-spend revenue ÷
-> qualifying streams that day = per-stream rate, computed live, not a
-> fixed constant), 60-second minimum listen for a play to count toward
-> payment, net-50 withdrawal cycle + 5-business-day claim window, $10
-> minimum, gamification via the existing `daily_tasks`/`user_tasks`
-> system (Task 48 already confirmed this is real and substantial, not
-> dead code — reuse it, don't rebuild it). **Full spec, the reasoning
-> that reconciled the product owner's own two-message description into
-> one formula, and 6 consolidated open questions are all in Task 49's
-> own entry near the end of this file — read that in full before
-> touching anything, this box is a summary, not the spec.** Do NOT
-> start building — real, load-bearing questions are still open
-> (biggest one: how does a listener actually get paid out — Korapay
-> transfer, wallet-only, or something else — genuinely unanswered and
-> blocks Part b entirely). Split into Parts a/b/c in Task 49's own
-> entry; **do not skip ahead of the open questions to start Part a**,
-> several of them block schema decisions directly.
+> **Newest session (2026-08-30, latest of all) — Task 49's round 2:
+> product owner answered 5 of 6 original questions, most concretely.**
+> Still NOT started — this is documentation only, again. Real new
+> findings, not just answers: (1) the payout pool is a **two-step
+> chain** — half of the 90% ad-spend total is "the revenue pool," then
+> 20% of *that* is the actual payout amount (10% of ad-spend overall) —
+> **this exact chaining still needs a direct yes/no**, it's my own
+> composition of two separate statements, not a verbatim quote; (2)
+> "campaigns for that day" turned out to be about **per-listener
+> task-board visibility** (any live campaign a specific listener
+> hasn't personally played yet — once played, it disappears from
+> *their* board only), a completely different mechanic than the
+> revenue-pool-timing question originally asked — the pool itself is
+> computed from ALL currently-live campaigns platform-wide, no
+> creation-date filter; (3) **payout mechanism is now concrete**: a
+> separate, already-built app ("Nova Bank") fully integrated with
+> Korapay handles the actual money movement — a listener registers
+> there directly, gets a "tag," enters it here. Checked Korapay's own
+> payout API docs directly this session: their real disburse endpoint
+> needs a bank-code + account-number pair, no generic "tag" concept —
+> so **"the tag" almost certainly IS a Nova Bank account number**,
+> needs direct confirmation before locking it into schema. Concrete new
+> B-Pay-backend scope surfaced: `providers/korapay.js` only implements
+> collection today, needs a real new `processPayout()` method (routing
+> already anticipated this — `routes.js`'s `payout: 'korapay'` mapping
+> predates this conversation, just never had an implementation behind
+> it). (5) Velune writes directly to Supabase, Mavins-web only reads —
+> confirmed, no new ingestion endpoint needed. (6) Role stays
+> uncoupled from this feature **for a concrete, resolvable reason**:
+> need to first trace how Velune's own signups actually land in the
+> shared `public.users` table (clone Velune, read its auth/Supabase
+> code) before any listener-side schema can safely assume
+> `public.users.id` is the right foreign key — not done this session,
+> flagged as required groundwork. **3 narrower questions remain, all
+> in Task 49's own "Round 2" section** (the compound-percentage
+> confirmation, exactly what "the tag" is, and whether Nova Bank has
+> its own API beyond Korapay's). **Still do not start Part a** — the
+> Velune user-seeding trace needs to happen first, it's genuinely a
+> prerequisite, not optional groundwork.
 >
 > **Newest session (2026-08-30, latest of all) — Task 48 Part 2
 > applied to the live DB, confirmed by the product owner directly
@@ -8705,21 +8723,114 @@ answered, without the whole feature waiting on every question at once:
   `useGeo()`. Blocked on: parts a/b existing, and the role-vs-tier
   coupling question above.
 
-### Questions for you, consolidated (answer any subset — genuinely open, not rhetorical)
+### Round 2 — product owner's answers, this session, and what's genuinely still open after them
 
-1. Is "total revenue pool from the campaigns" the 90% ad-spend total
-   (`total_budget_cents`), the platform's own 10% fee
-   (`platform_revenue`), or something else?
-2. "Campaigns for that day" — created/paid-for that day, or actively
-   delivering that day regardless of original creation date?
-3. How does a listener actually receive a paid-out withdrawal — Korapay
-   payout, wallet-only credit, or something else?
-4. If the 5-business-day withdrawal window is missed, is a full fresh
-   50-day wait really correct, or did I misread that?
-5. Does Velune write play events directly to Supabase, or through a
-   new Mavins-web API endpoint?
-6. Should enrolling in "listen and get paid" set `role = 'listener'`
-   specifically, tying this feature to that role — or should it stay
-   independent, the way `role` and `tier` currently are per Task 48?
+**Q1, revenue pool composition — corrected, not what was originally
+guessed:** "the revenue pool is half of the 90% ad-spend total" — i.e.
+`revenue_pool_cents = 0.5 × total_budget_cents` (summed across the
+qualifying campaigns from Q2 below), **and separately**, per the
+original spec, **20% of *that* revenue pool** is the actual listener
+payout amount. Chained together, not re-derived or assumed — this is
+my own arithmetic composition of the two statements together, **and
+this specific chaining is the one piece of Q1 still worth a direct
+yes/no before it's built**, since compounding two percentages is
+exactly the kind of place a misreading turns into a real wrong number:
 
----
+```
+revenue_pool_cents = 0.5 × (sum of total_budget_cents across qualifying campaigns)
+daily_payout_pool_cents = 0.20 × revenue_pool_cents      (= 10% of total_budget_cents overall)
+```
+
+If that's not the intended chain — e.g. if "20% of the revenue pool"
+from the first message and "half of the 90%" from this message were
+meant to describe the *same* number two different ways, rather than
+two multiplied-together steps — say so; both readings are plausible
+from the words alone and only one can be right.
+
+**Q2, "campaigns for that day" — this wasn't about revenue-pool
+timing at all, corrected:** it's about **per-listener task-board
+visibility**, a completely different mechanic than what was originally
+asked. Any campaign that's currently live is eligible, **regardless of
+its creation date** — "could have been created weeks ago." What
+actually gates whether *a specific listener* sees it on *their own*
+task board is **whether that listener has personally already played
+it** — once played, it disappears from that listener's board (but
+presumably stays live/visible to every other listener who hasn't
+played it yet). This means: **the daily revenue pool (Q1) is computed
+from all currently-live campaigns platform-wide** (not filtered by
+creation date), while **task-board visibility is a separate, per-
+listener, per-campaign one-time-play gate** on top of that. Both need
+building, as two distinct mechanics, not one.
+
+**Q3, payout mechanism — a real, concrete architecture, not still
+open:** there's a **separate app ("Nova Bank")**, already built,
+already fully integrated with Korapay for its own deposits/withdrawals.
+A listener registers there directly (outside Mavins-web/Velune
+entirely) and gets "their tag." They enter that tag on *this* app's
+withdrawal page; initiating a withdrawal here should make the money
+"automatically appear" in their Nova Bank app. **Checked Korapay's own
+payout API docs directly before writing this down, rather than
+assuming "tag" maps cleanly onto their API shape:** Korapay's real
+disburse/payout endpoint (`POST .../transactions/disburse/...`, per
+their own docs and SDK examples) takes a **bank code + account number
+pair** as the destination — e.g. `{"bank": "033", "account":
+"0000000000"}` — there's no generic "tag" or "handle" concept in
+Korapay's own API. **So "the tag" almost certainly IS (or resolves to)
+a Nova Bank account number**, with Nova Bank's own Korapay-registered
+bank code as a fixed constant B-Pay-backend would need to know (
+discoverable via Korapay's `list_banks()` API by searching their bank
+list for "Nova"). **Needs direct confirmation, not an assumption
+locked into schema/code:** is "the tag" literally the Nova Bank NUBAN
+account number, or a different identifier Nova Bank issues that would
+need its own resolve/lookup step before it can be handed to Korapay's
+payout API? **Concrete new B-Pay-backend scope this surfaces:** that
+repo's `providers/korapay.js` only implements collection
+(`processPayment`) today — a real, new `processPayout()` method
+calling Korapay's actual disburse endpoint is needed, not just wiring
+up something that already exists. (Worth noting: `routes.js`'s own
+`ROUTING_RULES` already has `payout: 'korapay'` mapped — someone
+anticipated this need before either of us discussed it, but the
+provider-level implementation behind that route was never built.)
+
+**Q4, missed-window consequence — confirmed correct as originally
+written**, no change: a full fresh 50-day wait if the 5-business-day
+claim window is missed.
+
+**Q5, Velune's write path — confirmed:** "Velune writes to supabase
+while mavins-web reads from supabase" — direct write from Velune using
+its own Supabase credentials, no new Mavins-web API endpoint needed
+for ingestion. Mavins-web is read-only against whatever table(s) hold
+play events.
+
+**Q6, role coupling — confirmed: stay uncoupled, for a specific,
+concrete reason, not indefinitely:** "we still need to see how the
+users in the users table are seeded" — before deciding whether
+enrolling in this feature should set `role = 'listener'`, it needs to
+first be understood **how Velune's own user signups relate to this
+same shared `public.users` table** (Task 48 already flagged
+`public.users` as possibly Nakama's own native table, shared across
+this whole ecosystem — not confirmed whether Velune signups create
+rows there directly, via Nakama, or somewhere else entirely). **New,
+concrete investigation needed before Part a can safely design the
+listener-side schema**: trace Velune's own Supabase/auth wiring (clone
+that repo, read its auth code) to find out exactly how/where a Velune
+signup actually lands in the shared database, before assuming
+`public.users.id` is even the right foreign key for a listener's play
+events and payout records. Not done this session — flagging as
+required groundwork for whoever picks up Part a, not something to
+infer from Mavins-web's own code alone (which can't see Velune's side
+of this at all).
+
+### Questions still open after round 2 (narrower than the original 6 — most are now answered)
+
+1. **The compound percentage chain in Q1 above** — is "20% of half of
+   the 90%" really the intended two-step calculation, or were the two
+   statements describing the same number twice?
+2. **What exactly is "the tag"** — a literal Nova Bank account number
+   ready to hand to Korapay's payout API as-is, or an identifier that
+   needs its own resolve step first?
+3. Does Nova Bank have its own API/docs to consult for anything beyond
+   the bank-code lookup (e.g. confirming a tag/account is valid before
+   a withdrawal is submitted), or is Korapay's own payout API the only
+   integration point needed?
+
