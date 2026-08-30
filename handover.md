@@ -64,22 +64,25 @@ each rule — this is the same content, kept in sync.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note, same session (2026-08-30, later than the note below
+> it) — Task 57's leading hypothesis RULED OUT: `get_trending_campaigns`/
+> `record_campaign_stream` are confirmed live in the database** (product
+> owner ran the check directly — both exist with the expected
+> signatures). **Next: check the specific published campaign's own
+> `current_stage`/`total_streams`** — the exact query is in Task 57's
+> own §"What would resolve this, in order", step 2. Also wired live
+> Supabase credentials into Velune's `local.properties` this session
+> (closes part of that repo's own §8 blocker) — app itself not built/
+> run, no Android SDK in this sandbox.
+>
 > **Newest note (2026-08-30, cross-repo) — an admin-published live
 > campaign wasn't showing on Velune; diagnosed, NOT fixed
 > (documentation only, per explicit instruction).** See Task 57 below
 > for the full write-up. Short version: this is very likely **not** a
 > code bug in either repo — `get_trending_campaigns`/
 > `record_campaign_stream` are correctly written in this file's own
-> `supabase_schema.sql` and Velune's app already correctly calls them,
-> but nothing in this file confirms those two RPCs were ever actually
-> run against the live database (as opposed to just written to the
-> file) — the same "confirmed applied to production" step the
-> `get_leaderboard()` fix elsewhere in this file went through, with no
-> equivalent note for these two. **Next session: confirm with the
-> product owner whether that SQL has ever been run live** — that one
-> answer determines whether the fix is a pure database action (run it)
-> or something else entirely (see Task 57's own §"What would resolve
-> this, in order" for the full disambiguation path). Also corrected a
+> `supabase_schema.sql` and Velune's app already correctly calls them.
+> Also corrected a
 > real staleness bug in Velune's own `HANDOVER_CAMPAIGN.md` while
 > there (see Task 57's closing note) — that file's §7/`campaign_schema.sql`
 > described a since-removed admin UI and a since-superseded schema.
@@ -9377,30 +9380,62 @@ whether *this specific* campaign shows:
 
 ### What would resolve this, in order
 
-1. **Confirm with the product owner** whether `get_trending_campaigns`/
-   `record_campaign_stream` have ever been run against the live
-   Supabase database via the SQL Editor (same step the leaderboard fix
-   went through). If not, running them is very likely the actual fix —
-   verify by checking Postgres for `get_trending_campaigns`'s
-   existence directly (`select proname from pg_proc where proname =
-   'get_trending_campaigns'`) rather than re-deriving this from app
-   behavior alone.
-2. If they're already live, check the specific published campaign's
-   own `current_stage`/`total_streams` directly — if it's still at
-   `planting` with well under 10,000 total streams, that's expected
-   behavior under §1's filter above, not a bug; the product-owner
-   conversation becomes "should a brand-new campaign show immediately"
-   rather than "why is this broken."
+1. **ANSWERED (2026-08-30) — the RPCs ARE live, this rules out the
+   leading hypothesis.** Product owner ran the confirmation query
+   directly:
+   ```sql
+   select proname, pg_get_function_identity_arguments(oid) as args
+   from pg_proc
+   where proname in ('get_trending_campaigns', 'record_campaign_stream');
+   ```
+   Result — both present, with the expected signatures:
+
+   | proname                 | args                                                                                                                   |
+   | ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+   | get_trending_campaigns  | p_limit integer, p_country_code text, p_genre text                                                                    |
+   | record_campaign_stream  | p_campaign_id uuid, p_user_id uuid, p_listen_duration_seconds integer, p_country_code text, p_is_full_listen boolean  |
+
+   **This was the single most likely explanation and it's now ruled
+   out.** Velune is NOT calling a function that doesn't exist — move
+   straight to step 2 below, don't re-run this check.
+2. **NEXT — check the specific published campaign's own
+   `current_stage`/`total_streams` directly:**
+   ```sql
+   select id, title, current_stage, total_streams, is_active, is_paused, created_at
+   from track_campaigns
+   order by created_at desc
+   limit 10;
+   ```
+   If the campaign in question is still at `current_stage = 'planting'`
+   with `total_streams` well under 10,000, that's expected behavior
+   under the filter documented above — not a bug. At that point the
+   product-owner conversation becomes "should a brand-new campaign
+   show immediately" (a design question) rather than "why is this
+   broken" (a bug to fix). If it's already past `planting` with
+   `total_streams >= 10000` and still not showing on Velune, that
+   contradicts both hypotheses checked so far and points at something
+   not yet considered — worth re-reading `get_trending_campaigns`'s
+   full `WHERE` clause again at that point, not just the two
+   conditions already quoted above (there may be a third filter
+   condition not yet surfaced in this diagnosis).
 3. Separately (lower priority, not blocking #1/#2): reconcile the seed
    engine's stated 15-minute cadence against its actual once-daily
    cron, one way or the other.
 
-None of the above was executed this session — no SQL was run, no cron
-config was changed, no code in either repo was edited. This is a
-diagnosis for the next session (in either repo) to act on, once the
-product owner has answered the one question that actually
-disambiguates the leading hypothesis from the rest: has this SQL ever
-been run live.
+**Live Supabase credentials for Velune's own build were also wired in
+this session** (`local.properties`, `SUPABASE_URL`/`SUPABASE_ANON_KEY`,
+same project — `atojskxrxfsbpeefigtm` — confirmed shared with this
+repo per this section's own earlier finding) — closes part of that
+repo's own §8 "Not done / open" blocker. The Android app itself was
+NOT built or run this session (no Android SDK in this sandbox, same
+limitation as every prior on-device task in that repo's history) —
+building/installing on a real device to see the actual UI once step 2
+above resolves is still a separate, not-yet-taken step.
+
+No SQL beyond the two confirmation/read-only queries above was run —
+nothing was changed in either repo's code or the database this
+session. This remains a diagnosis for the next session (in either
+repo) to finish acting on, now one step further disambiguated.
 
 ### Correction to Velune's own `HANDOVER_CAMPAIGN.md` — filed there too, noted here for visibility
 
