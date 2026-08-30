@@ -3,31 +3,27 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest session (2026-08-30, latest of all) — 46e's recommended
-> split done: new `### 46f` section, five dependency-ordered parts
-> (46f-a..46f-e), nothing built yet.** This is the "much larger
-> later-added scope" 46e's own "Scope clarity" note flagged as living
-> inside its section but deserving its own — role/permission model,
-> real user-management mutating actions (46d's `/admin/users` is
-> currently read-only), starting-capital grant. **Found and flagged a
-> naming collision while doing this:** 46e's own "Confirmed decisions"
-> notes repeatedly say "46d" for this future work, written before the
-> already-completed `### 46d` (dashboard buildout, `[x]`) claimed that
-> label for something else entirely — every one of those references
-> now means 46f, not 46d; see the new note directly above 46f's own
-> section for the full explanation. **Every decision already confirmed
-> by the product owner (role structure, refund policy, FX scoping,
-> password rotation — already done) still applies verbatim** — 46f
-> doesn't re-derive or re-ask any of it, just implements against it.
+> **Newest session (2026-08-30, latest of all) — Task 46f-a done:
+> `admin_role`/`admin_permissions` columns on `public.users`
+> (migration 016), not yet pushed to the live DB.** Existing
+> `role='admin'` rows already get `admin_role='full'` in the same
+> migration (the rollout decision 46f-a's own spec flagged as needing
+> to be made deliberately, not left to a silent default) — so once
+> pushed, every current admin's access is preserved exactly, nothing
+> narrows. Starting-capital grant needs no schema change — confirmed
+> `wallet_ledger`'s existing `'bonus'` type already covers it. **Found,
+> flagged, didn't block on:** the pre-existing `role` column itself
+> isn't in this repo's tracked migration history at all (001-015) —
+> added directly against the live DB at some point outside this
+> file's workflow. Doesn't affect this migration (additive, independent
+> of `role`'s own definition), but worth knowing. **See Task 46f-a's
+> own done-note (below, under Task 46) for full detail.**
 >
-> **Next task: 46f-a — schema (role/permission columns + starting-
-> capital tracking).** One open rollout decision flagged in that part's
-> own text, not yet made: what existing `role='admin'` rows should
-> default to for the new `admin_role` column (recommended: `'full'`,
-> preserves current access exactly) — pick this deliberately when
-> building, don't let it default silently. Confirm nothing else jumped
-> the queue since this note (same check every session should do before
-> assuming a written pointer is still current).
+> **Next task: 46f-b — admin API routes for user management actions
+> (wallet adjustment, role assignment, starting-capital grant).**
+> Confirm migration 016 was actually pushed to the live DB first
+> (project-owner step, not yet done as of this note) before assuming
+> `admin_role`/`admin_permissions` are queryable.
 >
 > **Newest session (2026-08-30, later) — Task 47 item 5 fully closed,
 > commit `13fdf6c`. Task 47's only remaining open item is item 4.**
@@ -6925,7 +6921,7 @@ access at all), that one session attempting all of it at once is
 exactly the kind of shortcut this file's "one task per session" rule
 exists to prevent.
 
-#### 46f-a — Schema: role/permission columns + starting-capital tracking [ ]
+#### 46f-a — Schema: role/permission columns + starting-capital tracking [x]
 Extend `public.users` with the role/permission model 46e's "Admin
 roles — structure, confirmed" note above already locked in:
 `admin_role TEXT CHECK (admin_role IN ('full','monitor','custom'))`
@@ -6955,6 +6951,46 @@ quick confirmation, not a hard blocker**, same spirit as this whole
 task's other flagged-not-blocking items — if a future session decides
 a distinct type value is worth the extra migration for cleaner
 reporting later, that's a reasonable call to make differently.
+
+**Done, this session (2026-08-30).**
+`supabase_migration_016_admin_roles.sql` — `admin_role TEXT CHECK
+(admin_role IN ('full','monitor','custom'))` and `admin_permissions
+TEXT[] DEFAULT '{}'` added to `public.users` (`ADD COLUMN IF NOT
+EXISTS`, defensive same as every other migration here). **Checked
+before writing, not assumed:** the existing `role` column itself
+doesn't appear anywhere in `supabase_schema.sql` or migrations
+001-015 — confirmed via grep — meaning it was added directly against
+the live DB at some point outside this repo's tracked migration
+history. Flagged plainly in the migration's own header rather than
+silently working around it; doesn't block this migration (both new
+columns are additive, independent of `role`'s own exact definition),
+but worth knowing for whoever eventually reconciles this repo's
+migration history with the live schema. **Rollout decision made, not
+left to a silent NULL default:** every existing `role = 'admin'` row
+gets `admin_role = 'full'` in the same migration (an `UPDATE`
+immediately after the `ALTER TABLE`) — exactly the recommendation this
+part's own spec text made, picked deliberately rather than left open.
+**Starting-capital grant:** no schema change — confirmed
+`wallet_ledger`'s `type` CHECK already permits `'bonus'`
+(`supabase_schema.sql` line 149, checked directly), so 46f-b's future
+grant route can use that with a clear description string, per this
+part's own recommendation. **RLS:** none added — these are new columns
+on an already-RLS-covered table (`public.users`), nothing new to
+policy.
+
+**Verified, this session:** parens-balanced sanity check plus an
+accurate statement-count check (2 real statements: the `ALTER TABLE`
+and the rollout `UPDATE` — first attempt at this check used a naive
+comment-stripping heuristic that miscounted, caught and fixed before
+reporting a number here rather than trusting the first result). **Not
+applied to the live DB** — same `supabase db push` hand-off every
+prior migration in this file has needed.
+
+**Next task: 46f-b** (admin API routes for user management actions),
+per this part's own explicit dependency order. Confirm migration 016
+was actually pushed before assuming `admin_role`/`admin_permissions`
+are queryable — same check this file asks of every migration-dependent
+part.
 
 #### 46f-b — Admin API routes: user management actions [ ]
 **Depends on 46f-a.** `/admin/users` (46d's existing route) is

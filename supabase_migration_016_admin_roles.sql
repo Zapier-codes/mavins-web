@@ -1,0 +1,95 @@
+-- ============================================================
+-- Migration 016 — Task 46f-a: admin_role / admin_permissions
+-- ============================================================
+--
+-- Schema half of Task 46f (handover.md) — the role/permission model
+-- 46e's own "Admin roles — structure, confirmed" note already locked
+-- in with the product owner, not re-derived here: root stays the
+-- existing hardcoded-email fallback in isAdmin.ts (NOT a DB row —
+-- confirmed explicitly, "IS the root admin going forward, not
+-- replaced by it"); assigned admins get either 'full' (every
+-- capability, same as root) or a limited role, and limited roles are
+-- not locked to one fixed 'monitor' tier — the root admin should be
+-- able to hand-pick individual capabilities per assigned admin
+-- ('custom'), with 'monitor' kept as a named convenience preset for
+-- the common read-only case.
+--
+-- Checked before writing this, not assumed: `role` (the existing
+-- simple 'admin' boolean this whole task's routes already gate on)
+-- does NOT appear anywhere in supabase_schema.sql or any tracked
+-- migration file (001-015) -- confirmed via grep. It's live and
+-- working (every 46a-46c route already checks it, isAdmin.ts already
+-- reads it), so it exists on the real database, just not through this
+-- repo's own migration history -- added directly at some earlier
+-- point outside this file's tracked workflow. Flagging this gap
+-- plainly rather than silently working around it: this migration
+-- can't verify `role`'s exact column definition (type, constraints)
+-- from the repo alone, only that calling code treats it as a plain
+-- TEXT compared via `=== 'admin'`. `ADD COLUMN IF NOT EXISTS` below
+-- is defensive against this same kind of drift for the two new
+-- columns, same as every other migration in this project already
+-- does as standard practice, not a special reaction to this specific
+-- gap.
+
+ALTER TABLE public.users
+  -- NULL for every non-admin row (the overwhelmingly common case) --
+  -- this column is only ever meaningful for a row that already has
+  -- role = 'admin'. Root is excluded entirely (see header) so this
+  -- table never needs a 'root' value here.
+  ADD COLUMN IF NOT EXISTS admin_role TEXT CHECK (admin_role IN ('full', 'monitor', 'custom')),
+  -- TEXT[], not JSONB -- matches this codebase's own established
+  -- convention for array-ish columns exactly (track_campaigns.
+  -- target_countries / target_genres, both TEXT[] DEFAULT '{}',
+  -- checked directly in supabase_schema.sql before picking this
+  -- rather than introducing a second convention for the same shape of
+  -- data). Only consulted when admin_role = 'custom' -- 'full' and
+  -- 'monitor' both imply their fixed capability set in code, this
+  -- array stays empty for those two roles rather than needing to be
+  -- kept in sync with what 'full'/'monitor' already imply.
+  ADD COLUMN IF NOT EXISTS admin_permissions TEXT[] DEFAULT '{}';
+
+-- ------------------------------------------------------------
+-- Rollout decision, made explicitly here rather than left to whatever
+-- NULL default the ALTER above would otherwise leave in place: every
+-- row that already has role = 'admin' today (i.e. every admin
+-- currently gated purely by the pre-46f boolean) gets admin_role =
+-- 'full' as of this migration. This is the safe direction to default
+-- a migration in -- it exactly preserves every existing admin's
+-- current access with zero silent narrowing, rather than leaving
+-- admin_role NULL for them (which 46f-b/46f-d's future capability
+-- checks would then need special-case logic to treat as "still fully
+-- permitted, just not migrated yet" -- 'full' says that directly,
+-- with no special case required downstream).
+-- ------------------------------------------------------------
+UPDATE public.users SET admin_role = 'full' WHERE role = 'admin' AND admin_role IS NULL;
+
+-- ------------------------------------------------------------
+-- No RLS changes needed -- admin_role/admin_permissions are new
+-- COLUMNS on public.users, an existing table whose RLS (own-row read/
+-- write for a regular user, admin-read-all per the Task 41-era
+-- policy already on that table) already covers them with no
+-- additional policy needed. A non-admin reading their own row simply
+-- sees NULL/'{}' for both, which is the correct, harmless value for
+-- someone these columns were never meant to apply to.
+-- ------------------------------------------------------------
+
+-- ============================================================
+-- Starting-capital grant — DESIGN NOTE, not a schema change.
+-- ============================================================
+-- Per 46f-a's own spec text: reusing wallet_ledger's existing 'bonus'
+-- type (already permitted by its CHECK constraint --
+-- supabase_schema.sql line 149, confirmed directly, not assumed --
+-- `type IN ('earning', 'withdrawal', 'bonus', 'fee')`) with a clear
+-- `description` string, rather than adding a new `type` value via a
+-- migration. This is a one-time admin-initiated credit, not a
+-- recurring category that benefits from being separately filterable
+-- -- 46f-b's future grant route just needs to always write a
+-- consistent, greppable description (e.g. "Starting capital grant —
+-- admin <id>") so it's still distinguishable from an organic 'bonus'
+-- row after the fact, without a schema change to get there. No table/
+-- column change needed for this half of 46f-a -- flagged here so a
+-- future session doesn't go looking for one and assume it was missed.
+-- Worth a quick confirmation before 46f-b builds the actual grant
+-- route (not a hard blocker, per this part's own spec text) in case a
+-- distinct `type` value is wanted later for cleaner reporting -- that
+-- remains a reasonable call to make differently at that point.
