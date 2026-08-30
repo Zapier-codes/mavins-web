@@ -3,6 +3,26 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
+> **Newest session (2026-08-30, latest of all) — Task 48's Group 6
+> answered, closing the entire 6-group discovery queue: zero triggers
+> exist on `users` either.** No `INSERT`/`UPDATE`/`DELETE` trigger of
+> any kind. Combined with Group 1 (column default `'listener'`) and
+> Group 5 (no RLS), the full picture is settled: the ONLY two places
+> `role` gets set today are that column default and this app's own
+> `create-user/route.ts` insert — nothing hidden at the DB level to
+> conflict with this task's eventual code. **All 6 discovery groups
+> are now done.** **Exactly one thing stands between this task and
+> actual code changes: the last open product question** — does
+> `'artist'` replace `'listener'` as literally the only change at
+> signup, or should a new artist also start at a different tier/points
+> baseline than a plain listener? Full write-up in Task 48's own Group
+> 6 entry below. **Next session: get that one answer from the product
+> owner, then this task moves from discovery into real schema/code
+> work** (the `create-user/route.ts` default swap, the column-default
+> `ALTER TABLE`, and the admin any→any role-reassignment endpoint —
+> all three now fully unblocked by everything above except that one
+> question).
+>
 > **Newest session (2026-08-30, latest of all) — Task 48's Group 5
 > answered: RLS is not restricting `users` at all, in any way.** Zero
 > policies exist on the table — but rather than leaving that ambiguous
@@ -13,10 +33,7 @@
 > out default-deny — RLS simply isn't a factor here. **Fully closes the
 > "might silently block writing 'artist'" concern** — no RLS changes
 > needed anywhere in this task. Full write-up in Task 48's own Group 5
-> entry below. **Group 6 is next in queue — give the product owner
-> that exact query next** (insert/update triggers on `users`), then
-> the one remaining open product question (does `'artist'` change
-> anything beyond the `role` value itself at signup).
+> entry below.
 >
 > **Newest session (2026-08-30, latest of all) — Task 48's Group 4
 > answered: `role` and `tier` are NOT coupled, at all.** The
@@ -8002,18 +8019,31 @@ can both be built without any RLS changes or workarounds on this
 front. This closes the "RLS might silently block the new role value"
 concern completely — no follow-up query needed here.
 
-**Group 6 (queued after Group 5, NEXT IN QUEUE — give this to the
-product owner next, last group before the one remaining open
-product question) — any insert/update triggers on `users`** (confirms whether
-`role`'s default is ever set at the DB level, not just in this app's
-own `create-user` route — relevant since `public.users` is likely
-shared with another system per 46f-e's own finding, which could have
-its own trigger-based default this repo's code doesn't know about):
-```sql
-select trigger_name, event_manipulation, action_timing, action_statement
-from information_schema.triggers
-where event_object_schema = 'public' and event_object_table = 'users';
-```
+**Group 6 — ANSWERED (2026-08-30), do not re-run.** Result: **"Success.
+No rows returned."** Zero triggers exist on `public.users` at all —
+no `INSERT`/`UPDATE`/`DELETE` trigger of any kind, on any event
+timing.
+
+**Fully closes Group 6, and with it the entire 6-group discovery
+queue.** Combined with Group 1's already-confirmed column-level
+default (`role` defaults to `'listener'` at the column level) and
+Group 5's finding (no RLS layer either), the complete picture is now
+settled: **the only two places anything about `role` gets set today
+are the column's own `DEFAULT 'listener'` and this app's explicit
+`create-user/route.ts` insert — nothing else in the database
+(trigger, RLS, or otherwise) touches it.** No hidden trigger-based
+logic exists that could conflict with, override, or duplicate
+whatever this task's eventual code changes do. Switching the
+application-level default to `'artist'`, and separately altering the
+column-level default for defense-in-depth (per Group 1's own note),
+remain the only two changes needed on the "how does a new user get
+their starting role" front — confirmed, not assumed, now that all six
+groups are in.
+
+**All 6 discovery groups are now closed. The only thing standing
+between this task and actual code changes is the one remaining open
+product question below** — everything else this task needed to know
+about the current schema/RLS/trigger landscape is now answered.
 
 **Two open product questions, not answerable from any query above —
 get these directly once the data comes back, since they shape how the
@@ -8026,12 +8056,13 @@ admin role-editing UI and the new signup default actually get built:**
    also imply a different starting `tier`/`points` baseline than a
    plain listener would get (e.g., should a brand-new artist start at
    a different tier than someone who's just browsing/listening)?
-   **Still open** — Group 4's finding makes this easier to answer
-   cleanly, though: since tier is already confirmed independent of
-   role, the natural default is "no change to tier/points logic at
-   signup, only the `role` value itself changes" — but this is this
-   note's inference, not a product-owner confirmation, so still
-   flagged open rather than assumed.
+   **Still open — the one remaining thing blocking this task from
+   moving into actual implementation.** Group 4's finding makes this
+   easier to answer cleanly, though: since tier is already confirmed
+   independent of role, the natural default is "no change to
+   tier/points logic at signup, only the `role` value itself
+   changes" — but this is this note's inference, not a product-owner
+   confirmation, so still flagged open rather than assumed.
 
 **Not started: any schema migration, any code change to
 `create-user/route.ts`'s default, any admin role-editing UI.** All of
