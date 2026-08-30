@@ -6929,73 +6929,68 @@ changed for any of these six items.** Every item below was verified
 against the actual current code before being marked done or not-done —
 none of this is assumed from the request's own wording alone.
 
-1. **[ ] Wallet removed from the mobile bottom-tab menu; only the
-   header pill routes there.** `src/components/layout/MobileNav.tsx`
-   still has a `Wallet` tab (`{ id: 'earnings', icon: Wallet, label:
-   'Wallet', href: '/earnings' }`) alongside Home/Promote/Stats/Rank —
-   needs removing from that array entirely. **The other half of this
-   ask is already done, confirmed via code, not assumed:**
-   `src/components/layout/Header.tsx`'s wallet-balance pill already
-   wraps in a `<Link href="/earnings">` and is the only other nav
-   surface that mentions wallet at all — nothing to build there, only
-   the bottom-tab removal is real work.
+**Status, next session (2026-08-30) — items 1, 2, 3, 6 done in commit
+`5841b5b`; 4 and 5 still open, see their own entries below.** Item 3
+turned out to be a bigger fix than originally scoped — worth reading
+its own note below in full before assuming this is "just a placement
+fix" the way the original write-up framed it.
 
-2. **[ ] Wallet page (`/earnings`) needs a "fund wallet" entry point.**
-   Confirmed via grep: zero references to `fund-wallet`, "Fund
-   Wallet", "Add Funds", or "Top Up" anywhere in
-   `src/app/earnings/page.tsx`. A user landing on their wallet page
-   today has no way to get to `/fund-wallet` from there at all — has
-   to already know that route exists or find it some other way. Needs
-   a clear CTA (button/card) on the wallet page linking to
-   `/fund-wallet`.
+1. **[x] Wallet removed from the mobile bottom-tab menu; only the
+   header pill routes there.** Done — the `Wallet` tab entry
+   (`{ id: 'earnings', icon: Wallet, label: 'Wallet', href: '/earnings' }`)
+   removed from `src/components/layout/MobileNav.tsx`'s `tabs` array
+   entirely, along with its now-unused `Wallet` icon import. Header's
+   pill was already the correct working link — nothing else needed.
+
+2. **[x] Wallet page (`/earnings`) needs a "fund wallet" entry point.**
+   Done — a CTA card added between the header and the stats grid in
+   `src/app/earnings/page.tsx`, linking to `/fund-wallet`, using the
+   existing `glass-card` style already established elsewhere on the
+   same page.
 
 3. **[ ] ipapi.co / IP geolocation doesn't fire on home-page landing —
-   confirmed real bug, not a misconception.** The actual detection
-   code (`src/services/geo/ipGeolocation.service.ts`, wrapped by
+   confirmed real bug, not a misconception. Done in commit `5841b5b`
+   — and turned out to be a bigger bug than originally scoped.**
+   The actual detection code
+   (`src/services/geo/ipGeolocation.service.ts`, wrapped by
    `src/components/providers/GeoProvider.tsx`) is well-built and
-   already designed to run once per visit at true app initialization —
-   but it's **only actually mounted in two places**:
-   `src/app/promote/page.tsx` and `src/app/fund-wallet/page.tsx`,
-   confirmed via `grep -rl "GeoProvider" src/`. It is **not** mounted
-   in `src/app/layout.tsx` (the root layout — only mentioned there in
-   a comment, not actually rendered) and **not** in `src/app/page.tsx`
-   (the home page) at all. A visitor landing on the home page today
-   gets zero IP detection, full stop — it only fires if/when they
-   later navigate to Promote or Fund Wallet specifically.
+   already designed to run once per visit at true app initialization.
 
-   **Confirmed by the product owner, explicit requirement, not left to
-   implementer's judgment: detection must happen once, on first
-   landing, and the result must persist across every screen for the
-   rest of that visit — not re-detected per page, not scoped to
-   individual pages at all.** This settles the "obvious candidate"
-   framing this note originally used as a mere suggestion — mounting
-   `<GeoProvider>` in `src/app/layout.tsx` (the root layout, wrapping
-   every route in the app) is now the confirmed fix, not one option
-   among several. This also matches what the provider's own existing
-   header comment already claims its design intent to be ("fetched
-   exactly once per visit, at true app initialization") — the fix is
-   purely a placement/wiring correction, not a rewrite of the
-   detection logic itself, which is already correct. Once mounted at
-   the root, the two existing per-page mounts in `promote/page.tsx`
-   and `fund-wallet/page.tsx` become redundant re-wraps of a context
-   that's already available higher up the tree — worth removing them
-   as part of the same fix (not strictly required for correctness,
-   since `useGeo()` would still resolve to the nearest provider
-   either way, but leaving two extra no-op mounts around invites a
-   future session to wrongly assume they're load-bearing).
+   **Correction to this note's own earlier framing:** it previously
+   said `<GeoProvider>` was "only actually mounted in two places" —
+   `promote/page.tsx` and `fund-wallet/page.tsx` — based on
+   `grep -rl "GeoProvider" src/`. That grep matched those two files'
+   `import { useGeo } from '@/components/providers/GeoProvider'` line
+   (the STRING "GeoProvider" appears in the import path), not an
+   actual `<GeoProvider>` component render. Checked properly this
+   session (`grep -n "GeoProvider" <each file>` read in full, not just
+   counted): neither file ever rendered `<GeoProvider>` itself — they
+   only ever called `useGeo()`, which without an ancestor provider
+   resolves to the context's hardcoded default (`{ geo: null, loading:
+   true }`) forever. The **only** place `<GeoProvider>` was ever
+   actually rendered was `src/app/providers.tsx` — which, as this same
+   note already correctly identified below, has zero importers
+   anywhere in the app. **Net effect: `useGeo()` had never resolved
+   real detected geo data ANYWHERE in this app, not just on the home
+   page as originally believed** — `promote/page.tsx`'s currency
+   detection and `fund-wallet/page.tsx`'s DCC currency hint (Task
+   28/31) had both silently been getting `geo: null` this entire time.
 
-   **Related, found in the same file, worth fixing in the same pass
-   even though not explicitly asked:** `src/app/providers.tsx` is
-   **completely dead code** — a `Providers` component with zero
-   importers anywhere in the codebase (its own header comment,
-   written during Task 45, already flags this: "found this file has
-   ZERO importers anywhere... Left in place rather than deleted"). It
-   wraps `GeoProvider` too, which might be why a future session could
-   mistakenly assume mounting it there fixes this bug — it wouldn't,
-   since nothing imports this file. Don't build the home-page fix by
-   wiring through `providers.tsx`; wire directly into `layout.tsx`
-   instead, where the real provider tree actually lives
-   (`AuthProvider` → `ThemeProvider` → `LayoutContent`, per that same
+   Fixed by mounting `<GeoProvider>` in `src/app/layout.tsx`'s actual
+   root provider tree, outside `AuthProvider` (matching the provider's
+   own documented design intent — geolocation has no relationship to
+   login state and shouldn't reset on a login/logout event). Nothing
+   to "remove" from `promote/page.tsx` or `fund-wallet/page.tsx` as
+   originally planned — there was never a per-page `<GeoProvider>`
+   render to remove, only the `useGeo()` calls, which are unchanged and
+   will simply start resolving real data now. Corrected the one stale
+   comment in `promote/page.tsx` that pointed at `providers.tsx` as the
+   mount location.
+
+   **`src/app/providers.tsx` left untouched, deliberately** — confirmed
+   dead code (zero importers anywhere), but deleting an unused-but-
+   harmless file is a separate decision from this bug fix, not bundled
+   in here.
    comment).
 
 4. **[ ] Mobile scroll indicator should appear immediately after the
@@ -7055,15 +7050,11 @@ none of this is assumed from the request's own wording alone.
    `fund-wallet/verify` page's own shape (loading → success/error
    states) rather than inventing a new pattern.
 
-6. **[ ] Remove "seeding" from user-facing text; use "growth"
-   instead.** Confirmed via case-insensitive grep across all of
-   `src/`: exactly **one** occurrence —
-   `src/components/promote/PublicAnalyticsShowcase.tsx` line 95,
-   *"Real activity across the Mavins seeding network, updated
-   continuously."* Needs to become something built around "growth"
-   instead (e.g. "Real activity across the Mavins growth network,
-   updated continuously" — exact wording not dictated here, just the
-   word swap the product owner asked for). **Not in scope for this
+6. **[x] Remove "seeding" from user-facing text; use "growth"
+   instead.** Done — the one confirmed occurrence in
+   `src/components/promote/PublicAnalyticsShowcase.tsx` now reads
+   "Real activity across the Mavins growth network, updated
+   continuously." **Not in scope for this
    item, worth flagging separately so it isn't conflated:** the DB
    value `current_stage: 'planting'` (used in `track_campaigns`
    inserts across `create/route.ts` and `korapay-webhook/index.ts`) is
