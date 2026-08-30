@@ -3,27 +3,23 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest session (2026-08-30, latest of all) — Task 46f-a done:
-> `admin_role`/`admin_permissions` columns on `public.users`
-> (migration 016), not yet pushed to the live DB.** Existing
-> `role='admin'` rows already get `admin_role='full'` in the same
-> migration (the rollout decision 46f-a's own spec flagged as needing
-> to be made deliberately, not left to a silent default) — so once
-> pushed, every current admin's access is preserved exactly, nothing
-> narrows. Starting-capital grant needs no schema change — confirmed
-> `wallet_ledger`'s existing `'bonus'` type already covers it. **Found,
-> flagged, didn't block on:** the pre-existing `role` column itself
-> isn't in this repo's tracked migration history at all (001-015) —
-> added directly against the live DB at some point outside this
-> file's workflow. Doesn't affect this migration (additive, independent
-> of `role`'s own definition), but worth knowing. **See Task 46f-a's
-> own done-note (below, under Task 46) for full detail.**
+> **Newest session (2026-08-30, latest of all) — Task 46f-b done: new
+> `/api/admin/users/[id]` PATCH route** (`adjust_wallet`,
+> `grant_starting_capital`, `set_role`). Product owner confirmed
+> migration 016 was live before this started. `set_role` is root-only
+> — a new `isRootAdmin()` export checked in addition to
+> `requireAdmin()`'s existing any-admin gate, not instead of it, so an
+> assigned `'full'` admin still can't grant admin access. **Scope
+> gap flagged deliberately, not guessed around:** `set_role` only
+> works on users who already have `role='admin'` — first-time
+> promotion and full revocation both need the base `role` column
+> itself, whose non-admin value isn't confirmed anywhere in this
+> repo's tracked history (same gap migration 016 already flagged). See
+> Task 46f-b's own done-note (below, under Task 46) for full detail.
 >
-> **Next task: 46f-b — admin API routes for user management actions
-> (wallet adjustment, role assignment, starting-capital grant).**
-> Confirm migration 016 was actually pushed to the live DB first
-> (project-owner step, not yet done as of this note) before assuming
-> `admin_role`/`admin_permissions` are queryable.
+> **Next task: 46f-c — the actual UI for these routes.** 46d's
+> `/admin/users` page is still exactly the read-only table it always
+> was; nothing user-facing changed this session, only the API side.
 >
 > **Newest session (2026-08-30, later) — Task 47 item 5 fully closed,
 > commit `13fdf6c`. Task 47's only remaining open item is item 4.**
@@ -6992,7 +6988,7 @@ was actually pushed before assuming `admin_role`/`admin_permissions`
 are queryable — same check this file asks of every migration-dependent
 part.
 
-#### 46f-b — Admin API routes: user management actions [ ]
+#### 46f-b — Admin API routes: user management actions [x]
 **Depends on 46f-a.** `/admin/users` (46d's existing route) is
 currently read-only — this part adds the actual mutating actions:
 wallet-balance adjustment (support-case correction — needs its own
@@ -7008,6 +7004,71 @@ similar — see 46f-d) once that exists, not just `requireAdmin()`'s
 current any-admin-access boolean — until 46f-d lands, gating on plain
 `requireAdmin()` is an acceptable interim (matches every other 46a-46c
 route's current posture), just don't consider it the final state.
+
+**Done, this session (2026-08-30).** New
+`src/app/api/admin/users/[id]/route.ts`, `PATCH`, three action shapes
+matching `admin/campaigns/[id]/route.ts`'s own established
+discriminated-action pattern:
+- **`adjust_wallet`** — `{ amountCents, reason }`, `amountCents` may be
+  negative (a downward correction) or positive, zero rejected as a
+  no-op; `reason` required, same accountability rule 46c's cancel
+  route already established. One `wallet_ledger` insert
+  (`type: 'bonus'`) — no separate stored balance column exists to
+  update (every balance is `SUM(wallet_ledger.amount_cents)` already,
+  confirmed via the existing `get_wallet_balance` RPC), so the insert
+  IS the adjustment.
+- **`grant_starting_capital`** — `{ amountCents }`, must be positive.
+  Also a `'bonus'` insert, per 46f-a's own design note recommending
+  reuse of that type — `description` is a fixed, non-admin-supplied
+  string specifically so it stays distinguishable from an
+  `adjust_wallet` row later, per that same note's reasoning.
+- **`set_role`** — root-only, enforced via a new `isRootAdmin()`
+  export (`isAdmin.ts`) checked in ADDITION to `requireAdmin()`'s
+  existing any-admin-access gate, not instead of it — an assigned
+  `'full'` admin passes `requireAdmin()` but still gets a 403 here,
+  per 46e's own "should not be able to grant themselves or another
+  admin more access" note. Updates `admin_role`/`admin_permissions`
+  (migration 016). `adminPermissions` forced to `[]` whenever
+  `adminRole !== 'custom'`, regardless of what the request sends, so a
+  stale permissions array never lingers for a `'full'`/`'monitor'`
+  admin.
+- **Deliberately NOT built, flagged in the route's own header rather
+  than silently guessed:** `set_role` only works on a user who
+  *already* has `role = 'admin'` — first-time admin promotion and
+  full admin-access revocation both need writing to the base `role`
+  column itself, and per migration 016's own finding, that column's
+  exact schema/allowed non-admin value was never found in this repo's
+  tracked history (added directly against the live DB outside this
+  workflow at some point) — guessing a value like `'artist'` for an
+  access-control field felt like exactly the wrong place to guess.
+  Rejects with a clear 400 explaining why rather than silently
+  no-op'ing or guessing.
+- Every write logs via `logAdminAction()` (46e's shared helper),
+  distinct dot-namespaced actions (`users.wallet_adjustment`,
+  `users.starting_capital_grant`, `users.set_admin_role`), same
+  non-blocking-on-audit-failure posture as every other route in this
+  task.
+- Confirmed migration 016 was live before this started (per the
+  standing convention every migration-dependent part in this file
+  follows) — product owner confirmed in chat this session.
+
+**Verified, this session:** `npx tsc --noEmit` clean. A throwaway
+script (written, run, deleted) exercised the `financeAmount()`
+validation against 8 cases (positive/negative adjustments, zero for
+each direction, a fractional value, a non-numeric value, a positive
+grant, zero/negative grants) — all 8 matched expectation — and
+`isRootAdmin()`'s exact-match logic against 3 cases (root's own email
+with mixed case/whitespace, a different admin's email, a null user) —
+all 3 correct. Grepped for any existing reference to
+`/api/admin/users` before adding this route — none found, genuinely
+new, no collision. **Not verified — no live Supabase session in this
+sandbox:** an actual authenticated PATCH against a live DB.
+
+**Next task: 46f-c** (the actual UI these routes are for — 46d's
+`/admin/users` page is still the plain read-only table it always was;
+this session only built the API side). 46f-d (capability taxonomy) can
+start once 46f-c stabilizes, per this task's own dependency notes
+above.
 
 #### 46f-c — Admin UI: real user-management page + role assignment + capability picker [ ]
 **Depends on 46f-b.** Replace 46d's read-only `/admin/users` table

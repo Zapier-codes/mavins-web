@@ -38,3 +38,23 @@ export function isAdmin(user: { email?: string | null; role?: string | null } | 
   // Fallback to hardcoded email for the config admin
   return user.email?.toLowerCase().trim() === ADMIN_CONFIG.email.toLowerCase().trim();
 }
+
+/**
+ * Task 46f-b — distinct from `isAdmin()` above ("has any admin
+ * access at all") on purpose: some actions (assigning/changing another
+ * admin's role or permissions — see 46e's "Admin roles" note, "an
+ * assigned admin, even a 'full' one, should not be able to grant
+ * themselves or another admin more access") are root-only, not just
+ * admin-only. Root is identified purely by the same bootstrap email
+ * `isAdmin()` already falls back to — there is no DB row/column that
+ * marks a user "root" (see `ADMIN_CONFIG`'s own doc comment: root
+ * predates and sits outside the `admin_role`/`admin_permissions`
+ * columns migration 016 added for *assigned* admins specifically).
+ * Deliberately does NOT also accept `role === 'admin'` the way
+ * `isAdmin()` does — an assigned admin with `role: 'admin'` in the DB
+ * is exactly the case this function needs to say "no" to.
+ */
+export function isRootAdmin(user: { email?: string | null } | null | undefined): boolean {
+  if (!user) return false;
+  return user.email?.toLowerCase().trim() === ADMIN_CONFIG.email.toLowerCase().trim();
+}
