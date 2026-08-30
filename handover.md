@@ -7832,7 +7832,38 @@ migration in this file has gone through.
 
 ---
 
-## Task 50 — "Campaign already running" modal: platform theming [ ]
+## Task 50 — "Campaign already running" modal: platform theming [x]
+
+**Done, commit `4d50161`.** The task's own opening paragraph implied
+a modal already existed and just needed re-theming; the "Current
+location" section right below it was more accurate — there was no
+modal at all, just `promote/page.tsx`'s generic
+`alert(result.error)` catching this failure like any other. Built a
+real themed modal instead. `api/campaigns/create/route.ts`'s existing-
+campaign check now returns the existing campaign's `current_stage`/
+remaining budget alongside the error (same query, no new round-trip),
+threaded through `campaign.service.ts`'s `CampaignResult` type to the
+new modal. All three spec'd CTAs built, including "Cancel Existing &
+Start New" — confirmed via `cancel/route.ts`'s own ownership check
+before building it that a non-admin artist genuinely can cancel their
+own campaign, not assumed.
+
+**One correction to this task's own spec, checked before building
+rather than copied blindly:** it cited `TypeToConfirm.tsx` as the
+backdrop precedent to match ("standard across the app's other
+modals"). Read that file directly first — its own header comment says
+the opposite: "Deliberately NOT a modal/portal." Searched the rest of
+the app for an actual `fixed inset-0` modal-with-backdrop precedent;
+found none already established. This is the first one, built fresh
+against `globals.css`'s own CSS variables rather than against a
+citation that turned out not to describe what it claimed to.
+
+Verified: `npx tsc --noEmit` clean. A throwaway Node script (deleted
+after use) confirmed the `existingCampaign` payload shape end-to-end,
+including the spent-exceeds-budget edge case clamping to zero rather
+than going negative. **Not verified — no way to check from this
+sandbox:** an actual live duplicate-campaign attempt against a real
+Supabase instance.
 
 **New task, this session.** The promote page shows a modal/dialog when
 a user tries to create a campaign for a link that already has an active
