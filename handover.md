@@ -3,24 +3,24 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest session (2026-08-30, latest of all) — Task 48 Part 2 of 3
-> done: migration file written, NOT yet applied.** New
-> `supabase_migration_018_artist_default_role.sql` — one statement,
-> `ALTER TABLE public.users ALTER COLUMN role SET DEFAULT 'artist'`.
-> **This is the piece that actually matters for the guest-checkout gap
-> Part 1's own note flagged** — until this migration is applied,
-> `guestCheckout.ts` and the `korapay-webhook` Edge Function (neither
-> sets `role` explicitly, both rely on the column default) still create
-> new users with `role: 'listener'`, regardless of Part 1 being merged
-> and live. Deliberately no `UPDATE` for existing rows — only changes
-> what a future insert gets when it doesn't specify `role`. Needs a
-> human `supabase db push` hand-off (exact commands in Task 48's own
-> Part 2 section) — this sandbox has no live DB access to apply it
-> directly. A future session should confirm it actually landed (query
-> the live column default) before treating Task 48 as fully closed.
-> **Next: Part 3** (admin any→any role-reassignment endpoint,
-> independent of Part 2, can go in either order) — or confirm Part 2
-> actually applied if the product owner reports having run the push.
+> **Newest session (2026-08-30, latest of all) — Task 48 Part 2
+> applied to the live DB, confirmed by the product owner directly
+> ("Done it's pushed").** `supabase_migration_018_artist_default_role.sql`
+> is now live — the `role` column's default is `'artist'`, not
+> `'listener'`. **Task 48 is now functionally complete for every
+> signup path**: Part 1 (`create-user/route.ts`'s explicit insert) and
+> Part 2 (this column default) together cover all three places a new
+> `users` row gets created in this app —
+> `create-user/route.ts`, `guestCheckout.ts`, and the `korapay-webhook`
+> Edge Function. Not independently re-verified from this sandbox (no
+> live-DB network path, same standing limitation as everywhere else in
+> this file) — recorded as the product owner's direct report, which is
+> unambiguous enough not to need a second check right now; a future
+> session can still run the `information_schema` confirmation query if
+> there's ever a reason to double-check. **Next: Part 3** (admin
+> any→any role-reassignment endpoint) — was always independent of
+> Parts 1/2, not blocked by anything above, genuinely the only piece of
+> Task 48 left.
 >
 > **Newest session (2026-08-30, latest of all) — product owner
 > answered Task 48's last open question directly, and Part 1 of 3 is
@@ -8405,7 +8405,7 @@ picked up in either order.
 
 ---
 
-## Task 48 — Part 2 of 3: `role` column-level default, migration 018 [x] (file written; NOT yet applied to the live DB)
+## Task 48 — Part 2 of 3: `role` column-level default, migration 018 [x] (applied to the live DB, confirmed by product owner)
 
 New `supabase_migration_018_artist_default_role.sql`:
 `ALTER TABLE public.users ALTER COLUMN role SET DEFAULT 'artist';` —
@@ -8447,19 +8447,36 @@ simply omit `role` from their insert with no accompanying remark) — so
 there was nothing stale to update in either file. Confirmed by reading
 both in full, not assumed from the earlier grep alone.
 
-**Not yet applied to the live DB — needs the human hand-off every
-prior migration in this file has needed:**
+**Applied to the live DB — confirmed by the product owner directly,
+this session** ("Done it's pushed," following the exact `supabase db
+push` hand-off command given, including the `git pull origin main`
+step inside the `/root/mavins-web` Ubuntu-container clone first, per
+this file's own "Supabase CLI workflow" section — `supabase link` was
+not needed again, matching that section's own note that it's only
+required once per container setup). **Not independently re-verified
+from this sandbox** — same standing limitation as every other live-DB
+claim in this file: no network path to the real Supabase project from
+here, so this is the product owner's own report, not a query this
+session ran itself. A future session with a reason to double-check
+(e.g. before something else depends heavily on it) can still run the
+same `information_schema` query migration 017's own confirmation used,
+against the live column default, for independent verification — not
+done here since the report is direct and unambiguous.
+
+For reference, the hand-off that was run:
 ```
 mkdir -p supabase/migrations
 cp supabase_migration_018_artist_default_role.sql "supabase/migrations/$(date +%Y%m%d%H%M%S)_artist_default_role.sql"
 supabase db push
 ```
 (project ref `atojskxrxfsbpeefigtm`, per this file's own "Supabase CLI
-workflow" section — `supabase link` only needed once per container
-setup, already done as of that note.) A future session should confirm
-this actually landed (same pattern as migration 017's own
-confirmation, found via a direct `information_schema` query against
-the live column default) before assuming Task 48 is fully closed.
+workflow" section.) **Task 48 is now functionally complete for every
+signup path** — Part 1 (explicit insert) and Part 2 (column default)
+together cover `create-user/route.ts`, `guestCheckout.ts`, and the
+`korapay-webhook` Edge Function, the only three places a new `users`
+row gets created anywhere in this app. Only Part 3 (admin any→any
+role-reassignment endpoint) remains, and it was always independent of
+Parts 1/2 — not blocked by anything above.
 
 **Verified this session:** no code changed, migration file only — `npx
 tsc --noEmit` still passes (sanity check, not expected to catch
