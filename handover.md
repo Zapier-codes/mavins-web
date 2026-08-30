@@ -10084,3 +10084,179 @@ never be revealed — so coexistence isn't just redundant, it would
 actively undermine a rule this task already treats as non-negotiable.
 This closes both of Part a's remaining open items.
 
+---
+
+## Task 60 — Cross-repo diagnosis: Velune double-records every campaign
+play, one call site silently fails outright; listener identity is
+device-based by design, not a missing-auth bug [ ]
+
+**Ask, from the product owner directly:** does Velune write to the
+database completely, or is it missing something — cross-check Velune
+and mavins-web so it's clear exactly what mavins-web expects Velune to
+send back, for showing details on the artist's dashboard.
+**Documentation only, no code, per explicit instruction — nothing
+below has been changed in either repo.** `Zapier-codes/Velune` was
+cloned fresh into this sandbox and every claim below was independently
+re-verified against its real, current code (exact file/line
+references throughout) — not taken on faith from an earlier pass.
+
+### The real, verified bug — still live, NOT fixed
+
+A single tap on a campaign banner in Velune triggers **three**
+separate calls toward the same underlying RPC, not one:
+
+1. **`CampaignCardSection.kt:110`** — inside the card's own `onClick`,
+   fires immediately, before playback even starts:
+   `repository.recordPlay(campaign.id)` — no `userId`, no
+   `countryCode` passed.
+2. **`HomeScreen.kt:144`**, inside the `onCampaignClick` handler passed
+   into that same card (fires from the *same* tap, right after #1) —
+   also immediate: `campaignRepository.recordPlay(campaignId =
+   campaign.id, userId = "anonymous", countryCode = countryCode)`. The
+   line still carries its own `// TODO: replace with real auth user
+   ID` comment.
+3. **`MusicService.kt`, around line 3619–3637** — fires later,
+   correctly, when the tapped song's playback item actually becomes
+   current (matched against `CampaignPlaybackTracker`'s own tracked
+   song id): `CampaignRepository().recordCampaignStream(campaignId =
+   campaignId, userId = deviceId, listenDurationSeconds =
+   (player.currentPosition / 1000).toInt(), isFullListen = ...)` — a
+   real, persisted per-device id (see below) and real elapsed
+   duration. **No `countryCode` argument at all**, even though the
+   function accepts one.
+
+**One useful correction to how the original investigation framed
+this, confirmed by reading `CampaignRepository.kt` directly:** these
+aren't three independent implementations of the RPC call — `recordPlay()`
+is explicitly commented `"Legacy increment wrapper — redirects to the
+new RPC. Kept for backward compatibility with existing call sites"`
+and just calls `recordCampaignStream()` internally with whatever it
+was given. So call sites #1 and #2 both go through the same wrapper
+function; only #3 calls the real function directly. Same net effect
+(three HTTP calls per tap, one shared implementation underneath), but
+worth being precise about for whoever fixes this — the fix is "remove
+two call sites and add one missing parameter," not "reconcile three
+different implementations."
+
+**What each call site actually does to the data, traced through
+`recordCampaignStream()`'s own defaulting logic
+(`put("p_user_id", userId ?: UUID.randomUUID().toString())`,
+`listenDurationSeconds: Int = 0`):**
+- Call #1 succeeds and writes a row: a **fresh random UUID every
+  single time** (never matches any real listener, and never will,
+  even if that same physical device plays again), `duration = 0`, no
+  country.
+- Call #2 **fails outright, every time, guaranteed.** `record_campaign_stream`'s
+  live Postgres signature (confirmed earlier in this file, Task 57's
+  own note) types `p_user_id` as `uuid` — the literal string
+  `"anonymous"` cannot cast to `uuid`, so PostgREST rejects the
+  request. `recordCampaignStream()`'s own `try/catch` swallows this
+  into a `Timber.tag(TAG).e(...)` log line nobody sees — a real
+  network call and a real error, for zero effect on the database,
+  invisible to any user or operator.
+- Call #3 succeeds and writes a row: a real per-device id, real
+  duration, real `isFullListen` — but `country_code` lands as
+  whatever `record_campaign_stream` defaults an omitted one to
+  server-side (`"unknown"`, per `recordCampaignStream()`'s own Kotlin-
+  side default for when it isn't passed a value, mirrored — separately
+  confirmed against the RPC's own SQL — as the same fallback on the
+  Postgres side).
+
+**Net effect on `track_campaigns.total_streams` and on data quality,
+per real physical play:** two successful inserts (calls #1 and #3),
+meaning every genuine listen currently increments the campaign's
+stream count **twice**, not once. Call #1's row is pure noise — a
+random UUID that can never be attributed to a real or even a
+consistently-repeatable device — diluting whatever per-listener
+analysis (including, eventually, Task 49's own per-listener earnings
+logic) tries to read this table. Call #2 does nothing but waste a
+request and produce a silent, permanent log-only failure. Only call
+#3's row is genuinely usable data, and even it is currently missing
+country attribution.
+
+### Recommended fix — written out precisely, NOT applied to Velune's code or database
+
+1. Delete `CampaignCardSection.kt:110`'s immediate `repository.recordPlay(campaign.id)`
+   call (and the `scope.launch { ... }` wrapping it, if nothing else
+   in that block needs the coroutine).
+2. Delete `HomeScreen.kt:144`'s immediate `campaignRepository.recordPlay(...)`
+   call (the whole `launch { val countryCode = ...; campaignRepository.recordPlay(...) }`
+   block) — its only useful ingredient, computing `countryCode` from
+   `java.util.Locale.getDefault().country`, should move to step 3, not
+   be discarded along with the broken call it lived in.
+3. In `MusicService.kt`'s surviving call (the one around line 3619),
+   add the missing `countryCode` argument — reusing the same
+   `java.util.Locale.getDefault().country` approach `HomeScreen.kt`
+   already had, computed at the point of the real, transition-based
+   call instead of at tap-time.
+
+Net result of applying this: one write per real play, not two;
+zero silent failures; real device-id attribution; real country
+attribution. Nothing about `CampaignPlaybackTracker`, the RPC's own
+signature, or anything on the mavins-web/database side needs to
+change — this is entirely a Velune-side, three-line-diff fix once
+someone is instructed to actually apply it.
+
+### The deeper question this cross-check was really asking — resolved, not a gap to fix with auth
+
+**Confirmed by search, not assumed: Velune has no authenticated-user
+system tied to `public.users` (or any user-identity system) anywhere
+in its codebase.** Grepped for Supabase Auth usage, Nakama session
+handling, sign-in/sign-up flows — the only "login"-shaped code found
+is a YouTube account cookie (`innerTubeCookie`, `HomeScreen.kt:123`),
+used purely to show the user's YouTube profile picture and personalize
+YouTube-catalog browsing — entirely unrelated to this platform's own
+accounts, and not something that maps to any `public.users` row.
+
+**Product owner's own direct clarification, this session: this is
+correct and intentional, not a bug to fix by adding auth.** Velune is
+a deliberately no-login app — the fix is not "wire up real
+authentication," it's "use the device id that's already being
+generated and persisted." That mechanism already exists:
+`getOrCreateCampaignDeviceId()` (`MusicService.kt`, right above the
+call site discussed above) reads a UUID from
+`CampaignDeviceIdKey`-backed `DataStore`, and — **the one detail
+worth stating precisely rather than overstating** — generates and
+persists a fresh one only if none exists yet. This is **lazy
+generation on first campaign play, not literally at app init** as a
+looser description might suggest; a device that never plays a
+campaign song never gets one written. Confirmed as the *only*
+listener-identity-shaped construct anywhere in Velune's code (a second
+grep for any other persisted per-device/per-install identifier came
+back empty) — this is genuinely the intended, and currently the only
+usable, identity signal for a payable listener under Task 49's model,
+not a stopgap standing in for a "real" auth system that should
+eventually replace it.
+
+**What this means for Task 49 (listener earnings), stated plainly:**
+that task's own `listener_id UUID NOT NULL REFERENCES public.users(id)`
+column (`listener_play_events`, migration 019) assumed a real
+`public.users` row per listener. A device id is not a `public.users`
+row — it's a stable-per-install string with no account behind it at
+all. Reconciling these two models (does a device id get its own
+auto-provisioned `public.users` row the first time it plays a
+qualifying stream, the way Task 37's guest-campaign flow
+auto-provisions an account on first payment? does earnings/payout ever
+require the device's owner to claim/link a real identity later, e.g.
+to actually receive a payout?) is a real, unresolved design question
+this cross-check surfaced but did not answer — flagged here explicitly
+as follow-up work for whoever picks up Task 49's actual build, not
+silently assumed either way.
+
+### One assumption checked and corrected, not just repeated
+
+The original pass suspected `save_count`/`playlist_add_count`/
+`share_count`/`comment_count` (columns this cross-check's own
+dashboard read touches) might be a visible defect — permanently-zero
+numbers shown to an artist with no way to ever become non-zero.
+**Re-confirmed this session, on both sides:** grepped mavins-web's
+`src/` for all four column names — zero hits, they're never rendered
+anywhere in this app's UI. Grepped Velune's `app/src/main/kotlin/` for
+the same four names — zero hits, no write path exists there either.
+**Genuinely inert on both sides, not a visible defect** — no artist
+ever sees a permanently-wrong number, because no artist ever sees
+these fields at all. No fix needed; noted here so a future session
+doesn't rediscover the same suspicion and re-investigate it.
+
+---
+
