@@ -36,12 +36,43 @@
 > shared `public.users` table (clone Velune, read its auth/Supabase
 > code) before any listener-side schema can safely assume
 > `public.users.id` is the right foreign key — not done this session,
-> flagged as required groundwork. **3 narrower questions remain, all
-> in Task 49's own "Round 2" section** (the compound-percentage
-> confirmation, exactly what "the tag" is, and whether Nova Bank has
-> its own API beyond Korapay's). **Still do not start Part a** — the
-> Velune user-seeding trace needs to happen first, it's genuinely a
-> prerequisite, not optional groundwork.
+> flagged as required groundwork.
+>
+> **Same day, separate session — cloned Velune directly and answered
+> 4 more of the original 6 questions, plus found a real schema gap
+> the round-2 session above never touched.** Confirmed via Velune's
+> own code, not asked again: **NET-50 is a recurring 50-day cycle with
+> a 5-business-day withdrawal window** (not a one-time per-play wait —
+> this is the cycle *structure* behind round-2's own Q4 above, which
+> only covered the *consequence* of missing the window; the two
+> combine, they don't conflict), **"play 10 songs" is a general
+> example, not a literal gamification task** (answers the original Q5
+> — round-2's own re-numbered "Q5" above is a different question,
+> Velune's write path, so this was still genuinely unanswered until
+> now), and **the payout pool is platform-wide** (matches round-2's
+> own Q1/Q2 finding independently). **The one real blocking discovery
+> this pass surfaced, concrete and code-confirmed, not a question**:
+> Velune's own `campaigns` table (`campaign_schema.sql`) tracks only a
+> single anonymous aggregate play-count per campaign — **no
+> per-listener or per-play duration data at all**, meaning there's
+> nothing yet for this task's per-listener/≥60s-gated payout logic to
+> read from. That's real, unbuilt work in Velune itself (tracked here
+> for visibility, not this repo's own task to fix). **Six questions
+> now remain, merged from both sessions above** (three carried over
+> from round 2 unchanged: the compound-percentage chain, exactly what
+> "the tag" is, whether Nova Bank has its own API beyond Korapay's;
+> three new: within a payout cycle, is the pool split flat per-
+> requester or weighted by each listener's own qualifying-play count;
+> is "pool revenue for that day" one calendar day's figure or the full
+> ~50-day cycle's accumulated revenue — round-2's own
+> `daily_payout_pool_cents` naming assumes a daily figure but never
+> states the summation window explicitly; and the original $10-minimum
+> scope question, per-cycle vs. total balance, which neither session
+> actually resolved). Full merged list at the end of Task 49's own
+> "Round 2" section. **Still do not start Part a** — both the Velune
+> user-seeding trace (round-2's own Q6) and the campaigns-table schema
+> gap found this pass are genuine prerequisites, not optional
+> groundwork.
 >
 > **Newest session (2026-08-30, latest of all) — Task 48 Part 2
 > applied to the live DB, confirmed by the product owner directly
@@ -8821,8 +8852,45 @@ required groundwork for whoever picks up Part a, not something to
 infer from Mavins-web's own code alone (which can't see Velune's side
 of this at all).
 
-### Questions still open after round 2 (narrower than the original 6 — most are now answered)
+### Velune investigation — separate same-day session, cloned Velune directly
 
+**This session actually cloned `Zapier-codes/Velune` and read its own
+code, rather than relying on the product owner's description alone —
+answers four of the original six questions, refines one of round 2's
+own findings, and surfaces one real, concrete blocker round 2 never
+touched.**
+
+- **NET-50 is a recurring 50-day cycle with a 5-business-day
+  withdrawal window**, not a one-time per-play wait. This is the cycle
+  *structure* — round 2's own Q4 above already confirmed the
+  *consequence* of missing that window (a full fresh 50-day restart);
+  the two combine into one complete picture, they don't conflict.
+- **"Play 10 songs" is confirmed a general example, not a literal
+  gamification task to build.** This answers the original spec's
+  question 5 — not the same as round 2's own re-numbered "Q5" above
+  (Velune's write path), which is a different question entirely, so
+  this one was still genuinely open until this session.
+- **The payout pool is platform-wide** — matches round 2's own Q1/Q2
+  finding independently, via a separate line of investigation.
+- **Real blocker found, not a question — needs an answer from
+  building, not asking:** Velune's own `campaigns` table
+  (`campaign_schema.sql`, that repo) tracks only a single anonymous
+  aggregate play-count per campaign. **No per-listener identity and no
+  per-play duration data exists anywhere in Velune's current schema.**
+  This means the ≥60s-play-duration payout gate this whole feature
+  depends on has nothing to read from today — that data doesn't exist
+  yet, in either repo. This is real, unbuilt work in Velune itself,
+  tracked here for visibility since it directly blocks Part a, but
+  it's that repo's own task to build, not this one's.
+- Also checked and confirmed: this sandbox's `mavins-web` clone has no
+  `.env*` files at all (gitignored, never present in a fresh clone) —
+  real Supabase credentials for Velune's own side of this integration
+  have to come from the product owner directly (copied out of the
+  Supabase dashboard), not from anything already in either repo.
+
+### Questions still open (merged from both sessions above)
+
+**Three carried over from round 2, unchanged:**
 1. **The compound percentage chain in Q1 above** — is "20% of half of
    the 90%" really the intended two-step calculation, or were the two
    statements describing the same number twice?
@@ -8833,4 +8901,21 @@ of this at all).
    the bank-code lookup (e.g. confirming a tag/account is valid before
    a withdrawal is submitted), or is Korapay's own payout API the only
    integration point needed?
+
+**Three new, surfaced by the Velune investigation above:**
+4. Within a single payout cycle, is the pool split **flat per
+   requester**, or **weighted by each listener's own qualifying-play
+   count** that cycle? These pay out very differently and neither
+   session's conversation with the product owner actually settled it.
+5. Is "pool revenue for that day/period" **one calendar day's
+   revenue**, or **the full ~50-day cycle's accumulated revenue**?
+   Round 2's own `daily_payout_pool_cents` naming (above) assumes a
+   daily figure but never states the summation window explicitly —
+   this needs a direct answer, not an assumption baked into the name.
+6. The original **$10-minimum scope question** (per-cycle balance vs.
+   total accumulated balance) — raised in the very first version of
+   this spec, and **neither round-2 nor the Velune-investigation
+   session actually resolved it**. The NET-50 cycle model (confirmed
+   above) makes "per-cycle" a reasonable guess, but it's still only a
+   guess.
 
