@@ -3,17 +3,17 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest session (2026-08-30, latest of all) — Task 48's Group 1a/1c
-> query answered, documented, do not re-run.** `role` is plain
-> `character varying(20)`, nullable, DB-level default `'listener'`
-> (matches the app's own code-level default) — and since a plain
-> `character varying` data_type can never secretly be an enum, this
-> also fully closes 1c without needing to run it. **Still open in
-> Group 1: 1b (CHECK constraint check)** — see Task 48's own Group 1
-> entry below for the exact query and full reasoning. Groups 2-6 and
-> both open product questions are still outstanding too — this was a
-> documentation-only patch, no schema/code change, matching Task 48's
-> own explicit "discovery only, no code" scope until those land.
+> **Newest session (2026-08-30, latest of all) — Group 1b answered:
+> no CHECK constraint on `role` at all. Task 48's Group 1 is now
+> FULLY CLOSED** (1a/1b/1c all answered — plain `varchar(20)`, no
+> enum, no constraint, DB default `'listener'` matching app code,
+> zero existing NULL-role rows). Adding `'artist'` needs zero schema
+> changes — application code only, plus optionally a column-default
+> `ALTER TABLE` for defense-in-depth. **Next: Groups 2-6** (full
+> `users` schema, gamification-data population, `role`×`tier`
+> cross-tab, RLS policies, triggers) **or the two open product
+> questions** — see Task 48's own entry below for the exact remaining
+> queries and questions.
 >
 > **Newest session (2026-08-30, latest of all) — Task 48 opened,
 > discovery only, no code, per explicit instruction. Supersedes
@@ -7739,15 +7739,45 @@ What this settles, precisely:
 - `character_maximum_length: 20` — `'artist'` (6 chars) fits with
   room to spare, no truncation concern.
 
-**1b: still open, this is the only real remaining unknown in Group
-1** — whether a `CHECK` constraint restricts `role` to today's known
-values (which would need altering, separately from anything above, to
-actually allow `'artist'` to be written):
-```sql
-select conname, pg_get_constraintdef(oid) as definition
-from pg_constraint
-where conrelid = 'public.users'::regclass and contype = 'c';
-```
+**1b: ANSWERED (2026-08-30), do not re-run — this closes Group 1
+entirely.** Result:
+
+| conname                | definition                         |
+| ----------------------- | ------------------------------------ |
+| users_edge_count_check | CHECK ((edge_count >= 0))          |
+| users_password_check   | CHECK ((length(password) < 32000)) |
+
+**No CHECK constraint on `role` at all** — the only two CHECK
+constraints on `public.users` are unrelated (`edge_count`,
+`password` length). Combined with 1a/1c above (plain `varchar(20)`,
+not an enum), **Group 1 is now fully closed**: adding `'artist'` as a
+value needs **zero schema/constraint changes** — no `ALTER TYPE`, no
+`ALTER TABLE ... DROP CONSTRAINT` + re-add, nothing. It's purely an
+application-level change (the `create-user/route.ts` insert value)
+plus, as already noted above, optionally a column-default `ALTER
+TABLE` for defense-in-depth given the shared-table possibility. Any
+future session reaching Task 48 should skip straight to Groups 2-6 (or
+the two open product questions) rather than re-deriving anything about
+`role`'s own definition — that part is done.
+
+**NULL-role audit: ANSWERED (2026-08-30), do not re-run — there are
+none.** Asked because "wire this fully" implied checking whether any
+existing users need a role backfilled before the new default/
+reassignment logic ships. Result:
+
+| null_role_count | null_role_with_email | null_role_active | null_role_guest | earliest_created | latest_created |
+| ---------------- | ---------------------- | ------------------ | ------------------ | ------------------- | ----------------- |
+| 0                 | 0                      | 0                   | 0                   | null                | null              |
+
+**Zero rows.** Every existing user already has a non-null `role`
+(consistent with the four known live values from 46f-e's own earlier
+count — `admin: 1`, `creator: 23`, `listener: 112`, `curator: 35`, which
+sums to 171, matching this table's apparent full population). **No
+backfill migration is needed for this task** — the sample-rows query
+that would have shown what any NULL-role accounts actually looked like
+was moot once the count itself came back zero, so it was not run.
+This closes the "check for users with no role" part of "let's wire it
+fully" cleanly — nothing else to do here, no lingering unknown.
 
 **Group 2 — full `users` schema with nullability + defaults** (fuller
 than 46f-e's earlier column-name-only query — needed for anything this
