@@ -64,6 +64,29 @@ each rule — this is the same content, kept in sync.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note, new session (2026-08-30, latest of all) — Task 59:
+> product owner correction, campaign discovery is NOT what Tasks
+> 57/58 built.** "You spoilt it completely without reading" — the
+> real mechanic is genre-locked periodic queue interleaving (every 4
+> real songs, the 5th is a campaign song, repeating at slots 5/10/15/
+> 20...) plus a *separate* home-page banner carousel (all live
+> campaigns, cross-genre, one card per 30 seconds, reshuffles
+> specifically on app-background-then-resume, total live-campaign
+> count deliberately hidden) — **explicitly NOT the competitive
+> `trending_score`-ranked single-boost-slot model Task 58 actually
+> built** (migrations 020/021, not yet applied to the live DB, so
+> nothing live is broken by this). "No race to the top... all is
+> accommodated for" is the core design principle Task 58's
+> implementation directly contradicts. **Documentation only this
+> session, per explicit instruction — no code touched, migrations
+> 020/021 not reverted.** Full spec, the exact conflict with what's
+> already built, and 3 proposed (not yet confirmed) industry-standard
+> refinements are all in Task 59's own entry near the end of this
+> file. **Next: get the product owner's confirmation on the 3
+> proposed refinements, then this needs a real rebuild of
+> `get_trending_campaigns`** (or a replacement mechanism entirely) —
+> not a tweak to what exists.
+>
 > **Newest note, same session (2026-08-30, latest of all) — Task 58:
 > per-genre cold-start guaranteed placement built on top of migration
 > 020, `supabase_migration_021_cold_start_guaranteed_slot.sql`.**
@@ -9732,3 +9755,138 @@ this file's queue.** No Velune-side code change needed for this task —
 `get_trending_campaigns` returns, so it benefits from this
 automatically once the migration is live, with nothing to change on
 that side.
+
+---
+
+## Task 59 — Correction: campaign discovery is genre-locked periodic queue interleaving + a separate shuffled banner carousel, NOT a competitive trending-score ranking [ ]
+
+**Product owner correction, this session: "You spoilt it completely
+without reading."** Task 57's own captured design note ("multiple
+active campaigns show in a shuffled home-page slideshow, and campaigns
+are additionally queued by genre") was too rough a paraphrase, and got
+implemented (Task 58, `get_trending_campaigns` migration 021) as a
+**competitive `trending_score`-ranked list with a single cold-start
+boost slot** — a genuinely different mechanic than what was actually
+meant, not just an incomplete version of it. **Documentation only, no
+code, per explicit instruction** — this corrects the record and gives
+a full spec; migrations 020/021 are NOT reverted or touched by this
+task, see the conflict note near the end.
+
+### The real mechanic, in full, reorganized from the product owner's own words
+
+**1. In-queue campaign slots — periodic interleaving, genre-locked, no ranking:**
+- A listener's normal queue is built from real (non-campaign) songs.
+  **Every 4th song, the 5th is a campaign song** — campaign
+  placements land at queue positions 5, 10, 15, 20, 25, and so on,
+  repeating for the whole queue, not a single one-time insertion.
+- **Genre-locked, absolutely** — an R&B queue's slot-5/10/15/20
+  campaign insertions only ever draw from R&B-genre campaigns; a
+  hip-hop queue only ever draws from hip-hop campaigns; same for
+  Afrobeats and every other genre. A hip-hop campaign must never
+  appear in a non-hip-hop queue, full stop — this part *is* already
+  correctly reflected in `get_trending_campaigns`'s existing
+  `p_genre = ANY(tc.target_genres)` filter, worth keeping when this
+  gets rebuilt, not something that needs to change.
+- **No competitive scoring of any kind decides which campaign fills a
+  given slot** — explicitly, "there is no competition... no race to
+  the top or first to be displayed, all is accommodated for." This is
+  the core thing migration 021 got wrong: it picks the single
+  *best-scoring* eligible campaign (by `trending_score`) for one
+  boosted slot. The real design has no scoring step at all — every
+  live, genre-matching campaign should get fair rotational placement
+  across listeners' queues over time (a round-robin or similarly fair
+  rotation is the natural fit — see "industry-standard refinements"
+  below for a concrete proposal, flagged as a suggestion, not
+  something explicitly specified).
+
+**2. Home-page banner — a separate surface, separate rules:**
+- A horizontal-sliding carousel/banner on the home page, showing
+  **all currently-live campaigns** (not genre-locked like the queue
+  mechanic above — this surface crosses genres).
+- **One card visible at a time, holds for 30 seconds**, then advances
+  to the next.
+- **"Shuffle" has a specific, narrow meaning — re-confirm this exact
+  trigger before building**: the shown order/selection **re-shuffles
+  specifically when the user backgrounds the app and returns to it**
+  (minimize → resume), not on a timer, not on every card advance.
+  Each such return produces a different arrangement.
+- **The real live-campaign count is deliberately never revealed** —
+  "the user never knows the actual amount of live campaigns are
+  there." Card copy stays generic ("people are listening 🎧 to"), no
+  numeric indicator, no ranking, no "trending"/"#1" framing anywhere
+  on this surface — same non-competitive philosophy as the queue
+  mechanic above, applied to this surface's own presentation.
+
+**3. Click and play-counting behavior — uniform across both surfaces:**
+- Clicking a banner card **immediately starts playing that specific
+  song**, bypassing normal queue navigation.
+- **Every play counts toward the campaign's delivered-plays, from
+  either surface, unconditionally** — a banner-card click counts a
+  play; a campaign song reached via its normal in-queue slot also
+  counts a play. Neither surface's plays are treated differently for
+  delivery-counting purposes.
+- **Listener earnings are a separate, conditional layer on top of
+  play-counting, not the same thing**: if the listener isn't enrolled
+  in the "Earns" platform (Task 49), their play still counts for the
+  campaign — they personally just earn nothing from it. Enrollment
+  status never affects whether a play counts, only whether *that
+  listener* gets paid for it.
+- **This directly ties to Task 49's own 60-second-listen rule**: that
+  rule still applies here unchanged — a play is recorded regardless of
+  duration, but only counts toward a listener's *earnings* (not toward
+  the campaign's raw play-count, which per the point above is
+  unconditional either way) if `listen_duration_seconds >= 60`. Worth
+  restating together since these two tasks now clearly share the same
+  play-event data, not two separate tracking mechanisms.
+
+### Real conflict with already-shipped code — flagged, not fixed here
+
+`get_trending_campaigns` (migrations 020 + 021, Tasks 57/58, already
+written and — per those tasks' own notes — **not yet applied to the
+live DB**, so nothing live is actually broken by this correction
+arriving now) implements a `trending_score`-ranked, single-
+cold-start-boost-slot model. That's a fundamentally different shape
+than "no ranking, periodic genre-locked interleaving, fair rotation
+for every live campaign" — **this function will very likely need to be
+substantially reworked, not just tweaked**, once this corrected design
+is confirmed and actually scheduled for building. Not touched by this
+task on purpose (documentation-only instruction) — flagging clearly so
+whoever picks up the real build doesn't assume 020/021 are most of the
+way there. The one piece worth keeping from that work: the genre
+filter itself (`p_genre = ANY(tc.target_genres)`) is correct and
+reusable; the scoring/boost mechanism around it is what needs to go.
+
+### Industry-standard refinements proposed here — suggestions, not specified by the product owner, confirm before building
+
+Asked explicitly to "upgrade what I have wrote with industry standards
+like Spotify systems" — these are genuine proposals grounded in real,
+well-known patterns (Spotify's own podcast/audio-ad frequency-capped
+insertion; sponsored-content carousels that don't reveal total
+inventory), not things stated directly, so each needs its own
+confirmation rather than being treated as already-decided:
+
+- **Fair rotation mechanism for the queue slots**: a simple round-robin
+  across all currently-live, genre-matching campaigns (each listener's
+  next slot-5/10/15/20 draws the *next* campaign in rotation, cycling
+  back to the start once every live campaign in that genre has had a
+  turn) would concretely deliver "no race to the top, all accommodated
+  for" — as opposed to pure randomness, which could still statistically
+  favor some campaigns over others by chance over a large enough
+  listener base.
+- **Frequency capping**: the same listener shouldn't see the identical
+  campaign repeatedly within one session, on either surface — a simple
+  per-listener, per-session "already shown this campaign" set would
+  prevent that, standard practice in every ad-serving system with
+  rotational/non-auction placement.
+- **Carousel de-duplication within one shuffle cycle**: if the shuffled
+  banner selection is a subset rather than always literally every live
+  campaign (plausible once there are many), the same campaign
+  shouldn't appear twice in one 30-seconds-per-card cycle before every
+  other live campaign has had a turn.
+
+None of these are built, specified in detail beyond the proposal
+above, or confirmed — flagging them here so the next round of
+questions can address them together with the core mechanic instead of
+being raised piecemeal later.
+
+---
