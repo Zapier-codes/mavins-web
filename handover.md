@@ -3,33 +3,28 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest session (2026-08-30) — Task 47 item 5's two flagged
-> color-literal fixes done (login page + fund-wallet page); item 5's
-> confirmation-screen build-out and item 4 both remain open.** Item 5
-> asked for `login/page.tsx` and `fund-wallet/page.tsx`'s hardcoded
-> Spotify-green/`emerald-500`/`teal-500` literals to be replaced with
-> the app's real `--accent` theme variable — done in both files
-> (ambient glow, logo badge, submit button, sign-up link on the login
-> page; icon badge + submit button on fund-wallet), matching the exact
-> contrast-safe conventions already established elsewhere
-> (`Header.tsx`'s `text-[var(--background)]` on accent-gradient badges,
-> `app/page.tsx`/`Sidebar.tsx`'s `hover:brightness-110` on accent CTAs).
-> `npx tsc --noEmit` clean. **Deliberately not touched:** the second,
-> non-accent ambient blob (`#3d91f4`, a fixed blue used the same way on
-> other pages too) and the loading spinner's `border-black` (a
-> pre-existing, unflagged pattern also present verbatim in
-> `promote/page.tsx`, out of this item's scope). **Item 5's other
-> half — a brand-new email-confirmation page, which this app currently
-> has no route for at all — was deliberately NOT built this session.**
-> The spec's own suggested precedent ("mirror `fund-wallet/verify`'s
-> shape") turned out to be stale — that page no longer exists;
-> `redirectToCheckout()` now points straight at an API route, not a
-> page. Building this well needs either a fresh design decision or
-> checking Supabase's current auth-redirect config first — flagged as
-> its own next pickup rather than guessed at. **Item 5's own checkbox
-> stays `[ ]`** until that's done too. Item 4 (mobile scroll placement)
-> remains blocked the same way it already was — needs a live mobile
-> viewport this sandbox can't render, not something to guess at.
+> **Newest session (2026-08-30, later) — Task 47 item 5 fully closed,
+> commit `13fdf6c`. Task 47's only remaining open item is item 4.**
+> Item 5's confirmation-screen build-out (the half a prior session in
+> this same day left open, flagging it needed either a fresh design
+> decision or a live Supabase dashboard check) turned out resolvable
+> without that dashboard check: the only actually-used `signUp()` call
+> (`login/page.tsx`) set no `emailRedirectTo` at all, so setting one
+> explicitly in code sidesteps the dashboard-dependency entirely rather
+> than needing to inspect it. **Bigger finding while building this:**
+> `@supabase/ssr`'s PKCE-flow default means a confirmation link carries
+> a `?code=` param that must be explicitly exchanged for a session via
+> `exchangeCodeForSession()` — grepped the whole app first: that
+> function was called nowhere. Confirming an email was silently only
+> marking it confirmed in Supabase's own `auth.users` table, never
+> actually establishing a session here, regardless of which page it
+> redirected to. New `src/app/auth/confirmed/page.tsx` does the
+> exchange, then routes through the same `profile_completed` branch
+> `login/page.tsx`'s sign-in path already uses. See Task 47 item 5's
+> own entry below for the full write-up, including the one inherent
+> PKCE limitation this doesn't (and shouldn't try to) work around.
+> **Item 4 (mobile scroll placement) remains blocked** — needs a live
+> mobile viewport this sandbox can't render.
 >
 > **Before this — newest session (2026-08-29) — Task 46c fully
 > closed.** 46c-cancel-b (wire cancel/pause/resume into the admin PATCH
@@ -6957,14 +6952,19 @@ changed for any of these six items.** Every item below was verified
 against the actual current code before being marked done or not-done —
 none of this is assumed from the request's own wording alone.
 
-**Status, this session (2026-08-30, second pass) — items 1, 2, 3, 6
-done in commit `5841b5b`; item 5's two flagged color-literal fixes
-(login page, fund-wallet page) done this session; item 5's
-confirmation-screen build-out and item 4 (mobile scroll placement)
-still open, see their own entries below.** Item 3
+**Status (2026-08-30, third pass) — items 1, 2, 3, 5, 6 all done; item
+4 (mobile scroll placement) is the only thing left open in this whole
+task.** Item 5's confirmation-screen build-out (commit `13fdf6c`)
+closed the item entirely — see that item's own entry below for the
+full write-up, including a real functional gap (missing PKCE code
+exchange) found and fixed alongside the themed screen itself. Item 3
 turned out to be a bigger fix than originally scoped — worth reading
 its own note below in full before assuming this is "just a placement
-fix" the way the original write-up framed it.
+fix" the way the original write-up framed it. **Item 4 remains blocked
+the same way it always has** — needs a live mobile viewport this
+sandbox can't render; a future session should reproduce the actual
+behavior there before changing anything, not guess at which
+container's `overflow` property is responsible.
 
 1. **[x] Wallet removed from the mobile bottom-tab menu; only the
    header pill routes there.** Done — the `Wallet` tab entry
@@ -7041,12 +7041,11 @@ fix" the way the original write-up framed it.
    rather than guessing at which container's `overflow` property is
    responsible.
 
-5. **[ ] Sign-in/sign-up theming — currently hardcoded Spotify green,
+5. **[x] Sign-in/sign-up theming — currently hardcoded Spotify green,
    confirmed via literal hex codes in source, not a vague color
-   complaint. Login + fund-wallet color-literal fixes done this
-   session (2026-08-30); the confirmation-screen build-out below is
-   still open — this item's own checkbox stays `[ ]` until that's
-   done too.** The app's real theme, confirmed from
+   complaint. Login + fund-wallet color-literal fixes done 2026-08-30;
+   the confirmation-screen build-out (below) done in a later session,
+   commit `13fdf6c` — item fully closed.** The app's real theme, confirmed from
    `src/app/globals.css`: light mode accent is `#2f6fed` (blue),
    dark mode accent is `#d4af37` (champagne gold) — both already
    exposed as the `var(--accent)` CSS variable pair the rest of the
@@ -7093,29 +7092,45 @@ fix" the way the original write-up framed it.
    using theme-correct styling; not part of this task's remaining
    work.
 
-   **Confirmation screen — still doesn't exist, still open, NOT built
-   this session.** Confirmed via `find`: no dedicated confirmation
-   page/route exists anywhere in `src/app`. The only trace of this
-   concept is a single comment in `login/page.tsx` ("No active session
-   yet (e.g. email confirmation required)") — the actual state is
-   handled inline, with no dedicated screen a user ever lands on after
-   confirming their email. **This note's own suggested precedent to
-   mirror — "the `fund-wallet/verify` page's own shape" — turned out to
-   be stale, checked this session, not just repeated:** that page no
-   longer exists as a UI route; `redirectToCheckout()` in
-   `src/lib/payments/checkout.ts` now points straight at the
-   `api/payments/verify/[reference]` API route (see that route's own
-   file), not at a page. There is currently no in-app page anywhere
-   that shows a loading → success/error sequence to mirror the shape
-   of — building this well means either designing that shape fresh or
-   checking how Supabase's own email-confirmation redirect is
-   currently configured (which URL it sends the user to right now) so
-   the new page lands exactly where that redirect already points,
-   rather than guessing. Left open rather than guessed at with limited
-   context on Supabase's current auth-redirect config — a good next
-   pickup, but a distinct enough decision (routing + new-page design,
-   not just a color swap) that it deserves its own session rather than
-   being rushed in alongside this session's two color fixes.
+   **Confirmation screen — built this session (commit `13fdf6c`),
+   closes item 5 entirely.** Resolved without needing the Supabase
+   dashboard check this note originally said was required: the only
+   actually-used `signUp()` call (`login/page.tsx` — `api/auth/
+   create-user/route.ts` is dead code, confirmed zero callers anywhere
+   in the app before ruling it out) set no `emailRedirectTo` at all,
+   so the destination was already entirely dependent on Supabase's
+   dashboard default. Setting it explicitly in code removes that
+   dependency rather than working around it.
+
+   **Bigger finding while building this — a real functional gap, not
+   just a missing themed screen:** `@supabase/ssr`'s
+   `createBrowserClient` defaults to PKCE auth, meaning a confirmation
+   link carries a `?code=` param that must be explicitly exchanged for
+   a session via `exchangeCodeForSession()` — grepped the whole app for
+   that function name before writing anything: zero hits, anywhere.
+   Confirming an email was silently only marking it confirmed in
+   Supabase's own `auth.users` table; it never actually logged the
+   user in here, regardless of which page the old, unset
+   `emailRedirectTo` happened to land them on.
+
+   New `src/app/auth/confirmed/page.tsx`: exchanges the code, then
+   routes through the exact same `profile_completed` branch
+   `login/page.tsx`'s own sign-in path already uses. Themed with the
+   same `var(--accent)` pattern this session's earlier color fixes
+   already established. Confirmed via `middleware.ts` directly that
+   this new route isn't caught by any matcher — necessary, since it
+   has to work before a session exists.
+
+   **Known, inherent PKCE limitation, not introduced here:** confirming
+   from a different browser/device than the one that signed up will
+   correctly show the error state, not silently succeed — the
+   `code_verifier` PKCE needs lives in that first browser's storage.
+   Standard behavior every app using PKCE has to accept.
+
+   Verified: `npx tsc --noEmit` clean on the full project. **Not
+   verified — no way to check from this sandbox:** an actual live
+   signup → email → click → exchange round-trip against a real
+   Supabase project.
 
 6. **[x] Remove "seeding" from user-facing text; use "growth"
    instead.** Done — the one confirmed occurrence in
