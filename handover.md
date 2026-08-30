@@ -7746,6 +7746,27 @@ minimum) would create a permanent lock-in that discourages participation.
 ### Implementation roadmap (now fully unblocked)
 
 **Part a — Schema (next session):**
+
+**Done — commit `1b23a04`, this session (added purely on top, nothing
+above this note in this task changed or removed).** New migration
+019: all three tables below built exactly as specified — see that
+migration's own header comment for the full RLS reasoning per table
+(in short: `listener_play_events` locked to `service_role` entirely,
+since Q6's own sub-question about how a Velune signup maps to
+`public.users` is still unconfirmed; `listener_earnings` adds an
+authenticated read-own-row policy on top of that same lockdown, since
+Part d below explicitly needs a listener to read their own balance;
+`daily_payout_pool` is fully locked down, same posture as
+`platform_revenue`). Item 4 (Velune's own schema addition) is
+confirmed still not done — flagged again here, not silently assumed
+resolved: Velune isn't cloned in this sandbox, and this same task's
+own "Velune investigation" section above already found that repo's
+current schema has no per-listener/per-play-duration data at all, so
+these new tables have nothing real to receive yet. Verified via
+`npx tsc --noEmit` (sanity check only — this was a schema-only, no-code
+change). Not independently verified against a live Supabase instance —
+migration 019 needs the same `supabase db push` hand-off every prior
+migration in this file has gone through.
 1. New table: `listener_play_events` (Velune writes directly, Mavins-web
    reads only)
    - `id` uuid PK
