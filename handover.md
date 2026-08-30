@@ -3,6 +3,28 @@
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note, same session (2026-08-30, later than Task 56 below) —
+> 56c's biggest open question (token-bridging approach) now has a
+> concrete, industry-standard answer, added as a "Refined
+> recommendation" at the end of 56c's own section.** Key finding: 151
+> of 171 real users already have populated `points`, 142 have a
+> `streak`, with **zero per-user Nakama auth existing anywhere** —
+> proof that stat-tracking gamification (points/streak/tier/
+> leaderboard) already works today via server-side writes under
+> Nakama's service-account session, no per-user login required. A live
+> per-user Nakama session is only genuinely needed for *live* features
+> (real-time presence, matchmaking, sockets) — if nothing like that is
+> planned, **no auth change is needed at all**. If one is planned later,
+> the recommended path is Nakama's own documented **custom
+> authentication bridge** (`authenticateCustom(supabaseUserId, ...)`,
+> server-side, per real user) — Supabase stays the actual login system,
+> Nakama trusts it, **not** the reversed primary/foreign swap originally
+> described. This is a much smaller, much safer change than 56c's
+> original four-open-question framing implied — read the "Refined
+> recommendation" paragraph at the end of 56c before assuming the
+> full architecture question is still as open as the rest of that
+> section describes.
+>
 > **Task 56 added, this session (2026-08-30) — three product-owner
 > items, documentation only, no code changed.** (a) Synthesized an
 > answer to "will a new user see the leaderboard already populated" —
@@ -9111,5 +9133,78 @@ above) rather than attempting the full existing-user migration in the
 same pass, regardless of which token-bridging approach is chosen —
 smaller blast radius, and it de-risks the harder existing-user
 migration by proving the new flow works end-to-end first.
+
+**Refined recommendation, same session, later — this resolves open
+question 1 above (token-bridging approach) with a concrete, industry-
+standard answer, rather than leaving it as an open fork. Still not
+built; still the product owner's call whether to implement it at
+all.**
+
+**The key data point that changes the picture: 151 of 171 real users
+already have populated `points`, 142 have a `streak` — despite zero
+per-user Nakama authentication existing anywhere in this codebase.**
+That's not a gap in the gamification system, it's proof of how Nakama's
+own server API actually works: Nakama's server-side SDK lets *the
+server* write leaderboard records and storage objects for **any user ID
+it chooses**, under the server's own service-account session
+(`authenticateCustom('mavins-server-system', ...)`, already in
+`nakama.service.ts`). Nakama doesn't check whether that user ID ever
+personally logged in through Nakama — it trusts whoever holds a valid
+session (this app's own server) to say "credit this ID." So **for
+stat-tracking gamification specifically — points, streak, tier
+progression, leaderboard rank — per-user Nakama auth was never actually
+required**, and everything currently working proves it.
+
+**Where a live per-user Nakama session genuinely would be required:**
+anything needing a *live, client-side* connection — real-time presence,
+matchmaking, in-app chat/notifications pushed over a socket, or a
+server-side Nakama runtime hook firing in response to a live client
+action. Those can't be faked after the fact by a server-side write; a
+real connection from that specific user is unavoidable for that
+category of feature specifically. **If nothing currently planned needs
+that category, no auth change is needed at all** — this is the first
+thing to confirm with the product owner before treating this as urgent.
+
+**If/when a live feature does need it, the industry-standard pattern
+for "I want Nakama's social/leaderboard features but already have my
+own auth system" is Nakama's own documented **custom authentication
+bridge** — not the full primary/foreign swap originally described, and
+not a rewrite of this app's auth at all:**
+
+- After Supabase confirms who someone is (exactly as today), the
+  server calls `authenticateCustom(supabaseUserId, true, ...)` — the
+  **same function `nakama.service.ts` already calls**, just keyed to
+  each real user's own stable Supabase ID instead of the one fixed
+  `'mavins-server-system'` identity it uses today. This mints a Nakama
+  session tied to that same ID, invisibly, server-side.
+- **Supabase stays the actual login system.** No new client-side auth
+  UI, no RLS rewrite, no `supabase.auth.getUser()` calls change, no
+  risk to the 171 existing accounts, no token-exchange research
+  project. Nakama simply trusts whatever identity Supabase already
+  vouched for — the reverse relationship from what "Supabase becomes
+  the foreign relationship for the Nakama auth" originally described,
+  but it achieves the same practical goal (every real user has a
+  legitimate, addressable Nakama identity) with a fraction of the risk
+  and none of the four open questions above needing answers first.
+- This directly answers open question 1 (token-bridging approach):
+  **neither of the two options originally scoped** (custom
+  token-exchange into a real Supabase session, or a full move away from
+  Supabase Auth/RLS) **is the right shape — the bridge runs the other
+  direction, server-side and one-way, with Supabase remaining primary.**
+  Open questions 2–4 above become largely moot under this approach:
+  existing users need no migration (the bridge can run for them exactly
+  as for new signups, whenever a live feature actually needs it), guest
+  checkout is unaffected (nothing about it changes), and point 4 (does
+  Nakama already have a configured per-user auth method) becomes
+  unnecessary to answer — `authenticateCustom` needs no separate
+  Nakama-side configuration beyond what's already in use today.
+
+**Recommendation to record, not yet acted on:** don't build any
+auth-architecture change now. Ask the product owner directly whether a
+specific live/real-time Nakama feature is actually planned. If not,
+this task has no remaining work — the gamification stat-tracking goal
+is already met. If yes, implement the custom-auth bridge above,
+scoped to whichever specific live feature needs it, rather than a
+blanket "migrate everyone's auth" project.
 
 ---
