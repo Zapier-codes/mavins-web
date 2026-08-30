@@ -3,7 +3,35 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest session (2026-08-29, latest of all) — Task 46c fully
+> **Newest session (2026-08-30) — Task 47 item 5's two flagged
+> color-literal fixes done (login page + fund-wallet page); item 5's
+> confirmation-screen build-out and item 4 both remain open.** Item 5
+> asked for `login/page.tsx` and `fund-wallet/page.tsx`'s hardcoded
+> Spotify-green/`emerald-500`/`teal-500` literals to be replaced with
+> the app's real `--accent` theme variable — done in both files
+> (ambient glow, logo badge, submit button, sign-up link on the login
+> page; icon badge + submit button on fund-wallet), matching the exact
+> contrast-safe conventions already established elsewhere
+> (`Header.tsx`'s `text-[var(--background)]` on accent-gradient badges,
+> `app/page.tsx`/`Sidebar.tsx`'s `hover:brightness-110` on accent CTAs).
+> `npx tsc --noEmit` clean. **Deliberately not touched:** the second,
+> non-accent ambient blob (`#3d91f4`, a fixed blue used the same way on
+> other pages too) and the loading spinner's `border-black` (a
+> pre-existing, unflagged pattern also present verbatim in
+> `promote/page.tsx`, out of this item's scope). **Item 5's other
+> half — a brand-new email-confirmation page, which this app currently
+> has no route for at all — was deliberately NOT built this session.**
+> The spec's own suggested precedent ("mirror `fund-wallet/verify`'s
+> shape") turned out to be stale — that page no longer exists;
+> `redirectToCheckout()` now points straight at an API route, not a
+> page. Building this well needs either a fresh design decision or
+> checking Supabase's current auth-redirect config first — flagged as
+> its own next pickup rather than guessed at. **Item 5's own checkbox
+> stays `[ ]`** until that's done too. Item 4 (mobile scroll placement)
+> remains blocked the same way it already was — needs a live mobile
+> viewport this sandbox can't render, not something to guess at.
+>
+> **Before this — newest session (2026-08-29) — Task 46c fully
 > closed.** 46c-cancel-b (wire cancel/pause/resume into the admin PATCH
 > route) and 46c-cancel-c (cancel button + confirmation dialog) built
 > and closed together — see full write-up under Task 46c's own entry
@@ -6929,8 +6957,11 @@ changed for any of these six items.** Every item below was verified
 against the actual current code before being marked done or not-done —
 none of this is assumed from the request's own wording alone.
 
-**Status, next session (2026-08-30) — items 1, 2, 3, 6 done in commit
-`5841b5b`; 4 and 5 still open, see their own entries below.** Item 3
+**Status, this session (2026-08-30, second pass) — items 1, 2, 3, 6
+done in commit `5841b5b`; item 5's two flagged color-literal fixes
+(login page, fund-wallet page) done this session; item 5's
+confirmation-screen build-out and item 4 (mobile scroll placement)
+still open, see their own entries below.** Item 3
 turned out to be a bigger fix than originally scoped — worth reading
 its own note below in full before assuming this is "just a placement
 fix" the way the original write-up framed it.
@@ -6948,9 +6979,9 @@ fix" the way the original write-up framed it.
    existing `glass-card` style already established elsewhere on the
    same page.
 
-3. **[ ] ipapi.co / IP geolocation doesn't fire on home-page landing —
-   confirmed real bug, not a misconception. Done in commit `5841b5b`
-   — and turned out to be a bigger bug than originally scoped.**
+3. **[x] ipapi.co / IP geolocation doesn't fire on home-page landing —
+   confirmed real bug, not a misconception. Done in commit `5841b5b` —
+   and turned out to be a bigger bug than originally scoped.**
    The actual detection code
    (`src/services/geo/ipGeolocation.service.ts`, wrapped by
    `src/components/providers/GeoProvider.tsx`) is well-built and
@@ -7012,23 +7043,48 @@ fix" the way the original write-up framed it.
 
 5. **[ ] Sign-in/sign-up theming — currently hardcoded Spotify green,
    confirmed via literal hex codes in source, not a vague color
-   complaint.** The app's real theme, confirmed from
+   complaint. Login + fund-wallet color-literal fixes done this
+   session (2026-08-30); the confirmation-screen build-out below is
+   still open — this item's own checkbox stays `[ ]` until that's
+   done too.** The app's real theme, confirmed from
    `src/app/globals.css`: light mode accent is `#2f6fed` (blue),
    dark mode accent is `#d4af37` (champagne gold) — both already
    exposed as the `var(--accent)` CSS variable pair the rest of the
-   app consumes correctly. `src/app/login/page.tsx` ignores this
-   variable entirely and hardcodes `#1db954`/`#169c45`/`#1ed760`
+   app consumes correctly. `src/app/login/page.tsx` ignored this
+   variable entirely and hardcoded `#1db954`/`#169c45`/`#1ed760`
    (Spotify's own brand green) directly in multiple places — the ambient
    background glow, the logo badge gradient, the submit button, and the
-   "sign up" link text. Needs every one of those literals replaced
-   with `var(--accent)`/`var(--accent-light)`/`var(--accent-dark)`,
-   the same pattern already used correctly elsewhere in the app (e.g.
-   `Header.tsx`'s wallet pill: `text-[var(--accent)]`).
+   "sign up" link text. **Fixed** — all four replaced with
+   `var(--accent)`/`var(--accent-light)`/`var(--accent-dark)`, matching
+   the pattern already used correctly elsewhere (`Header.tsx`'s wallet
+   pill, `leaderboard/page.tsx`'s solid-accent-bg tab: `bg-[var(--accent)]
+   text-[var(--background)]`). Button/badge icon text changed from a
+   hardcoded `text-white`/`text-black` to `text-[var(--background)]` —
+   same contrast-safe convention `Header.tsx`'s own accent-gradient
+   badges already use (`--background` flips light/dark with the theme,
+   so it stays readable against the accent gradient in both modes).
+   **Deliberately left alone:** the second ambient blob
+   (`bg-[#3d91f4]/5`, a fixed blue, not part of the flagged "Spotify
+   green" literals) and the loading spinner's `border-black` — the
+   latter is a pre-existing, unflagged pattern also present verbatim in
+   `promote/page.tsx`'s own submit button; fixing it wasn't asked for
+   here and doing it only on this one page would leave `promote/
+   page.tsx` inconsistent with it instead.
 
-   **Same issue, confirmed separately, on the fund-wallet screen:**
-   `src/app/fund-wallet/page.tsx` hardcodes `from-emerald-500
-   to-teal-500` (two separate spots — the icon badge and the submit
-   button) instead of the theme accent variable.
+   **Same issue, confirmed separately, on the fund-wallet screen —
+   fixed this session too.** `src/app/fund-wallet/page.tsx` hardcoded
+   `from-emerald-500 to-teal-500` (icon badge + submit button). This
+   file uses this app's plain (non-bracket) Tailwind color tokens
+   throughout (`bg-background`, not `bg-[var(--background)]`) — matched
+   that local convention rather than importing the bracket-CSS-variable
+   style from `login/page.tsx`, since `tailwind.config.ts`'s `colors`
+   block already maps `accent`/`accent-light`/`accent-dark`/
+   `background` to the same CSS variables either way; both spellings
+   compile to the same thing here, picked whichever matches the file
+   they're in. `hover:opacity-90` also swapped for `hover:brightness-110`
+   to match the same CTA-hover convention used in `app/page.tsx` and
+   `Sidebar.tsx`, rather than inventing a third hover treatment.
+   `npx tsc --noEmit` clean after both files' changes.
 
    **Onboarding screen — checked, already clean, nothing to fix.**
    The closest thing to an "onboarding" screen in this app is
@@ -7037,18 +7093,29 @@ fix" the way the original write-up framed it.
    using theme-correct styling; not part of this task's remaining
    work.
 
-   **Confirmation screen — doesn't exist yet, so there's nothing to
-   theme until it's built.** Confirmed via `find`: no dedicated
-   confirmation page/route exists anywhere in `src/app`. The only
-   trace of this concept is a single comment in `login/page.tsx`
-   ("No active session yet (e.g. email confirmation required)") —
-   the actual state is handled inline, with no dedicated screen a user
-   ever lands on after confirming their email. This needs to be built
-   from scratch, matching the correct theme from the start (not built
-   first and re-themed later) — likely a small dedicated route/page
-   the email confirmation link redirects to, mirroring the
-   `fund-wallet/verify` page's own shape (loading → success/error
-   states) rather than inventing a new pattern.
+   **Confirmation screen — still doesn't exist, still open, NOT built
+   this session.** Confirmed via `find`: no dedicated confirmation
+   page/route exists anywhere in `src/app`. The only trace of this
+   concept is a single comment in `login/page.tsx` ("No active session
+   yet (e.g. email confirmation required)") — the actual state is
+   handled inline, with no dedicated screen a user ever lands on after
+   confirming their email. **This note's own suggested precedent to
+   mirror — "the `fund-wallet/verify` page's own shape" — turned out to
+   be stale, checked this session, not just repeated:** that page no
+   longer exists as a UI route; `redirectToCheckout()` in
+   `src/lib/payments/checkout.ts` now points straight at the
+   `api/payments/verify/[reference]` API route (see that route's own
+   file), not at a page. There is currently no in-app page anywhere
+   that shows a loading → success/error sequence to mirror the shape
+   of — building this well means either designing that shape fresh or
+   checking how Supabase's own email-confirmation redirect is
+   currently configured (which URL it sends the user to right now) so
+   the new page lands exactly where that redirect already points,
+   rather than guessing. Left open rather than guessed at with limited
+   context on Supabase's current auth-redirect config — a good next
+   pickup, but a distinct enough decision (routing + new-page design,
+   not just a color swap) that it deserves its own session rather than
+   being rushed in alongside this session's two color fixes.
 
 6. **[x] Remove "seeding" from user-facing text; use "growth"
    instead.** Done — the one confirmed occurrence in
