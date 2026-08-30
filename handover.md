@@ -3,6 +3,21 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
+> **Newest session (2026-08-30, latest of all) — Task 48's Group 5
+> answered: RLS is not restricting `users` at all, in any way.** Zero
+> policies exist on the table — but rather than leaving that ambiguous
+> (no policies could mean RLS disabled, or RLS enabled with
+> default-deny-everything), cross-checked against
+> `create-user/route.ts`'s own insert: it runs on a plain anon-key
+> client and already succeeds for every real signup today, which rules
+> out default-deny — RLS simply isn't a factor here. **Fully closes the
+> "might silently block writing 'artist'" concern** — no RLS changes
+> needed anywhere in this task. Full write-up in Task 48's own Group 5
+> entry below. **Group 6 is next in queue — give the product owner
+> that exact query next** (insert/update triggers on `users`), then
+> the one remaining open product question (does `'artist'` change
+> anything beyond the `role` value itself at signup).
+>
 > **Newest session (2026-08-30, latest of all) — Task 48's Group 4
 > answered: `role` and `tier` are NOT coupled, at all.** The
 > `role`×`tier` cross-tab came back scattered — every `creator` sits at
@@ -12,14 +27,7 @@
 > systems share vocabulary by coincidence, not by design** — treat them
 > as independent fields going forward, don't attempt to derive/sync one
 > from the other. Closes open product question #1 from this task's own
-> list entirely; question #2 (does `'artist'` change more than just the
-> `role` value at signup) is still open, though this finding makes "no,
-> nothing else changes" the natural default answer — flagged as this
-> note's own inference, not yet product-owner-confirmed. Full write-up
-> in Task 48's own Group 4 entry below. **Group 5 is next in
-> queue — give the product owner that exact query next** (RLS policies
-> on `users` referencing `role`), then Group 6, then the one remaining
-> open product question.
+> list entirely. Full write-up in Task 48's own Group 4 entry below.
 >
 > **Newest session (2026-08-30, latest of all) — Task 48's Group 3
 > answered: gamification is substantially populated already, not
@@ -7962,20 +7970,41 @@ together, and retrofitting a sync now would change the tier of 91
 existing users (every non-`listener` role currently sitting outside
 its "matching" tier) as a side effect nobody asked for.
 
-**Group 5 (queued after Group 4, NEXT IN QUEUE — give this to the
-product owner next) — RLS policies on `users` referencing `role`** (needed
-before admin gets free-form write access to this column — confirm
-nothing in RLS assumes `role` can only ever be set to today's four
-values, which would silently block writing `'artist'` even after the
-column/constraint itself allows it):
-```sql
-select policyname, cmd, qual, with_check
-from pg_policies
-where schemaname = 'public' and tablename = 'users';
-```
+**Group 5 — ANSWERED (2026-08-30), do not re-run.** Result: **"Success.
+No rows returned."** Zero rows from `pg_policies` for
+`schemaname = 'public', tablename = 'users'` — no RLS policies exist
+on this table at all, not even one.
 
-**Group 6 (queued after Group 5, last group before the two open
-product questions) — any insert/update triggers on `users`** (confirms whether
+**This fully closes Group 5's concern, and settles it more decisively
+than the empty result alone would suggest.** An empty `pg_policies`
+result is ambiguous on its own — it could mean RLS is simply not
+enabled on the table (no policies needed, everything unrestricted at
+the RLS layer), or RLS IS enabled with zero policies, which under
+Postgres's own default-deny semantics would block ALL non-owner/
+non-`bypassrls` access uniformly, regardless of what value is being
+written. Cross-checked against `src/app/api/auth/create-user/
+route.ts` (already read for a different reason earlier in this task)
+to settle which: that route's `.from('users').insert(...)` — the exact
+call that sets `role: 'listener'` on every real signup — runs on a
+plain **anon-key** client (`createServerClient` with
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`, not a service-role/admin client), and
+this insert **already succeeds today** for real users (171 confirmed
+real rows, Group 3's own count). If RLS were enabled with zero
+policies, this exact anon-key insert would fail outright under
+Postgres's default-deny rule — it doesn't, which proves **RLS is not
+meaningfully restricting this table at all**, not just "has no
+policies mentioning role specifically."
+**Practical conclusion for Task 48's actual question:** nothing in RLS
+will silently block writing `'artist'` as a role value — there is
+no RLS-layer restriction of any kind on this table to conflict with
+it. An admin role-reassignment endpoint, and the new signup default,
+can both be built without any RLS changes or workarounds on this
+front. This closes the "RLS might silently block the new role value"
+concern completely — no follow-up query needed here.
+
+**Group 6 (queued after Group 5, NEXT IN QUEUE — give this to the
+product owner next, last group before the one remaining open
+product question) — any insert/update triggers on `users`** (confirms whether
 `role`'s default is ever set at the DB level, not just in this app's
 own `create-user` route — relevant since `public.users` is likely
 shared with another system per 46f-e's own finding, which could have
