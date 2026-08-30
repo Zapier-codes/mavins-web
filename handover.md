@@ -3,25 +3,31 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest session (2026-08-30, latest of all) — Task 46e's original
-> scope (audit trail + confirmation-dialog pattern) now done.** New
-> `src/components/admin/TypeToConfirm.tsx`, extracted from
-> `FeeSettingsPanel.tsx`'s previously-private `ConfirmField` (zero
-> behavior change there) and wired into the other of 46e's two named
-> high-stakes examples: `admin/campaigns/page.tsx`'s view-count
-> override, which had no confirmation gate at all before this. Gated
-> specifically on the `totalStreams` field changing, not targeting or
-> the other two count fields. Deleting a country/tier a live campaign
-> references — this note's other destructive example — deliberately
-> NOT retrofitted this session (touches `AdminCrudTable`'s own
-> already-shipped delete flow, five call sites — flagged as its own
-> follow-up, not folded in here). **46e's checkbox stays `[ ]`** — its
-> original scope is done, but a much larger later-added scope (user-
-> management CRUD, the admin role system, the starting-capital grant)
-> lives inside the same section and remains entirely unbuilt; see 46e's
-> own new "Scope clarity" note for the full reasoning, including a
-> recommendation to consider splitting that remainder into its own 46f
-> before a future session dives in. `npx tsc --noEmit` clean.
+> **Newest session (2026-08-30, latest of all) — 46e's recommended
+> split done: new `### 46f` section, five dependency-ordered parts
+> (46f-a..46f-e), nothing built yet.** This is the "much larger
+> later-added scope" 46e's own "Scope clarity" note flagged as living
+> inside its section but deserving its own — role/permission model,
+> real user-management mutating actions (46d's `/admin/users` is
+> currently read-only), starting-capital grant. **Found and flagged a
+> naming collision while doing this:** 46e's own "Confirmed decisions"
+> notes repeatedly say "46d" for this future work, written before the
+> already-completed `### 46d` (dashboard buildout, `[x]`) claimed that
+> label for something else entirely — every one of those references
+> now means 46f, not 46d; see the new note directly above 46f's own
+> section for the full explanation. **Every decision already confirmed
+> by the product owner (role structure, refund policy, FX scoping,
+> password rotation — already done) still applies verbatim** — 46f
+> doesn't re-derive or re-ask any of it, just implements against it.
+>
+> **Next task: 46f-a — schema (role/permission columns + starting-
+> capital tracking).** One open rollout decision flagged in that part's
+> own text, not yet made: what existing `role='admin'` rows should
+> default to for the new `admin_role` column (recommended: `'full'`,
+> preserves current access exactly) — pick this deliberately when
+> building, don't let it default silently. Confirm nothing else jumped
+> the queue since this note (same check every session should do before
+> assuming a written pointer is still current).
 >
 > **Newest session (2026-08-30, later) — Task 47 item 5 fully closed,
 > commit `13fdf6c`. Task 47's only remaining open item is item 4.**
@@ -6868,6 +6874,157 @@ decision" alongside the ones above:**
    above) headcount once it starts. 46e threads through starting no
    later than 46b, per that part's own "mandatory for this part
    specifically" note.
+
+**Naming collision, found this session (2026-08-30) — every "46d" in
+the three paragraphs above means something that no longer has that
+name.** When this "Confirmed decisions" text was written, "46d" meant
+"whatever future session builds the role/permission system and
+route-gating" — reasonable at the time, nothing with that label existed
+yet. Since then, **`### 46d — Admin dashboard buildout (routes, pages,
+navigation, icons)` was built and closed (`[x]`, see that section
+above) as a different, already-fully-scoped thing**: page/route
+scaffolding, nav, `/admin/users` as a *read-only* table — not the role
+model, not user-mutating actions, not the capability taxonomy. So
+"46d picks up the now-concrete taxonomy" above never happened under
+that label and was never going to — it was scoped elsewhere. **Read
+every "46d" above as "46f"** (below) — not correcting the original
+text in place, per this file's own "append corrections, don't rewrite
+history" convention (same pattern already used elsewhere in this file
+for other stale-reference corrections), but this note is the
+authoritative pointer: 46f is the section that actually implements
+everything those three paragraphs describe.
+
+### 46f — Admin role/permission system + user-management mutating actions + starting-capital grant [ ]
+
+**Split out this session (2026-08-30), per 46e's own "Scope clarity"
+note above recommending exactly this** ("possibly worth splitting
+into a 46f before starting, rather than assuming 'finish 46e' means
+one more small addition") — this is genuinely its own body of work,
+not a 46e addendum. Nothing in this section is built yet. Rolls up
+three things that were previously scattered across 46e's "Possibly
+missed"/"Confirmed decisions" notes rather than living in their own
+section: (1) the root/assigned-admin role + capability-permission
+model, (2) admin user-management actually being able to *act* on a
+user (wallet adjustment for support cases, role assignment) rather
+than 46d's existing read-only table, (3) the admin starting-capital
+grant. **Every confirmed decision from 46e's own notes above (fee
+confirmation UX is a different part, not repeated here; refund-reason
+branching, N/A here; admin-role structure; FX-rate scoping,
+N/A here; the hardcoded-password fix, already done) still applies
+verbatim — implement against those, this section doesn't re-derive or
+re-confirm anything already settled there.** Two things are
+genuinely still open (capability-key taxonomy, root-vs-4-total
+headcount) — both have an explicit, already-written recommendation
+in 46e's notes above for how to proceed without blocking on either;
+follow those, don't re-ask.
+
+Split into five dependency-ordered parts, same reasoning 46b got the
+same treatment for: this is large enough, and touches enough
+money/access-adjacent surface (wallet adjustments, who gets admin
+access at all), that one session attempting all of it at once is
+exactly the kind of shortcut this file's "one task per session" rule
+exists to prevent.
+
+#### 46f-a — Schema: role/permission columns + starting-capital tracking [ ]
+Extend `public.users` with the role/permission model 46e's "Admin
+roles — structure, confirmed" note above already locked in:
+`admin_role TEXT CHECK (admin_role IN ('full','monitor','custom'))`
+(root is NOT a DB row — it stays the existing hardcoded-email
+fallback in `isAdmin.ts`, per that note's own explicit "IS the root
+admin going forward, not replaced by it") and
+`admin_permissions TEXT[]` (or `JSONB`, whichever matches this
+codebase's existing convention for array-ish columns — check
+`target_countries`/`target_genres` on `track_campaigns` for the
+established pattern before picking one fresh), consulted only when
+`admin_role = 'custom'`. **Rollout decision, not yet made, worth
+flagging explicitly rather than picking silently:** the *existing*
+simple `role = 'admin'` boolean (already live, already gating every
+46a-46c route today) needs a migration-time default for this new
+column on every row that already has `role = 'admin'` — recommend
+defaulting to `admin_role = 'full'` specifically, since that exactly
+preserves every existing admin's current access with zero silent
+narrowing, and is the safe direction to default a migration in
+generally (never silently reduce someone's already-working access).
+For the **starting-capital grant**: recommend reusing
+`wallet_ledger`'s existing `'bonus'` type (already permitted by its
+CHECK constraint, `supabase_schema.sql` line 149) with a clear
+`description` string, rather than adding a new migration for a new
+`type` value — this is a one-time admin-initiated credit, not a
+recurring category that needs its own filterable type. **Worth a
+quick confirmation, not a hard blocker**, same spirit as this whole
+task's other flagged-not-blocking items — if a future session decides
+a distinct type value is worth the extra migration for cleaner
+reporting later, that's a reasonable call to make differently.
+
+#### 46f-b — Admin API routes: user management actions [ ]
+**Depends on 46f-a.** `/admin/users` (46d's existing route) is
+currently read-only — this part adds the actual mutating actions:
+wallet-balance adjustment (support-case correction — needs its own
+`wallet_ledger` insert, `type: 'bonus'` or a negative adjustment,
+logged via `logAdminAction()` per 46e's now-established pattern, same
+as every other money-adjacent admin write in this task), role/
+permission assignment (root-only — an assigned admin, even a `'full'`
+one, should not be able to grant themselves or another admin more
+access; enforce this server-side in the route, not just hide the UI
+control), and the starting-capital grant action itself. Every route
+here needs the *specific* capability check (`users.manage` or
+similar — see 46f-d) once that exists, not just `requireAdmin()`'s
+current any-admin-access boolean — until 46f-d lands, gating on plain
+`requireAdmin()` is an acceptable interim (matches every other 46a-46c
+route's current posture), just don't consider it the final state.
+
+#### 46f-c — Admin UI: real user-management page + role assignment + capability picker [ ]
+**Depends on 46f-b.** Replace 46d's read-only `/admin/users` table
+with real actions wired to 46f-b's routes: a wallet-adjustment form
+(amount + reason, both required — reason logged same as 46c's
+cancellation-reason pattern, for the same accountability reasoning),
+a role-assignment control (root-only, visible/usable only when the
+viewing admin's own role permits it), and — for `'custom'` role
+assignment specifically — a capability picker built from whatever
+concrete list 46f-d produces. Reuse `TypeToConfirm.tsx` (46e) for the
+wallet-adjustment action specifically — that's exactly the kind of
+high-stakes, easy-to-fat-finger action that component exists for; a
+role change is lower-stakes/more reversible and can stay a plain
+confirm.
+
+#### 46f-d — Capability-key taxonomy: consolidate, confirm, wire into requireAdmin() [ ]
+**Depends on 46f-b/46f-c existing (needs real routes to enumerate
+from) — can start once those are stable, doesn't need to wait for
+46f-c's UI polish specifically.** Per 46e's own recommendation above
+("let 46a, 46b, and 46c proceed now, each just needs to gate its own
+route behind *some* named permission key... the taxonomy naturally
+falls out of that as a byproduct"): grep every admin route across
+46a/46b/46c/46f-b for whatever permission key it already defined (or
+assign one now if a route shipped before this recommendation existed
+and never got one), producing a concrete, finished list — then take
+that concrete list to the product owner as "here are the N specific
+things an assigned admin can be individually granted, does this match
+what you meant by 'a few roles separately'" (46e's own suggested
+framing, worth reusing verbatim, it's a much easier thing for a
+non-technical stakeholder to react to than an abstract taxonomy).
+Once confirmed, wire the result into `requireAdmin()`'s already-
+anticipated extension point (see that function's own doc comment: "a
+`requiredCapability` parameter later without touching every route a
+second time") — this is the point where every route built before this
+part goes from "any admin can call this" to "only an admin with this
+specific capability can."
+
+#### 46f-e — Headcount cap enforcement + final confirmation [ ]
+**Depends on 46f-a/46f-b.** Implement the "max 3 assigned admins" cap
+as a single named constant (`MAX_ASSIGNED_ADMINS` or similar — not
+inlined into a query `.limit()` or a UI string in more than one place,
+per 46e's own recommendation, specifically because the exact number
+is still unconfirmed), enforced server-side in 46f-b's role-assignment
+route (reject a 4th assignment attempt with a clear error, don't just
+hide the UI button). Implement against the **4-total working
+assumption** (root + 3 assigned, per 46e's own recommendation above)
+unless corrected first. **Get the actual single low-effort
+confirmation** 46e's note already drafted ("just to double check —
+root plus 3 more admins, 4 people total with any admin access,
+right?") at the product owner's convenience — this part is the
+natural place to actually ask it, since it's the part that hard-codes
+the number, rather than leaving it perpetually "still open" across
+every future session that touches this area.
 
 ---
 
