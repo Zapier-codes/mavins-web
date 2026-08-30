@@ -47,7 +47,17 @@ export async function POST(request: Request) {
         points: 0,
         streak: 0,
         tier: 'T4',
-        role: 'listener',
+        role: 'artist', // Task 48 (handover.md), Part 1 of 3 — product owner
+        // confirmed directly: every new signup gets the 'artist' role now.
+        // 'listener' is reserved for a distinct, not-yet-built future
+        // feature (a separate "listen and get paid" flow, entered via an
+        // occasional banner prompt, its own UI/architecture still being
+        // designed) — it is NOT the default for new users anymore, and
+        // this change does not add any code path that assigns it. Tier
+        // ('T4') and points (0) stay exactly as they were — the product
+        // owner's answer was specifically "just swap the role," no
+        // different starting tier/points baseline for an artist vs. what
+        // a listener used to start at.
         is_active: false,
         user_type: 'real',
         wallet: { balance: 0 },

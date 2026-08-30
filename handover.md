@@ -3,6 +3,34 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
+> **Newest session (2026-08-30, latest of all) — product owner
+> answered Task 48's last open question directly, and Part 1 of 3 is
+> done.** Confirmed: every new signup gets the new `artist` role, full
+> stop — `listener` is reserved for a distinct, not-yet-built future
+> feature (a separate "listen and get paid" flow via a banner prompt,
+> architecture not yet designed), not the "other choice" at signup.
+> No different tier/points baseline for an artist — just the role
+> value swaps. Per direct instruction, split into the 3 pieces the
+> paragraph below already named and built **only Part 1**:
+> `create-user/route.ts`'s `role: 'listener'` → `role: 'artist'`.
+> **Real dependency found while scoping this, worth knowing before
+> touching Part 2**: `guestCheckout.ts` and the `korapay-webhook` Edge
+> Function's own user-creation insert set NO `role` field at all —
+> they rely entirely on the DB column default. This means Part 2 (the
+> column-default migration) will fix those two paths for free once it
+> ships, but **until then, a guest signing up through the direct-pay
+> campaign flow still gets `'listener'`, even with Part 1 merged** —
+> don't treat this task as done after just Part 1. `npx tsc --noEmit`
+> clean; grepped the whole app for any `role === 'listener'` branch
+> that might have silently depended on the old default — zero hits.
+> Full write-up at the very end of the file (Task 48's own new "Part 1
+> of 3" section — the file's heading structure is a little tangled
+> near the end, search for that exact heading text rather than assume
+> section order). **Next: Part 2 (the `ALTER TABLE` migration, needs a
+> human `supabase db push`/SQL-editor hand-off) or Part 3 (admin
+> any→any role-reassignment endpoint, independent of Part 2) — either
+> order.**
+>
 > **Newest session (2026-08-30, latest of all) — Task 48's Group 6
 > answered, closing the entire 6-group discovery queue: zero triggers
 > exist on `users` either.** No `INSERT`/`UPDATE`/`DELETE` trigger of
@@ -8285,3 +8313,73 @@ B-Pay-backend's own `handover.md` — not duplicated in full here since
 it's that repo's own file to own, but recorded here too since it was
 asked about in the same breath as this task and future Mavins-web
 sessions may want to know without needing to jump repos to check.
+
+---
+
+## Task 48 — Part 1 of 3: signup default role swap, `create-user/route.ts` [x]
+
+**Product owner's direct confirmation, this session, resolving the
+one open question Group 6 left** (verbatim intent, not paraphrased
+into something narrower): a new role, `artist`, is being created —
+**every new user gets the `artist` role**, full stop. `listener` is
+**not** the "other choice" at signup; it's reserved for a distinct,
+not-yet-built future feature — a separate "listen and get paid" flow,
+entered via an occasional popup banner prompt, its own UI and
+architecture still being designed, entirely out of scope for this
+task. Concretely: **just swap the role value, nothing else changes** —
+no different starting tier/points baseline for an artist vs. what a
+listener used to start at (the tier/points half of Group 6's open
+question).
+
+**Per direct instruction, this task was split into exactly the 3
+pieces the "Next session" box paragraph already named, and only Part 1
+was built this session:**
+1. **`create-user/route.ts`'s default role swap — done.**
+2. Column-default `ALTER TABLE` (the DB-level default, confirmed
+   `'listener'` by Group 1) — **not done**, next part.
+3. Admin any→any role-reassignment endpoint — **not done**, third
+   part.
+
+**Part 1 itself:** `src/app/api/auth/create-user/route.ts`'s `users`
+insert changed `role: 'listener'` → `role: 'artist'`. `tier: 'T4'` and
+`points: 0` left exactly as they were, matching the product owner's
+"just swap the role" answer precisely — resist the temptation to also
+"improve" the starting tier/points in the same commit; that wasn't
+asked for.
+
+**A real dependency worth stating plainly, found while scoping this
+part — Part 1 and Part 2 are not independent, and Part 1 alone does
+NOT cover every user-creation path:** grepped every `.from('users')
+.insert(...)` in the whole codebase (app code and the Supabase Edge
+Functions both) for an explicit `role` field. Only
+`create-user/route.ts` sets one explicitly — `src/lib/auth/
+guestCheckout.ts`'s `resolveOrCreateGuestAccount` and the Edge
+Function's own ported copy (`supabase/functions/korapay-webhook/
+index.ts`) both insert a new `users` row with **no `role` field at
+all**, relying entirely on the column's own DB-level default (Group
+1's confirmed `'listener'`). This means: **Part 2 (the column-default
+migration) will silently fix those other two paths for free, with zero
+code change needed in either file** — but until Part 2 actually lands,
+a guest who creates an account through the direct-pay campaign flow
+(Task 36) still gets `role: 'listener'` by default, even though this
+Part 1 commit is live. Don't consider this task "done" once Part 1
+merges — the guest-checkout path is still on the old default until
+Part 2 ships too.
+
+**Verified this session:** `npx tsc --noEmit` clean. Grepped for any
+code path anywhere in the app that branches on `role === 'listener'`
+(a place that might have silently relied on new users starting there)
+— zero hits, confirming this swap doesn't change any *other* behavior
+beyond the stored value itself. Checked `create-user/route.ts`'s one
+known caller (`src/app/auth/confirmed/page.tsx`) — doesn't read or
+branch on `role` either.
+
+**Not done — Parts 2 and 3, deliberately, per instruction.** Next
+session: Part 2 is the `ALTER TABLE users ALTER COLUMN role SET
+DEFAULT 'artist'` migration (plus updating the two Edge-Function-side
+insert sites' own comments, if any exist, to stop saying they rely on
+a `'listener'` default) — same `supabase db push`/SQL-editor hand-off
+every prior migration in this file has needed, this sandbox has no
+live DB access to run it directly. Part 3 (admin any→any
+role-reassignment endpoint) is independent of Parts 1/2 and could be
+picked up in either order.
