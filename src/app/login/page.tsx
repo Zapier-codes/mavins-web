@@ -36,7 +36,21 @@ function LoginForm() {
       const { error: signUpError } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { artist_name: email.split('@')[0] } },
+        options: {
+          data: { artist_name: email.split('@')[0] },
+          // Task 47 item 5's confirmation-screen note: this call
+          // previously set no emailRedirectTo at all, so Supabase fell
+          // back to its dashboard-configured "Site URL" default — not
+          // discoverable from code, and not something this sandbox can
+          // check. Setting it explicitly here removes that dependency
+          // entirely: whatever the dashboard default is, it no longer
+          // matters, since this always wins. Points at the new
+          // /auth/confirmed page (see that page for the other half of
+          // this fix — exchanging the ?code= param this redirect
+          // carries for a real session, which nothing in this app did
+          // before regardless of which page it landed on).
+          emailRedirectTo: `${window.location.origin}/auth/confirmed?redirect=${encodeURIComponent(redirectTo)}`,
+        },
       });
       if (signUpError) setError(signUpError.message);
       else {
