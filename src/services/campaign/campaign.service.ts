@@ -15,6 +15,11 @@ interface CampaignResult {
   success: boolean;
   campaignId?: string;
   error?: string;
+  /** Task 50 (handover.md): populated only for the "already have an
+   * active campaign for this link" failure — lets the caller show a
+   * real modal with the existing campaign's stage/remaining budget
+   * instead of just the bare error string. */
+  existingCampaign?: { id: string; stage: string; remainingCents: number };
 }
 
 /** Read wallet balance from users.wallet JSONB (no RPC needed). */
@@ -83,7 +88,7 @@ export async function createCampaign(
     });
     const json = await res.json();
     if (!res.ok || !json.success) {
-      return { success: false, error: json.error || 'Failed to create campaign' };
+      return { success: false, error: json.error || 'Failed to create campaign', existingCampaign: json.existingCampaign };
     }
     return { success: true, campaignId: json.campaignId };
   } catch (error: any) {

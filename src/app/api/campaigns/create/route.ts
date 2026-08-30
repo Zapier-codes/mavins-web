@@ -159,7 +159,7 @@ export async function POST(request: NextRequest) {
     // (what the DB constraint checks but nothing sets).
     const { data: existingActive } = await admin
       .from('track_campaigns')
-      .select('id')
+      .select('id, current_stage, total_budget_cents, spent_cents')
       .eq('artist_id', authUser.id)
       .eq('source_url', body.sourceUrl)
       .eq('is_active', true)
@@ -167,8 +167,20 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (existingActive) {
+      // Task 50 (handover.md): the frontend modal shows this campaign's
+      // stage and remaining budget, so the check above now selects
+      // those columns instead of just `id` — same query, no new
+      // round-trip, just returning what it already has access to.
       return NextResponse.json(
-        { success: false, error: 'You already have an active campaign for this link. Wait for it to finish, or cancel it, before starting another for the same link.' },
+        {
+          success: false,
+          error: 'You already have an active campaign for this link. Wait for it to finish, or cancel it, before starting another for the same link.',
+          existingCampaign: {
+            id: existingActive.id,
+            stage: existingActive.current_stage,
+            remainingCents: Math.max(0, (existingActive.total_budget_cents || 0) - (existingActive.spent_cents || 0)),
+          },
+        },
         { status: 400 }
       );
     }

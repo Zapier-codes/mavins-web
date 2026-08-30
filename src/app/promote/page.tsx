@@ -21,7 +21,8 @@ import { cn } from '@/lib/utils/cn';
 import {
   Rocket, Link2, TrendingUp, Globe, DollarSign,
   ShieldCheck, Zap, ChevronRight, Play, PauseCircle,
-  BarChart3, Music, Sparkles, MapPin, Wand2, Map, Mail
+  BarChart3, Music, Sparkles, MapPin, Wand2, Map, Mail,
+  AlertCircle, Loader2
 } from 'lucide-react';
 
 const PublicAnalyticsShowcase = dynamic(
@@ -424,6 +425,15 @@ export default function PromotePage() {
   const [homeCountryCode, setHomeCountryCode] = useState<string | null>(null);
   const [targetCountries, setTargetCountries] = useState<string[]>([]);
   const [localCurrency, setLocalCurrency] = useState<{ code: string; symbol: string; rate: number } | null>(null);
+  // Task 50 (handover.md): the "you already have an active campaign
+  // for this link" failure used to fall through to the generic
+  // alert(result.error) below like any other error — promoted to its
+  // own themed modal instead, since it's common enough (and has real
+  // structured data attached now — see campaign.service.ts's
+  // CampaignResult.existingCampaign) to deserve one.
+  const [activeCampaignModal, setActiveCampaignModal] = useState<{ id: string; stage: string; remainingCents: number } | null>(null);
+  const [isCancelingExisting, setIsCancelingExisting] = useState(false);
+  const [cancelExistingError, setCancelExistingError] = useState<string | null>(null);
 
   // Task 45 Part 4 (stage 1) — reference data (pricing tiers, duration
   // slots, countries, genres, affinity scores) now comes from the
@@ -724,10 +734,39 @@ export default function PromotePage() {
       setTimeout(() => setShowSuccess(false), 4000);
     } else if (/insufficient/i.test(result.error || '')) {
       await goStraightToCheckout('insufficient_funds');
+    } else if (result.existingCampaign) {
+      setActiveCampaignModal(result.existingCampaign);
     } else {
       alert(result.error || 'Failed to create campaign');
     }
   };
+
+  async function cancelExistingAndRetry() {
+    if (!activeCampaignModal) return;
+    setIsCancelingExisting(true);
+    setCancelExistingError(null);
+    try {
+      const res = await fetch('/api/campaigns/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaignId: activeCampaignModal.id }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'Failed to cancel existing campaign');
+      // Deliberately does NOT auto-resubmit the new campaign — the
+      // cancel request above is now in flight/complete, but retrying
+      // createCampaign() immediately would re-run the whole wallet-
+      // balance/debit branch from a state this function itself already
+      // moved past once; simpler and safer to just close the modal and
+      // let the admin/artist press Launch again themselves with a
+      // clean state.
+      setActiveCampaignModal(null);
+    } catch (e: any) {
+      setCancelExistingError(e.message || 'Failed to cancel existing campaign');
+    } finally {
+      setIsCancelingExisting(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] scroll-smooth-mobile">
@@ -926,6 +965,64 @@ export default function PromotePage() {
           </div>
         </div>
       </div>
+
+      {/* Task 50 (handover.md) — "Campaign Already Active" modal.
+          bg-black/60 backdrop-blur-sm + glass-card, matching this
+          app's established dark-theme system throughout (globals.css
+          CSS variables) rather than any hardcoded light-mode color. */}
+      {activeCampaignModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/60 backdrop-blur-sm">
+          <div className="glass-card rounded-2xl p-6 w-full max-w-sm">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-[#1db954]/10 border border-[#1db954]/20 flex items-center justify-center flex-shrink-0">
+                <AlertCircle className="w-5 h-5 text-[#1db954]" />
+              </div>
+              <h3 className="font-semibold text-base text-[var(--foreground)]">Campaign Already Active</h3>
+            </div>
+
+            <p className="text-sm text-[var(--muted-foreground)]">
+              This link already has a live campaign. Wait for it to finish, or cancel it, before starting another for the same link.
+            </p>
+
+            <div className="flex items-center justify-between mt-4 p-3 rounded-xl bg-white/5 border border-white/10">
+              <span className={cn('text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full border', getStageColor(activeCampaignModal.stage))}>
+                {getStageLabel(activeCampaignModal.stage)}
+              </span>
+              <span className="text-xs text-[var(--subtle-foreground)]">
+                {formatCents(activeCampaignModal.remainingCents)} remaining
+              </span>
+            </div>
+
+            {cancelExistingError && (
+              <p className="text-xs text-rose-400 mt-3">{cancelExistingError}</p>
+            )}
+
+            <div className="flex flex-col gap-2 mt-5">
+              <button
+                onClick={() => router.push('/analytics')}
+                className="w-full py-2.5 rounded-xl bg-[#1db954] text-black text-sm font-semibold hover:brightness-110 transition-all"
+              >
+                View My Campaigns
+              </button>
+              <button
+                onClick={cancelExistingAndRetry}
+                disabled={isCancelingExisting}
+                className="w-full py-2.5 rounded-xl border border-white/10 text-sm font-medium hover:bg-white/5 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isCancelingExisting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                Cancel Existing &amp; Start New
+              </button>
+              <button
+                onClick={() => setActiveCampaignModal(null)}
+                disabled={isCancelingExisting}
+                className="w-full py-2 text-xs text-[var(--subtle-foreground)] hover:text-[var(--foreground)] transition-colors disabled:opacity-50"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
