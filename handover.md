@@ -3,6 +3,24 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
+> **Newest session (2026-08-30, latest of all) — Task 48's Group 4
+> answered: `role` and `tier` are NOT coupled, at all.** The
+> `role`×`tier` cross-tab came back scattered — every `creator` sits at
+> T3 not T2, every `curator` splits T3/T4 with zero at T1, and no user
+> in the whole 171-row table has reached T1 or T2 regardless of role.
+> **This decisively answers the earlier open design question: the two
+> systems share vocabulary by coincidence, not by design** — treat them
+> as independent fields going forward, don't attempt to derive/sync one
+> from the other. Closes open product question #1 from this task's own
+> list entirely; question #2 (does `'artist'` change more than just the
+> `role` value at signup) is still open, though this finding makes "no,
+> nothing else changes" the natural default answer — flagged as this
+> note's own inference, not yet product-owner-confirmed. Full write-up
+> in Task 48's own Group 4 entry below. **Group 5 is next in
+> queue — give the product owner that exact query next** (RLS policies
+> on `users` referencing `role`), then Group 6, then the one remaining
+> open product question.
+>
 > **Newest session (2026-08-30, latest of all) — Task 48's Group 3
 > answered: gamification is substantially populated already, not
 > dormant.** 88% of 171 users have points, 83% have a streak, 53% are
@@ -15,10 +33,7 @@
 > gamified logic fully"** — bears directly on Group 2's still-open
 > `auth_user_id`-vs-Nakama-`id` question; flags a good follow-up query
 > (are there `auth_user_id` rows that bypassed real Nakama auth?) not
-> yet run. Full write-up in Task 48's own Group 3 entry below. **Group
-> 4 is next in queue — give the product owner that exact query next**
-> (`role`×`tier` cross-tab), then Groups 5-6, then the two open product
-> questions.
+> yet run. Full write-up in Task 48's own Group 3 entry below.
 >
 > **Newest session (2026-08-30, latest of all) — Task 48 opened,
 > discovery only, no code, per explicit instruction. Supersedes
@@ -7902,18 +7917,53 @@ not silently left alone. No query for this was run this session (it
 wasn't part of the original 6 groups) — flagging as a good candidate
 follow-up query once Groups 4-6 are done, not blocking them.
 
-**Group 4 (queued after Group 3, NEXT IN QUEUE — give this to the
-product owner next) — `role` × `tier` cross-tab** (directly tests the naming-
-overlap question above — if every `role='listener'` row is also
-`tier='T4'` and every `role='curator'` row has a high tier, that's
-real evidence they're meant to move together despite no code coupling
-existing yet; if they're scattered independently, that's evidence
-they're genuinely unrelated fields):
-```sql
-select role, tier, count(*) from public.users group by role, tier order by role, tier;
-```
+**Group 4 — ANSWERED (2026-08-30), do not re-run.** Result:
 
-**Group 5 (queued after Group 4) — RLS policies on `users` referencing `role`** (needed
+| role     | tier | count |
+| -------- | ---- | ----- |
+| admin    | T4   | 1     |
+| creator  | T3   | 23    |
+| curator  | T3   | 25    |
+| curator  | T4   | 10    |
+| listener | T3   | 43    |
+| listener | T4   | 69    |
+
+(Sums to 171, matching Group 3's `total_rows` exactly, and each role's
+row-count matches 46f-e's own earlier tally — `creator: 23`,
+`curator: 35` = 25+10, `listener: 112` = 43+69, `admin: 1` — good
+cross-check that both queries are counting the same live table
+consistently.)
+
+**This settles the naming-overlap question decisively: `role` and
+`tier` are NOT coupled, at all.** If they were meant to move together,
+`role='creator'` should cluster at `tier='T2'` (labeled "Creator" in
+`tier/check/route.ts`'s own `TIERS` array) and `role='curator'` at
+`tier='T1'` ("Curator") — instead, **every single `creator` is at T3
+("Contributor"), not T2**, and **every `curator` is split between T3
+and T4, with zero at T1**. `listener` (→ T4 "Listener" by the naming)
+is at least partially consistent — 69 of 112 are T4 — but still 43 are
+T3, so even the one role whose name matches its "expected" tier isn't
+cleanly 1:1. **Most strikingly: no user anywhere in this 171-row table
+has reached T1 or T2** — the entire population sits at T3 or T4 only,
+regardless of role, including users already holding the `creator`/
+`curator` role. Points-based tier progression and role are evidently
+assigned through completely independent mechanisms today: role reads
+like something chosen at signup or granted by an admin, tier reads
+like something earned purely through gamification points that happen
+to top out at T3 for this whole user base so far. **Answers the open
+design question from earlier in this task in favor of "two genuinely
+unrelated concepts that happen to share vocabulary," not "meant to be
+synced but the syncing code doesn't exist yet."** Whoever builds the
+admin role-reassignment UI or the gamification wiring should treat
+`role` and `tier` as two independent fields to manage separately, not
+attempt to derive one from the other or keep them in lockstep — there
+is no evidence in the live data that they were ever meant to move
+together, and retrofitting a sync now would change the tier of 91
+existing users (every non-`listener` role currently sitting outside
+its "matching" tier) as a side effect nobody asked for.
+
+**Group 5 (queued after Group 4, NEXT IN QUEUE — give this to the
+product owner next) — RLS policies on `users` referencing `role`** (needed
 before admin gets free-form write access to this column — confirm
 nothing in RLS assumes `role` can only ever be set to today's four
 values, which would silently block writing `'artist'` even after the
@@ -7939,14 +7989,20 @@ where event_object_schema = 'public' and event_object_table = 'users';
 **Two open product questions, not answerable from any query above —
 get these directly once the data comes back, since they shape how the
 admin role-editing UI and the new signup default actually get built:**
-1. Is the `role`/`tier` naming overlap intentional (should the two
-   systems be wired together as part of "starting gamification fully"),
-   or genuinely two separate concepts that happen to share vocabulary?
+1. ~~Is the `role`/`tier` naming overlap intentional...~~ **ANSWERED
+   by Group 4 above: not coupled, genuinely two separate concepts.**
+   No longer open.
 2. Does `'artist'` replace `'listener'` as literally the only thing
    that changes at signup, or does becoming an "artist" by default
    also imply a different starting `tier`/`points` baseline than a
    plain listener would get (e.g., should a brand-new artist start at
    a different tier than someone who's just browsing/listening)?
+   **Still open** — Group 4's finding makes this easier to answer
+   cleanly, though: since tier is already confirmed independent of
+   role, the natural default is "no change to tier/points logic at
+   signup, only the `role` value itself changes" — but this is this
+   note's inference, not a product-owner confirmation, so still
+   flagged open rather than assumed.
 
 **Not started: any schema migration, any code change to
 `create-user/route.ts`'s default, any admin role-editing UI.** All of
