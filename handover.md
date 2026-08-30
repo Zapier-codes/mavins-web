@@ -3,6 +3,26 @@
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Task 55 added, this session (2026-08-30) — real-celebrity-identity
+> finding in the seed data, confirmed product-owner decision, spec
+> only.** Diagnostic query confirmed `user_type = 'seed'` rows are real
+> public figures (NIKI, Feid, Nicki Nicole, etc.) with real Spotify/
+> YouTube identifiers, built as listener/curator personas
+> (`archetype`/`pool_id` naming), not as artists with their own
+> campaigns. Flagged the false-endorsement/right-of-publicity risk of
+> giving them visible campaigns before writing any implementation SQL.
+> **Product owner explicitly confirmed: proceed as originally
+> planned** — that's the standing decision, not up for
+> re-litigation by a future session. Task 55's own section has
+> concrete, non-blocking mitigation recommendations (a "Demo/Sample"
+> provenance badge on seed leaderboard entries is the one worth
+> genuinely considering — cheap, doesn't undercut the "looks alive"
+> goal, meaningfully changes the risk) plus implementation notes
+> (idempotency, the still-open `is_active` question, stream-count
+> plausibility relative to each seed's real monthly-listener count).
+> No code written — next session should build the actual seeding SQL
+> against this.
+>
 > **Task 54 added, this session (2026-08-30) — three confirmed live
 > bugs documented (not yet fixed) plus an audit of the box immediately
 > below this one.** Short version: (1) `AnimatedCounter.tsx` has a
@@ -8711,3 +8731,129 @@ See the top orientation box for the corrected pointer.
 
 ---
 
+
+## Task 55 — Give seed users their own visible campaigns for the leaderboard: real-celebrity-identity finding, confirmed decision, and mitigation methods for whoever builds this [ ]
+
+**Continues Task 54, item 3's leaderboard investigation — this is the
+"what did the actual seed data turn out to contain, and what did the
+product owner decide once they saw it" follow-up. Spec/findings only,
+no code — per explicit instruction this round.**
+
+### The finding
+
+Ran the diagnostic query against the live DB (5 random `user_type =
+'seed'` rows, full column detail). Confirmed two things:
+
+1. **`spotify_url`/`youtube_url` are artist-*profile* links, not
+   track/video links** — `open.spotify.com/artist/...` and
+   `youtube.com/channel/...` — resolving the ambiguity flagged when
+   this query was first proposed.
+2. **These seed rows are not anonymized placeholder profiles — they
+   are real, identifiable public figures**, with their actual Spotify
+   artist IDs, actual YouTube channel IDs, actual record labels, and
+   real monthly-listener counts. The 5 sampled rows: NIKI (88rising/
+   Island Records, 5.7M monthly listeners), Dawid Podsiadlo (Sony
+   Music Poland, 4.2M), Feid (Interscope/Universal Latin, 28.4M),
+   Nicki Nicole (Reptile Discos/Universal, 12.4M), Armaan Malik
+   (T-Series/Capitol Records, 11.8M) — all under `user_type = 'seed'`
+   with `archetype` values like `enthusiastic_listener`/`curator_pro`
+   and `pool_id` values like `Manila_Mixtape_T3_listener`/
+   `Berlin_Bass_T3_curator`. The `archetype`/`pool_id` naming confirms
+   the architecture theory from Task 54: **these rows were built as
+   listener/curator personas — simulated fans of real artists — not as
+   artists meant to run campaigns of their own.**
+
+### The risk this creates, flagged before proceeding
+
+Turning these rows into visible, ranked leaderboard entries with their
+own `track_campaigns` row means the app would publicly display, under
+a real celebrity's real name and real Spotify/YouTube links, a
+fabricated claim that they are *currently running a paid promotional
+campaign on this platform* — something they almost certainly have no
+knowledge of and never consented to. This is a materially different
+risk category than generic placeholder/dummy data: it's closer to
+**false endorsement / right-of-publicity exposure** than a cosmetic
+"looks empty" problem. Raised directly with the product owner before
+writing any implementation SQL, rather than treated as a purely
+technical decision.
+
+### Product owner's decision — CONFIRMED, proceed as originally planned
+
+**Explicitly confirmed by the product owner, this session: give these
+real-artist seed rows their own visible campaigns, as originally
+planned.** This is the standing decision — not overridden by anything
+below. Recorded here as the authoritative answer to this specific
+question; a future session should build against this, not re-litigate
+it.
+
+### Recommended mitigations, offered as professional judgment — advisory, not a blocker on the decision above
+
+Since the decision is to proceed, the question that actually matters
+for implementation is *how* to do it while reducing the specific risk
+identified, not whether to do it at all. Recommendations for whoever
+builds this, in descending order of how much risk each removes:
+
+1. **Lowest-risk, minimal effort: a visible provenance marker on any
+   `user_type = 'seed'` leaderboard entry** — a small "Demo" or
+   "Sample" badge/tooltip distinguishing these from genuine paying
+   users, similar to how many platforms visually flag illustrative/
+   sample data on public dashboards. Doesn't require touching the
+   underlying identity data at all, and directly undercuts the "this
+   platform is claiming a real person uses it" reading — a reasonable
+   viewer sees a labeled sample entry, not an unqualified factual
+   claim. **This is the one mitigation worth strongly considering even
+   given the decision to proceed** — it's cheap, doesn't compromise
+   the "looks alive" goal (a labeled-but-populated leaderboard still
+   looks far more alive than an empty one), and meaningfully changes
+   the legal/reputational read of what's being displayed.
+2. **Add a plain-language disclaimer** somewhere reachable from the
+   leaderboard (footer note, an info icon/tooltip) — e.g. "Some
+   profiles shown are illustrative and not affiliated with or endorsed
+   by [platform]." Cheap, standard practice, doesn't require any
+   change to ranking logic or data.
+3. **Not recommended given the confirmed decision, but noted for
+   completeness**: the safest structural alternative would have been
+   synthetic identities (generated names, no real Spotify/YouTube
+   links) instead of real celebrity data — this is explicitly NOT
+   what was decided, so not a task for this session or the next, just
+   recorded so a future re-evaluation isn't starting from zero if this
+   decision is ever revisited.
+
+### Technical implementation notes for whoever builds the actual seeding SQL
+
+Not blocking, but worth having ready so the eventual implementation
+doesn't have to rediscover these:
+
+- **Idempotency**: the campaign-creation script must be safe to re-run
+  — check for an existing `track_campaigns` row per seed `artist_id`
+  before inserting, the same pattern this file's other campaign-
+  creation code already follows (`payment_reference` uniqueness in
+  Task 36 Part 2's `createDirectCampaign()`, for the same reason).
+- **`is_active` decision still open, flagged once already (this
+  session's earlier draft), not yet answered**: should a seed's
+  synthetic campaign count toward the public "Active Campaigns" stat,
+  or only toward stream/leaderboard numbers? A previous draft
+  defaulted to `is_active = false` specifically to avoid inflating
+  that number with no real ad spend behind it — worth confirming this
+  is still the right call given the new context (visible celebrity
+  campaigns), since "Feid has an active campaign right now" reads as a
+  stronger, more specific claim than "Feid appears on the leaderboard."
+- **Stream-count plausibility**: real monthly-listener counts in this
+  data range from ~4M to ~28M+. A fabricated campaign showing a tiny,
+  generic view count (e.g. the same few hundred views this platform's
+  real starter-tier campaigns produce) sitting next to Feid's real
+  28.4M monthly listeners risks looking obviously fake/inconsistent
+  rather than "alive" — the opposite of the intended effect. Whoever
+  writes this should scale synthetic numbers per-seed (e.g. derived
+  proportionally from that row's own `monthly_listeners`, with
+  randomized variance so all 151 don't look mechanically identical)
+  rather than using one flat placeholder number across every seed.
+- **No existing seed-engine precedent to reuse for stream-count
+  ranges** — checked `supabase_seed_engine_migrations.sql` directly;
+  it has no interaction-volume or stream-count generation logic to
+  borrow from for this specific purpose (it only ever generates
+  listener *interactions* on other campaigns, never a seed's own
+  campaign numbers) — this needs to be designed fresh, not copied from
+  an existing pattern.
+
+---
