@@ -64,6 +64,26 @@ each rule — this is the same content, kept in sync.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-08-30, latest of all) — Task 59 Round 3: the
+> genre-locking architecture question is resolved, not left open.**
+> Per direct instruction this session to stop surfacing open
+> engineering-scope questions and instead apply industry-standard
+> judgment to close them: campaign injection is genre-locked only for
+> queues with a real, known genre signal at build time (today, only
+> `MoodAndGenresScreen`-originated queues) — every other queue type
+> gets **no injection at all**, fail-closed rather than risk violating
+> the absolute "never cross-genre" rule (same principle real ad
+> platforms use for missing targeting signals). The banner carousel's
+> own leftover item is resolved the same way: the new single-card,
+> 30-second carousel **replaces** `CampaignCardSection.kt`'s current
+> scrollable row entirely, not alongside it — a visible row would both
+> be redundant and leak the live-campaign count the spec requires
+> stays hidden. Both of Part a's remaining open items are now closed;
+> full reasoning in Task 59's own "Round 3" section. **Still
+> documentation only, no code touched** — Task 59 itself was scoped
+> that way from the start; actually building Part a in Velune is the
+> next real step, not done this session.
+>
 > **Newest note, same session (2026-08-30, latest of all) — Task 59
 > Round 2: cloned Velune and grounded the correction in its real code,
 > per direct instruction.** Real, significant finding: **the core
@@ -10000,4 +10020,67 @@ needs a product-owner decision first. The banner carousel needs a
 real rebuild, not a tweak, once its own open questions (does the
 30-second single-card behavior replace the current scrollable-row
 entirely, or coexist somehow) are confirmed.
+
+### Round 3 — genre-locking scope, resolved by industry-standard judgment, per explicit instruction not to raise this as a question
+
+**Per direct instruction this session: stop surfacing open
+engineering-scope questions for confirmation — apply industry-standard
+reasoning and mitigate the gap directly.** Round 2's own open question
+(option a: genre-lock only for `MoodAndGenresScreen`-originated queues;
+option b: build a new genre-tagging mechanism for arbitrary queues) is
+resolved as follows, reasoned rather than guessed:
+
+**Decision: option (a), with an explicit fail-closed rule for
+everything else.** Campaign injection is genre-locked only for queues
+that carry a real, known genre signal at the moment the queue is
+built — today, that means queues originated from a
+`MoodAndGenresScreen` genre-tile tap specifically, since that's the
+only point in the app where a genre tag is unambiguous and already
+available (confirmed by Round 2's own trace). For every other queue
+type — `ListQueue`/playlist, `LocalAlbumRadio`/album,
+`LocalMixQueue`, generic `YouTubeQueue` from a non-genre browse —
+**inject no campaign song at all**, rather than either guessing a
+genre or injecting a campaign without genre verification.
+
+**Why fail-closed, not fail-open, and why this over option (b):**
+the product owner's own rule is absolute — "a hip-hop campaign must
+never appear in a non-hip-hop queue, full stop." When the queue's
+genre can't be determined at all (most queue types today, per Round
+2's trace), there is no safe way to honor that rule except by not
+injecting — this is the same principle real ad-serving platforms
+(Google Ad Manager, DFP) use when a targeting signal is missing:
+don't serve rather than risk a mistargeted impression. Option (b) — a
+new genre-tagging mechanism for arbitrary queues — is real, valuable
+future work, but it's a materially bigger feature that isn't needed
+to *start* Part a safely; narrowing to genre-tile-originated queues
+now, with everything else correctly excluded rather than incorrectly
+included, ships a smaller but fully rule-compliant version first.
+This can be widened later without any rework of the fail-closed
+default — it only ever gets safer to relax, never needs unwinding.
+
+**Practical effect on Part a's build:** `CampaignInjectedQueue.kt`'s
+campaign-fetch call site needs a genre parameter threaded through only
+from `MoodAndGenresScreen`'s own queue-construction path (the one
+place a genre tag already exists); every other queue-construction path
+continues calling the existing campaign-fetch with no genre parameter
+changed to explicitly opt OUT of campaign injection entirely (not
+"pass no genre and inject anyway" — the current behavior — but "pass
+no genre and therefore inject nothing"), closing the exact gap that
+made this a real question instead of a parameter tweak. This is now
+unblocked for Part a.
+
+**Banner carousel's own leftover open item, resolved the same way:
+replace, not coexist.** `CampaignCardSection.kt`'s current
+scrollable-row is replaced entirely by the single-card,
+30-seconds-per-card carousel — not run alongside it. Two reasons,
+not just a style call: (1) the spec's own wording ("one card visible
+at a time") describes the banner itself, not an addition to it, and
+a second, separate always-visible row of the same live campaigns
+would be redundant screen space for the same content; (2) a
+scrollable row inherently reveals how many campaigns exist (swipe
+distance = visible count), which directly conflicts with the
+already-confirmed hard rule that the true live-campaign count must
+never be revealed — so coexistence isn't just redundant, it would
+actively undermine a rule this task already treats as non-negotiable.
+This closes both of Part a's remaining open items.
 
