@@ -3,6 +3,28 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
+> **Newest session (2026-08-30, latest of all) — new Task 49 spec'd
+> from the product owner's own detailed description, NOT started.**
+> "Listen and get paid" (the feature Task 48's `listener` role was
+> reserved for) — pay listeners for Velune streams, dynamic
+> Spotify-style pool payout (20% of daily campaign ad-spend revenue ÷
+> qualifying streams that day = per-stream rate, computed live, not a
+> fixed constant), 60-second minimum listen for a play to count toward
+> payment, net-50 withdrawal cycle + 5-business-day claim window, $10
+> minimum, gamification via the existing `daily_tasks`/`user_tasks`
+> system (Task 48 already confirmed this is real and substantial, not
+> dead code — reuse it, don't rebuild it). **Full spec, the reasoning
+> that reconciled the product owner's own two-message description into
+> one formula, and 6 consolidated open questions are all in Task 49's
+> own entry near the end of this file — read that in full before
+> touching anything, this box is a summary, not the spec.** Do NOT
+> start building — real, load-bearing questions are still open
+> (biggest one: how does a listener actually get paid out — Korapay
+> transfer, wallet-only, or something else — genuinely unanswered and
+> blocks Part b entirely). Split into Parts a/b/c in Task 49's own
+> entry; **do not skip ahead of the open questions to start Part a**,
+> several of them block schema decisions directly.
+>
 > **Newest session (2026-08-30, latest of all) — Task 48 Part 2
 > applied to the live DB, confirmed by the product owner directly
 > ("Done it's pushed").** `supabase_migration_018_artist_default_role.sql`
@@ -8483,3 +8505,221 @@ tsc --noEmit` still passes (sanity check, not expected to catch
 anything in a `.sql`-only change). Read both Edge-Function-adjacent
 files in full to confirm the "nothing to update" claim above rather
 than trusting the earlier grep's absence-of-a-match alone.
+
+---
+
+## Task 49 — Listener earnings: pay listeners for streams via Velune, dynamic Spotify-style pool payout, gamification integration [ ]
+
+**Brand new task, this session — product owner's own dense spec,
+reorganized and synthesized below, not yet built. No code changed this
+session; this is documentation only, per explicit instruction to ask
+clarifying questions before starting.** This is the "listen and get
+paid" feature Task 48 flagged as a future, not-yet-designed thing
+(`role: 'listener'` is reserved for it) — now specified in real detail
+for the first time.
+
+### The model, as given, reconciled into one coherent formula
+
+Two things the product owner said sound like two different models at
+first read, but are actually the same well-known industry pattern —
+**this is exactly how Spotify's own per-stream rate works**, not a
+fixed cents-per-play number: Spotify doesn't pay a constant rate per
+stream; they pool a percentage of revenue and divide by total
+qualifying streams, so the effective per-stream rate moves
+period-to-period. "Check how much Spotify pays per 1k streams, that's
+the model, make it dynamic not static" + "20% of the total revenue
+pool from the campaigns is used for listener payment" describe the
+same mechanism:
+
+```
+daily_pool_cents          = 0.20 × (sum of campaign ad-spend revenue for that day)
+daily_qualifying_streams  = count of plays that day with listen_duration_seconds >= 60
+rate_per_stream_that_day  = daily_pool_cents / daily_qualifying_streams   (computed dynamically, not hardcoded)
+a_listener's_earnings     = rate_per_stream_that_day × that listener's own qualifying-stream count that day
+```
+
+**"Dynamic, not static, reads from the DB"** — confirmed against this
+codebase directly: platform-fee-style hardcoded constants have already
+caused real problems twice in this project's own history (Task 46b's
+whole reason for existing — the fee rate flip-flopping from
+miscommunication). This pool percentage and the resulting rate should
+follow the same "one place computes it, reads from a table, not a
+source constant" pattern Task 46b already established for
+`PLATFORM_FEE_PERCENT`/`DEPOSIT_FEE_RATE` — reuse that same
+`platform_fee_settings`-style approach for the 20% figure, don't
+introduce a third, different mechanism for a third percentage.
+
+### Open question this reconciliation surfaced — needs your confirmation before anything is built
+
+**What exactly counts as "the total revenue pool from the campaigns"
+for a given day?** Traced the actual schema before asking rather than
+guessing: this app has **two structurally separate pots**, kept
+deliberately apart throughout this project's whole history (Task
+35/40/46b) —
+
+1. `platform_revenue` (migration 011) — the platform's own **10% kept
+   fee**, explicitly documented in that table's own header as "separate
+   from any user's wallet," not available for payouts to anyone.
+2. `track_campaigns.total_budget_cents` — the **90% ad-spend portion**
+   that actually funds stream delivery (what `record_campaign_stream`
+   draws down as streams get delivered).
+
+**My working assumption, not yet confirmed: "total revenue pool" means
+#2 — the ad-spend total, summed across whichever campaigns are in
+scope for that day** (this is the money that funds the streaming
+listeners are literally providing, so it reads as the natural pool to
+share back with them) **— but this needs your direct yes/no before any
+schema or calculation code gets written**, given it's the single
+highest-leverage number in this whole feature and Task 46b's own
+"real money, one place computes it, verify don't assume" caution
+applies at least as much here. If it's meant to be #1, or some
+combination, or gross-before-any-fee-split, say so explicitly.
+
+**A second sub-question inside this one:** "campaigns for that day" —
+does this mean campaigns *created/paid-for* that calendar day (their
+`track_campaigns.created_at` falls on that day), or campaigns *actively
+delivering streams* that day regardless of when they were originally
+created/paid for (a 30-day campaign created 3 weeks ago is still
+"that day's" revenue-generating activity on day 20 of its own flight)?
+These give very different pool sizes on any given day and I don't want
+to guess at which one you mean.
+
+### Withdrawal cycle — reconciled from the two messages together
+
+- **"Net 50" = an accounting term, used in its standard sense here**:
+  a listener requests a withdrawal, and the withdraw button becomes
+  **active** up to 50 calendar days later (**confirmed "full 50 days,"
+  not 50 business days**) — not that payment itself takes 50 days,
+  specifically that the request-to-eligible gap is the 50-day clock.
+- **Once active, a 5-business-day window** is open during which the
+  listener can actually claim/withdraw. **If missed, they must wait
+  through another full net-50 cycle** before the option opens again —
+  a real, working assumption but flagging it as my own reconstruction
+  from the two messages together, not a verbatim quote — correct me if
+  the window-miss consequence isn't meant to be a full new 50-day
+  wait.
+- **Minimum withdrawal: $10** (explicit, confirmed twice).
+- **Display currency**: reuse the existing `ipapi.co` geo-detection
+  service (`GeoProvider`/`useGeo()`, Task 27) to show a listener their
+  balance/earnings in their own local currency — **display conversion
+  only**, same pattern as Korapay DCC in `fund-wallet` (Task 26/41) —
+  underlying ledger/accounting stays in USD cents, matching how every
+  other money table in this app already works; nothing suggests this
+  should be the exception, but flagging the assumption explicitly
+  since it's a real design choice, not a certainty.
+
+**Not yet asked, and needed before Part b/c below can be built: how
+does a listener actually *receive* a successful withdrawal?** Options,
+not yet chosen between: (a) Korapay payout/transfer via B-Pay-backend
+(does that backend's Korapay integration even support paying *out* to
+an end user's bank/mobile-money account, as opposed to only
+*collecting* payments in — genuinely unconfirmed, this codebase has
+never needed an outbound transfer before); (b) credit to the same
+`users.wallet` balance used for campaign funding, with withdrawal to a
+real bank account being a separate, later mechanism; (c) something
+else entirely. **This is a real architecture question, not an
+implementation detail — needs an answer before Part b (the actual
+payout mechanics) can be scoped, let alone built.**
+
+### Play-tracking + the 60-second rule
+
+- **All songs play inside the Velune app** — this dashboard
+  (mavins-web) only shows the list of live active campaigns; clicking
+  a song here is how a listener *starts* a play in Velune, but the
+  actual listen happens there, not in this web app.
+- **Every play is recorded, regardless of duration** — but a play only
+  counts toward *payment* (i.e., only counts toward
+  `daily_qualifying_streams` above) if `listen_duration_seconds >= 60`.
+  Both the "recorded but not paid" and "recorded and paid" cases write
+  the same event row; a `qualifies_for_payment` (or equivalent) boolean/
+  derived-from-duration flag distinguishes them, not two separate
+  tables.
+- **Velune writes into the same Supabase project this repo uses** —
+  confirmed this is why Velune needs its own Supabase credentials
+  added (its own `.env`/build config, real values are a manual
+  product-owner step, same class of action as every other secret in
+  this project — not something built or set from a sandbox). **Open
+  question: does Velune write play events directly to a Supabase table
+  with its own client (service-role or an authenticated Velune-side
+  key), or does it call a Mavins-web API route which then writes to
+  Supabase?** Direct-write is simpler but means RLS on the new table
+  needs to correctly scope what Velune's credential can and can't do;
+  routing through a Mavins-web endpoint centralizes validation (e.g.
+  rejecting an impossible `listen_duration_seconds` over the actual
+  song length) but adds a network hop and a new cross-repo dependency
+  in the other direction from everything else this project has built
+  so far (B-Pay-backend → Mavins-web, not Velune → Mavins-web). Needs
+  a decision, not a default guess.
+
+### Gamification — reuse what's already built, don't duplicate
+
+**Confirmed directly against this session's own Task 48 findings, not
+re-derived:** a real, non-trivial gamification subsystem already
+exists — `src/app/api/gamification/{streak/update, tasks/update,
+tasks/claim, points/history, tier/check}/route.ts`, backed by
+`daily_tasks`/`user_tasks` tables with exactly the shape "play 10
+songs, get paid/get points" needs (`target_count`, `progress`,
+`is_completed`, `reward_points`). **"Play 10 songs" as a progression
+task is very likely just a new `daily_tasks` row** (`target_count: 10`)
+with the play-tracking webhook calling the existing
+`tasks/update` endpoint's increment logic — not a new task-tracking
+system built from scratch. Badges/achievements/streaks should be
+scoped as "which of these does the existing system already support
+today" (read all 5 route files in full first, per Task 48's own
+instruction to whoever picks this up) before designing anything new —
+Task 48 already flagged this exact caution.
+
+**Also unresolved from Task 48, directly relevant here and worth
+re-surfacing rather than re-guessing:** `role`'s values
+(`admin`/`artist`/`listener`/`creator`/`curator`) visually echo
+`tier/check/route.ts`'s own tier ladder labels (`T4 = "Listener"` etc.)
+with zero code coupling between them today. This task is the first
+concrete feature that actually *needs* the `listener` role to mean
+something operationally — worth deciding, before building, whether
+enrolling in "listen and get paid" should also set/require
+`role = 'listener'` specifically, or whether role and this feature's
+own eligibility are meant to stay as uncoupled as Task 48 found `role`
+and `tier` currently are.
+
+### Suggested split — 3 parts, do NOT start building yet
+
+Given the number of open questions above, splitting into build-order
+parts now so whichever gets unblocked first can start immediately once
+answered, without the whole feature waiting on every question at once:
+
+- **Part a — schema + the dynamic-rate calculation.** New tables (play
+  events, a listener-payout-settings row for the 20% figure following
+  46b's pattern, a withdrawal-request table with its own status/
+  eligibility-date fields). Blocked on: the revenue-pool composition
+  question, the "campaigns for that day" definition, and the
+  Velune-writes-where-exactly question above.
+- **Part b — the actual payout mechanics** (crediting a listener's
+  balance, the net-50 + 5-business-day withdrawal window state
+  machine, the minimum-withdrawal check). Blocked on: how a
+  withdrawal is actually paid out (Korapay payout vs. wallet-only vs.
+  something else) — the single biggest unanswered question in this
+  whole task.
+- **Part c — UI + gamification wiring**: the campaign-list dashboard
+  entry point, Velune-side play screen, badges/streaks/progression
+  tasks reusing the existing gamification routes, currency display via
+  `useGeo()`. Blocked on: parts a/b existing, and the role-vs-tier
+  coupling question above.
+
+### Questions for you, consolidated (answer any subset — genuinely open, not rhetorical)
+
+1. Is "total revenue pool from the campaigns" the 90% ad-spend total
+   (`total_budget_cents`), the platform's own 10% fee
+   (`platform_revenue`), or something else?
+2. "Campaigns for that day" — created/paid-for that day, or actively
+   delivering that day regardless of original creation date?
+3. How does a listener actually receive a paid-out withdrawal — Korapay
+   payout, wallet-only credit, or something else?
+4. If the 5-business-day withdrawal window is missed, is a full fresh
+   50-day wait really correct, or did I misread that?
+5. Does Velune write play events directly to Supabase, or through a
+   new Mavins-web API endpoint?
+6. Should enrolling in "listen and get paid" set `role = 'listener'`
+   specifically, tying this feature to that role — or should it stay
+   independent, the way `role` and `tier` currently are per Task 48?
+
+---
