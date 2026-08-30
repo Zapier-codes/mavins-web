@@ -16,13 +16,26 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { isAdmin } from '@/lib/auth/isAdmin';
+import { isAdmin, hasCapability, type AdminCapability } from '@/lib/auth/isAdmin';
 
 export interface AdminContext {
   /** Service-role client — bypasses RLS, same instance every existing admin route already used individually. */
   admin: ReturnType<typeof createAdminClient>;
   /** The authenticated caller's own Supabase Auth user record. */
   authUser: { id: string; email?: string | null };
+  /**
+   * Task 46f-d: exposed so a multi-action route (one PATCH handler
+   * covering several different mutations, each needing a DIFFERENT
+   * capability — see api/admin/users/[id]/route.ts) can call
+   * `hasCapability()` itself once it knows which action the request
+   * body is actually asking for, rather than `requireAdmin()` having
+   * to guess a single capability before the body is even parsed. A
+   * single-action route should just pass `requiredCapability` to
+   * `requireAdmin()` directly instead and never need to look at these
+   * two fields at all.
+   */
+  adminRole: string | null;
+  adminPermissions: string[] | null;
 }
 
 /**
@@ -33,16 +46,20 @@ export interface AdminContext {
  * 401/403 NextResponse — the caller should `return` it immediately,
  * not inspect it further).
  *
- * Deliberately does NOT accept a required-permission argument yet —
- * every admin today is all-or-nothing (`isAdmin()` is a single
- * boolean). Task 46's own "Confirmed decisions" note (handover.md)
- * describes a future `role: 'root'|'full'|'monitor'|'custom'` +
- * per-capability `permissions` model for 46d/46e — when that lands,
- * this is the one function every admin route already funnels through,
- * so it's the natural place to add a `requiredCapability` parameter
- * later without touching every route a second time.
+ * Task 46f-d: `requiredCapability` is the extension point this
+ * function's own doc comment already anticipated ("the natural place
+ * to add a `requiredCapability` parameter later without touching
+ * every route a second time" — that "later" is now). Every one of the
+ * 9 admin route files was updated in the same commit as this parameter
+ * being added, so nothing is left calling this with an implicit
+ * "any admin, no specific capability" gap — pass the exact
+ * `ADMIN_CAPABILITIES` key that route/action corresponds to. See
+ * `isAdmin.ts`'s own `ADMIN_CAPABILITIES`/`hasCapability()` doc
+ * comments for the full taxonomy and exactly how each `admin_role`
+ * tier is evaluated against it — not re-explained here to avoid two
+ * copies of the same reasoning drifting apart.
  */
-export async function requireAdmin(): Promise<
+export async function requireAdmin(requiredCapability?: AdminCapability): Promise<
   { context: AdminContext; response?: undefined } | { context?: undefined; response: NextResponse }
 > {
   const supabase = await createServerSupabaseClient();
@@ -55,13 +72,40 @@ export async function requireAdmin(): Promise<
   }
 
   // RLS's "own row" policy permits this — a user can always read their
-  // own `role`, regardless of what the caller needs it for.
-  const { data: profile } = await supabase.from('users').select('role').eq('id', authUser.id).single();
+  // own `role`/`admin_role`/`admin_permissions`, regardless of what the
+  // caller needs it for.
+  const { data: profile } = await supabase
+    .from('users')
+    .select('role, admin_role, admin_permissions')
+    .eq('id', authUser.id)
+    .single();
 
   const callerIsAdmin = isAdmin({ email: authUser.email, role: profile?.role });
   if (!callerIsAdmin) {
     return { response: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
   }
 
-  return { context: { admin: createAdminClient(), authUser } };
+  if (requiredCapability) {
+    const allowed = hasCapability(
+      { email: authUser.email, adminRole: profile?.admin_role, adminPermissions: profile?.admin_permissions },
+      requiredCapability
+    );
+    if (!allowed) {
+      return {
+        response: NextResponse.json(
+          { error: `Forbidden — missing capability: ${requiredCapability}` },
+          { status: 403 }
+        ),
+      };
+    }
+  }
+
+  return {
+    context: {
+      admin: createAdminClient(),
+      authUser,
+      adminRole: profile?.admin_role ?? null,
+      adminPermissions: profile?.admin_permissions ?? null,
+    },
+  };
 }

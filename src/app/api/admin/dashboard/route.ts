@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { requireAdmin } from '@/lib/auth/requireAdmin';
+import { ADMIN_CAPABILITIES } from '@/lib/auth/isAdmin';
 
 /**
  * GET /api/admin/dashboard
@@ -27,7 +28,7 @@ import { requireAdmin } from '@/lib/auth/requireAdmin';
  */
 export async function GET() {
   try {
-    const { response } = await requireAdmin();
+    const { response } = await requireAdmin(ADMIN_CAPABILITIES.DASHBOARD_VIEW);
     if (response) return response;
 
     const admin = createAdminClient();

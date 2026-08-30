@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/requireAdmin';
+import { ADMIN_CAPABILITIES } from '@/lib/auth/isAdmin';
 import { logAdminAction } from '@/lib/admin/auditLog';
 
 /**
@@ -52,7 +53,7 @@ function fromBody(body: any, requireAll: boolean): Partial<SlotRow> | { error: s
 }
 
 export async function POST(request: NextRequest) {
-  const { context, response } = await requireAdmin();
+  const { context, response } = await requireAdmin(ADMIN_CAPABILITIES.DURATION_SLOTS_EDIT);
   if (response) return response;
 
   const body = await request.json();
@@ -75,7 +76,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const { context, response } = await requireAdmin();
+  const { context, response } = await requireAdmin(ADMIN_CAPABILITIES.DURATION_SLOTS_EDIT);
   if (response) return response;
 
   const body = await request.json();
@@ -102,7 +103,7 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const { context, response } = await requireAdmin();
+  const { context, response } = await requireAdmin(ADMIN_CAPABILITIES.DURATION_SLOTS_EDIT);
   if (response) return response;
 
   const body = await request.json();

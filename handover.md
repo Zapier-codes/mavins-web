@@ -3,28 +3,36 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest session (2026-08-30, latest of all) — Task 46f-c done:**
-> `/admin/users` is no longer 46d's read-only table. Three real
-> actions wired to 46f-b's routes, each an inline expandable row
-> matching `admin/campaigns/page.tsx`'s own established convention:
-> wallet adjustment (gated behind `TypeToConfirm`, per this part's own
-> instruction), starting-capital grant (plain confirm, added as a
-> reasonable scope extension — 46f-b built the route, this part's own
-> bullet list didn't explicitly name it), and root-only role assignment
-> (hidden client-side from non-root viewers, enforced server-side
-> regardless). The `'custom'`-role capability picker is deliberately
-> NOT built — 46f-d (capability-key taxonomy) hasn't run yet, so
-> there's nothing concrete to build a picker from; `'custom'` stays
-> selectable with a plain notice instead of a fake picker. See
-> 46f-c's own done-note (below, under Task 46) for full detail.
+> **Newest session (2026-08-30, latest of all) — Task 46f-d done:**
+> `ADMIN_CAPABILITIES` (12 keys, `isAdmin.ts`) + `hasCapability()`
+> built and wired into every one of the 9 real `requireAdmin()`-gated
+> route files (8 single-capability routes pass their key directly;
+> `api/admin/users/[id]/route.ts`'s 3-action PATCH does its own
+> per-action check via `AdminContext`'s newly-exposed
+> `adminRole`/`adminPermissions`). Also corrected a false positive
+> from the initial grep: `api/campaigns/cancel/route.ts` only mentioned
+> `requireAdmin()` in a doc *comment*, not a real call — the actual
+> admin-cancel path is `api/admin/campaigns/[id]/route.ts`, already
+> covered. **Safe to ship unconfirmed** — root/`full` pass every key
+> regardless of naming, so no existing admin's access changed. **NOT
+> yet taken to the product owner for the "does this match what you
+> meant" confirmation this part's own spec calls for** — see 46f-d's
+> own done-note (below, under Task 46) for the full 12-key list and
+> exactly what's still outstanding.
 >
-> **Next task: 46f-d — capability-key taxonomy.** Both of its
-> dependencies (46f-b, 46f-c) are now done. Grep every admin route
-> across 46a/46b/46c/46f-b for whatever permission key it already
-> defined (or assign one now if it shipped before that recommendation
-> existed), producing a concrete list to take to the product owner —
-> see 46f-d's own text (below, under Task 46) for the exact framing to
-> use.
+> **Next task: two independent things remain in Task 46f, neither
+> blocking the other.** (1) **Product-owner confirmation of the 12-key
+> taxonomy above** — a conversation, not code; whoever's next should
+> just go get this rather than building further on an unconfirmed
+> list. (2) **46f-c's capability picker for `'custom'`-role admins** —
+> now unblocked now that 46f-d exists, but per 46f-c's own note the
+> picker should probably wait for the taxonomy confirmation in (1)
+> first, since building a picker UI against a list that might still
+> change is the same "building ahead of confirmation" risk this task
+> has avoided everywhere else. **46f-e (headcount cap enforcement)**
+> is also still open and has no dependency on either of the above — a
+> reasonable alternate pickup if the taxonomy conversation is still
+> pending.
 >
 > **Newest session (2026-08-30, later) — Task 47 item 5 fully closed,
 > commit `13fdf6c`. Task 47's only remaining open item is item 4.**
@@ -7133,7 +7141,7 @@ now done. See 46f-d's own text below for its exact scope (grep every
 admin route for its permission key, produce a concrete list, take it to
 the product owner).
 
-#### 46f-d — Capability-key taxonomy: consolidate, confirm, wire into requireAdmin() [ ]
+#### 46f-d — Capability-key taxonomy: consolidate, confirm, wire into requireAdmin() [x] (taxonomy + wiring done; product-owner confirmation still outstanding — see own note)
 **Depends on 46f-b/46f-c existing (needs real routes to enumerate
 from) — can start once those are stable, doesn't need to wait for
 46f-c's UI polish specifically.** Per 46e's own recommendation above
@@ -7153,6 +7161,98 @@ anticipated extension point (see that function's own doc comment: "a
 `requiredCapability` parameter later without touching every route a
 second time") — this is the point where every route built before this
 part goes from "any admin can call this" to "only an admin with this
+
+**Done, this session (2026-08-30).** Grepped every `requireAdmin()`
+call across the codebase first — found 10 files matching the literal
+string, but one (`api/campaigns/cancel/route.ts`) turned out to be a
+false positive: `requireAdmin()` only appeared in that file's own doc
+*comment*, referring to a different route (the real admin-cancel path
+is `api/admin/campaigns/[id]/route.ts`) — that route itself gates on
+`isAdmin()` inline for a soft admin-or-owner check, not
+`requireAdmin()`, and isn't an admin-only route at all. Confirmed the
+real remaining 9 files each had an actual `await requireAdmin()` call
+(not just a mention) before proceeding — 18 individual call sites
+total across them.
+
+**The concrete taxonomy — `ADMIN_CAPABILITIES` in `isAdmin.ts`, 12
+keys, one per distinct route+action:**
+`dashboard:view`, `pricing_tiers:edit`, `duration_slots:edit`,
+`countries:edit`, `genres:edit`, `genre_country_affinity:edit`,
+`fees:view`, `fees:edit`, `campaigns:override`,
+`users:wallet_adjust`, `users:grant_starting_capital`,
+`users:manage_role`. The five reference-data tables each got their
+own key rather than one shared `reference_data:edit` — they're five
+genuinely separate admin pages today, and a regional-ops-style limited
+admin ("can edit countries, not pricing") is a plausible real request
+that collapsing them would make impossible to grant later without a
+second product-owner round-trip. `fees` needed two keys, not one — its
+GET and POST are different capabilities (`:view` vs `:edit`), same
+distinction `dashboard:view` already implied existing for read-only
+surfaces.
+
+**`hasCapability()`, also in `isAdmin.ts`** — the per-tier resolution:
+root and `admin_role: 'full'` pass every key unconditionally; `'monitor'`
+passes only keys ending in `:view` (a naming-convention check, not a
+hardcoded list, so a future `:view` key added to `ADMIN_CAPABILITIES`
+is automatically monitor-safe with no second edit needed here);
+`'custom'` passes only keys present in that row's own
+`admin_permissions` array; a `NULL`/undefined `admin_role` (a
+pre-migration-016 legacy `role: 'admin'` row that somehow never got
+backfilled) is treated as `'full'`, matching that migration's own
+explicit "preserve existing access, zero silent narrowing" backfill
+intent — a defensive fallback for a case that shouldn't actually occur
+post-migration, not a designed tier.
+
+**Wired into `requireAdmin()` two different ways, depending on the
+route's own shape:**
+- **8 single-action routes** (`campaigns/[id]`, `dashboard`,
+  `countries`, `duration-slots`, `genres`, `genre-country-affinity`,
+  `pricing-tiers`, and `fees`'s two handlers) now pass their exact
+  capability key straight into `requireAdmin(ADMIN_CAPABILITIES.X)` —
+  `requireAdmin()` itself calls `hasCapability()` once it has the
+  caller's `admin_role`/`admin_permissions` (fetched in the same query
+  that already read `role`, no extra round trip).
+- **`api/admin/users/[id]/route.ts`** — the one genuinely multi-action
+  route (`adjust_wallet` / `grant_starting_capital` / `set_role`, one
+  PATCH handler) can't use a single static key, since the action isn't
+  known until the request body is parsed, which happens *after*
+  `requireAdmin()` would need to already know what to check. Fixed by
+  extending `AdminContext` itself to expose `adminRole`/
+  `adminPermissions` (not previously surfaced there at all), so this
+  route calls `requireAdmin()` plain (any-admin gate only), then does
+  its own `hasCapability()` check once `body.action` is known, mapping
+  each action string to its matching key. **Confirmed this doesn't
+  weaken the existing `set_role` protection**: that branch already had
+  a dedicated, stricter `isRootAdmin()` gate (per 46e's "an assigned
+  admin, even a 'full' one, should not be able to grant themselves or
+  another admin more access" decision) — the new capability check
+  passing for a `'full'`-role admin doesn't bypass that separate,
+  still-fully-intact root-only enforcement; both checks run, neither
+  substitutes for the other.
+
+**NOT yet confirmed by the product owner — this is exactly the
+"concrete list" this part's own spec text says to go get confirmed,
+not a rubber-stamped final taxonomy.** Safe to ship in this
+unconfirmed state because nothing about it changes any *existing*
+admin's access: root and every `admin_role: 'full'` row (which
+migration 016 already backfilled every pre-46f admin to) pass every
+key unconditionally regardless of what the keys are named or how
+they're grouped. Only a *future* `admin_role: 'custom'` assignment
+would ever actually be constrained by these exact names — and 46f-c's
+own admin UI already shows a plain notice instead of a capability
+picker for `'custom'` specifically because this list didn't exist yet
+when that UI was built, so no one can currently be granted a
+mismatched/stale permission set in the meantime either. **Next
+session /  the product owner should confirm this 12-key list (or
+request changes to it) before 46f-c's capability picker gets built
+against it** — that picker is the one remaining piece of UI this
+taxonomy unblocks, not yet started.
+
+Verified via `npx tsc --noEmit` — clean. Not independently confirmed
+in a browser/live DB — no live Supabase session in this sandbox, same
+caveat every prior admin-UI/auth part in this task has carried.
+
+
 specific capability can."
 
 #### 46f-e — Headcount cap enforcement + final confirmation [ ]

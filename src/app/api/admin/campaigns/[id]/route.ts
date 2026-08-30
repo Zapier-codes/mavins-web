@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/requireAdmin';
+import { ADMIN_CAPABILITIES } from '@/lib/auth/isAdmin';
 import { cancelCampaignAndRefund } from '@/services/campaign/campaignCancellation.service';
 import { logAdminAction } from '@/lib/admin/auditLog';
 
@@ -162,7 +163,7 @@ function stringArray(value: unknown, fieldName: string): { value: string[] } | {
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
-  const { context, response } = await requireAdmin();
+  const { context, response } = await requireAdmin(ADMIN_CAPABILITIES.CAMPAIGNS_OVERRIDE);
   if (response) return response;
 
   const campaignId = params.id;

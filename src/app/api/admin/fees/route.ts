@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/requireAdmin';
+import { ADMIN_CAPABILITIES } from '@/lib/auth/isAdmin';
 
 /**
  * Admin read/write for public.platform_fee_settings (migration 014,
@@ -63,7 +64,7 @@ import { requireAdmin } from '@/lib/auth/requireAdmin';
  */
 
 export async function GET(_request: NextRequest) {
-  const { context, response } = await requireAdmin();
+  const { context, response } = await requireAdmin(ADMIN_CAPABILITIES.FEES_VIEW);
   if (response) return response;
 
   const { data, error } = await context.admin
@@ -86,7 +87,7 @@ function validPercent(value: unknown, fieldName: string): { value: number } | { 
 }
 
 export async function POST(request: NextRequest) {
-  const { context, response } = await requireAdmin();
+  const { context, response } = await requireAdmin(ADMIN_CAPABILITIES.FEES_EDIT);
   if (response) return response;
 
   const body = await request.json();

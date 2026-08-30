@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/requireAdmin';
-import { isRootAdmin } from '@/lib/auth/isAdmin';
+import { isRootAdmin, hasCapability, ADMIN_CAPABILITIES } from '@/lib/auth/isAdmin';
 import { logAdminAction } from '@/lib/admin/auditLog';
 
 /**
@@ -108,6 +108,44 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     return NextResponse.json(
       { success: false, error: "action must be 'adjust_wallet', 'grant_starting_capital', or 'set_role'" },
       { status: 400 }
+    );
+  }
+
+  // Task 46f-d: this route covers three different mutations behind one
+  // PATCH handler, each needing a DIFFERENT capability -- can't pass a
+  // single static key to requireAdmin() above the way every
+  // single-action admin route does, since the action isn't known until
+  // the body is parsed. requireAdmin() above only confirmed "some kind
+  // of admin"; this is the finer-grained check, using the adminRole/
+  // adminPermissions it already exposed on `context` for exactly this
+  // multi-action case (see AdminContext's own doc comment).
+  //
+  // NOTE for `set_role` specifically: this check does NOT replace the
+  // existing, stricter `isRootAdmin()` gate further down in that
+  // branch -- a `hasCapability` pass here just means "not obviously
+  // forbidden by the capability system" (a 'full'-role admin passes
+  // every key, including this one), while the dedicated root-only
+  // enforcement below is what actually stops a non-root 'full' admin
+  // from granting roles, per 46e's own "an assigned admin, even a
+  // 'full' one, should not be able to grant themselves or another
+  // admin more access" decision. Both checks run; neither substitutes
+  // for the other.
+  const actionCapability =
+    body.action === 'adjust_wallet'
+      ? ADMIN_CAPABILITIES.USERS_WALLET_ADJUST
+      : body.action === 'grant_starting_capital'
+        ? ADMIN_CAPABILITIES.USERS_GRANT_STARTING_CAPITAL
+        : ADMIN_CAPABILITIES.USERS_MANAGE_ROLE;
+
+  if (
+    !hasCapability(
+      { email: context.authUser.email, adminRole: context.adminRole, adminPermissions: context.adminPermissions },
+      actionCapability
+    )
+  ) {
+    return NextResponse.json(
+      { success: false, error: `Forbidden — missing capability: ${actionCapability}` },
+      { status: 403 }
     );
   }
 

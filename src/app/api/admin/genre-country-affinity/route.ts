@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth/requireAdmin';
+import { ADMIN_CAPABILITIES } from '@/lib/auth/isAdmin';
 import { logAdminAction } from '@/lib/admin/auditLog';
 
 /**
@@ -35,7 +36,7 @@ function validateScore(score: any): { error: string } | null {
 }
 
 export async function POST(request: NextRequest) {
-  const { context, response } = await requireAdmin();
+  const { context, response } = await requireAdmin(ADMIN_CAPABILITIES.GENRE_COUNTRY_AFFINITY_EDIT);
   if (response) return response;
 
   const body = await request.json();
@@ -85,7 +86,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const { context, response } = await requireAdmin();
+  const { context, response } = await requireAdmin(ADMIN_CAPABILITIES.GENRE_COUNTRY_AFFINITY_EDIT);
   if (response) return response;
 
   const body = await request.json();
