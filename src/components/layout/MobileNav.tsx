@@ -4,14 +4,13 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils/cn';
-import { Home, Rocket, BarChart3, Trophy, Wallet } from 'lucide-react';
+import { Home, Rocket, BarChart3, Trophy } from 'lucide-react';
 
 const tabs = [
   { id: 'home', icon: Home, label: 'Home', href: '/' },
   { id: 'promote', icon: Rocket, label: 'Promote', href: '/promote' },
   { id: 'analytics', icon: BarChart3, label: 'Stats', href: '/analytics' },
   { id: 'leaderboard', icon: Trophy, label: 'Rank', href: '/leaderboard' },
-  { id: 'earnings', icon: Wallet, label: 'Wallet', href: '/earnings' },
 ];
 
 export const MobileNav = () => {

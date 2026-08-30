@@ -92,7 +92,7 @@ export function PublicAnalyticsShowcase() {
             </span>
           </h2>
           <p className="text-xs text-[var(--subtle-foreground)] mt-0.5">
-            Real activity across the Mavins seeding network, updated continuously.
+            Real activity across the Mavins growth network, updated continuously.
           </p>
         </div>
       </div>

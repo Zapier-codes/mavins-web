@@ -4,6 +4,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { AuthProvider } from "@/components/providers/AuthProvider";
 import { QueryProvider } from "@/components/providers/QueryProvider";
+import { GeoProvider } from "@/components/providers/GeoProvider";
 import { LayoutContent } from "@/components/layout/LayoutContent";
 import { cn } from "@/lib/utils/cn";
 
@@ -28,13 +29,22 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className={cn(inter.className, inter.variable, playfair.variable, "luxury-vignette")}>
         {/* Task 45 Part 2 (handover.md) — QueryProvider added here,
-            genuinely root-level, alongside Auth/Theme rather than
-            scoped per-page like GeoProvider (see that provider's own
-            usage in promote/page.tsx and fund-wallet/page.tsx — a
-            different, narrower pattern, not changed here). Reference
-            data is small/cheap enough that fetching it app-wide isn't
-            wasteful, and it means the promote page never waits on a
-            fresh fetch the first time a user reaches it. */}
+            genuinely root-level, alongside Auth/Theme. GeoProvider
+            joined it here as of Task 47 — previously believed to be
+            mounted per-page in promote/page.tsx and fund-wallet/
+            page.tsx, but that was a misreading of a grep match: those
+            two files only ever imported `useGeo` from this provider's
+            file path, they never actually rendered <GeoProvider>
+            itself anywhere. The only place that ever happened was
+            src/app/providers.tsx, which has zero importers anywhere
+            in the app (see that file's own header comment) — meaning
+            useGeo() has never resolved real detected geo data
+            ANYWHERE in this app until now, not just on the home page
+            as originally scoped. Deliberately placed outside
+            AuthProvider, matching GeoProvider's own documented design
+            intent: detected-connection geolocation has no relationship
+            to login state and shouldn't reset on a login/logout event. */}
+        <GeoProvider>
         <QueryProvider>
           <AuthProvider>
             <ThemeProvider>
@@ -42,6 +52,7 @@ export default function RootLayout({
             </ThemeProvider>
           </AuthProvider>
         </QueryProvider>
+        </GeoProvider>
       </body>
     </html>
   );

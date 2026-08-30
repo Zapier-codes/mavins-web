@@ -466,8 +466,10 @@ export default function PromotePage() {
   }, [searchParams, router]);
 
   // Local currency, derived from the app-wide geo context (fetched once
-  // at app initialization by GeoProvider — see providers.tsx) rather
-  // than a page-local detectUserGeo() call.
+  // at app initialization by GeoProvider, mounted in layout.tsx — see
+  // Task 47 in handover.md; a stale comment here previously pointed at
+  // providers.tsx, which never actually rendered GeoProvider anywhere
+  // reachable) rather than a page-local detectUserGeo() call.
   const { geo } = useGeo();
   useEffect(() => {
     if (!geo) return;

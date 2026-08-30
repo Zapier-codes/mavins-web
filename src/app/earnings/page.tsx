@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/auth/useAuth';
 import { supabase } from '@/lib/supabase/client';
@@ -8,7 +9,8 @@ import { AnimatedCounter } from '@/components/ui/AnimatedCounter';
 import { 
   Wallet, TrendingUp, Clock, DollarSign, ArrowUpRight, 
   BarChart3, Activity, ChevronRight, ArrowDownRight, Minus,
-  PiggyBank, CreditCard, Zap, Globe, Music, Play, PauseCircle, CheckCircle2
+  PiggyBank, CreditCard, Zap, Globe, Music, Play, PauseCircle, CheckCircle2,
+  PlusCircle
 } from 'lucide-react';
 
 const UNREAD_POLL_MS = 60_000;
@@ -198,6 +200,22 @@ export default function EarningsPage() {
             <span className="font-semibold text-sm">Withdrawal request submitted!</span>
           </div>
         )} */}
+
+        <Link
+          href="/fund-wallet"
+          className="glass-card rounded-xl p-4 flex items-center justify-between gap-3 hover:bg-[var(--accent)]/5 transition-colors group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[var(--accent)]/10 text-[var(--accent)]">
+              <PlusCircle className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="font-semibold text-sm">Fund Wallet</p>
+              <p className="text-[11px] text-[var(--subtle-foreground)]">Add funds to launch or top up a campaign</p>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-[var(--subtle-foreground)] group-hover:text-[var(--accent)] transition-colors" />
+        </Link>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[
