@@ -240,6 +240,11 @@ export async function POST(request: NextRequest) {
         is_active: true,
         is_paused: false,
         total_streams: 0,
+        // Task 51/migration 022: previously computed here and
+        // discarded — now persisted so the success page can show real
+        // target/duration numbers instead of guessing from budget.
+        target_view_count: pricing.viewCount,
+        estimated_duration_days: pricing.durationSlot.days,
       })
       .select('id')
       .single();

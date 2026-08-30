@@ -290,7 +290,7 @@ async function createDirectCampaign(
   supabase: any,
   params: { artistId: string; reference: string; campaign: Record<string, any> },
 ): Promise<{ created: boolean; campaignId: string | null; duplicate: boolean }> {
-  const { sourceUrl, geographicTier, targetCountries, genre, pricing } = params.campaign || {};
+  const { sourceUrl, viewCount, geographicTier, targetCountries, genre, pricing } = params.campaign || {};
 
   if (!sourceUrl || !pricing) {
     throw new Error('createDirectCampaign: session.metadata.campaign is missing sourceUrl or pricing');
@@ -339,6 +339,12 @@ async function createDirectCampaign(
       is_active: true,
       is_paused: false,
       total_streams: 0,
+      // Task 51/migration 022: same fields as create/route.ts's
+      // authenticated insert, sourced from this same snapshot instead
+      // of a fresh calculatePricing() call (see this function's own
+      // header comment for why a snapshot, not a recompute).
+      target_view_count: viewCount ?? null,
+      estimated_duration_days: pricing.durationDays ?? null,
     })
     .select('id')
     .single();

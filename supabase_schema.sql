@@ -68,6 +68,13 @@ CREATE TABLE IF NOT EXISTS public.track_campaigns (
     is_active BOOLEAN DEFAULT TRUE,
     is_paused BOOLEAN DEFAULT FALSE,
     total_streams BIGINT DEFAULT 0,
+    -- Migration 022 (Task 51): the originally requested view target /
+    -- estimated delivery duration, snapshotted at insert time from
+    -- calculatePricing()'s result. Nullable, no default -- see that
+    -- migration file's own header comment for why (never persisted
+    -- before this, so old rows have nothing to backfill from).
+    target_view_count BIGINT,
+    estimated_duration_days INT,
     real_streams BIGINT DEFAULT 0,
     seeded_streams BIGINT DEFAULT 0,
     save_count BIGINT DEFAULT 0,

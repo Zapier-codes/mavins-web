@@ -22,7 +22,7 @@ import {
   Rocket, Link2, TrendingUp, Globe, DollarSign,
   ShieldCheck, Zap, ChevronRight, Play, PauseCircle,
   BarChart3, Music, Sparkles, MapPin, Wand2, Map, Mail,
-  AlertCircle, Loader2
+  AlertCircle, Loader2, UserPlus
 } from 'lucide-react';
 
 const PublicAnalyticsShowcase = dynamic(
@@ -403,24 +403,23 @@ export default function PromotePage() {
   const [guestEmail, setGuestEmail] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [campaigns, setCampaigns] = useState<any[]>([]);
-  const [showSuccess, setShowSuccess] = useState(false);
-  // Distinct from showSuccess above: that one follows an authenticated
-  // wallet-debit createCampaign() call completing synchronously in
-  // this same page load. A guest's campaign is created by Part 2's
-  // webhook, asynchronously, after they've left and come back from
-  // Korapay's checkout — by the time they land back here (Task 36
-  // Part 4), all this page can honestly say is "payment confirmed,
-  // your campaign is being set up," not show it in "Your Campaigns"
-  // below (they have no session yet to fetch that list with — see the
-  // guest-session gap noted where this is set, below).
+  // Task 51 (handover.md): the authenticated success path used to set
+  // showSuccess (a 4s inline CampaignSuccessVisualization banner) and
+  // snapshot lastCampaignCountries for it to render — both removed,
+  // since handleSubmit's success branch now routes to a dedicated
+  // /campaign-live?id=... page instead (see that branch below).
+  // Distinct from showGuestCampaignSuccess below: that one follows an
+  // authenticated wallet-debit createCampaign() call completing
+  // synchronously in this same page load. A guest's campaign is
+  // created by Part 2's webhook, asynchronously, after they've left
+  // and come back from Korapay's checkout — by the time they land
+  // back here (Task 36 Part 4), all this page can honestly say is
+  // "payment confirmed, your campaign is being set up," not show it
+  // in "Your Campaigns" below (they have no session yet to fetch that
+  // list with — see the guest-session gap noted where this is set,
+  // below). Not migrated to /campaign-live for the same reason —
+  // see that page's own header comment.
   const [showGuestCampaignSuccess, setShowGuestCampaignSuccess] = useState(false);
-  // Task 33 Part 3 — a snapshot of targetCountries (resolved to full
-  // {code, country, flag} objects) taken at the exact moment
-  // handleSubmit's success branch fires, before that same branch
-  // clears the live targetCountries state for the next campaign's
-  // form. CampaignSuccessVisualization reads this, not the live
-  // (post-success, now-empty) targetCountries state.
-  const [lastCampaignCountries, setLastCampaignCountries] = useState<TargetCountry[]>([]);
   const [topGeo, setTopGeo] = useState<{ country: string; flag: string } | null>(null);
   const [homeCountryCode, setHomeCountryCode] = useState<string | null>(null);
   const [targetCountries, setTargetCountries] = useState<string[]>([]);
@@ -724,14 +723,11 @@ export default function PromotePage() {
     setIsSubmitting(false);
 
     if (result.success) {
-      // Snapshot before the very next line clears targetCountries —
-      // see lastCampaignCountries's own declaration comment above.
-      const resolvedCountries = (referenceData?.countries || []).filter((c) => targetCountries.includes(c.code));
-      setLastCampaignCountries(resolvedCountries);
-      setShowSuccess(true); setSourceUrl(''); setSelectedGenre(''); setTargetCountries([]);
-      const updated = await getArtistCampaigns(user.id);
-      setCampaigns(updated);
-      setTimeout(() => setShowSuccess(false), 4000);
+      // Task 51 (handover.md): the old inline showSuccess banner (4s,
+      // then gone — no shareable URL, nothing left after a refresh)
+      // is replaced by a dedicated page. router.push rather than
+      // resetting form state first — this page is about to unmount.
+      router.push(`/campaign-live?id=${result.campaignId}`);
     } else if (/insufficient/i.test(result.error || '')) {
       await goStraightToCheckout('insufficient_funds');
     } else if (result.existingCampaign) {
@@ -781,14 +777,6 @@ export default function PromotePage() {
           <p className="text-sm text-[var(--muted-foreground)] max-w-md mx-auto">Paste a YouTube link, set your target, and let the seed network deliver organic streams.</p>
         </div>
 
-        {showSuccess && (
-          <CampaignSuccessVisualization
-            title="Campaign Launched!"
-            subtitle="Your track is now in the seed network."
-            targetCountries={lastCampaignCountries}
-          />
-        )}
-
         {showGuestCampaignSuccess && (
           // Task 33 Part 3 / Task 36 Part 4: no target-country data is
           // available here to visualize — a guest's browser state is
@@ -804,11 +792,32 @@ export default function PromotePage() {
           // Part 4 properly could close this gap by threading the
           // reference through the redirect and fetching
           // payment_sessions.metadata.campaign server-side.
-          <CampaignSuccessVisualization
-            title="Payment confirmed!"
-            subtitle="Your campaign is being set up now — this can take a minute."
-            targetCountries={[]}
-          />
+          <div className="space-y-3">
+            <CampaignSuccessVisualization
+              title="Payment confirmed!"
+              subtitle="Your campaign is being set up now — this can take a minute."
+              targetCountries={[]}
+            />
+            {/* Task 51 (handover.md): the guest conversion CTA that
+                task asks for, without needing the real campaign-id
+                resolution /campaign-live depends on (see that page's
+                header comment) — this doesn't need the id at all. */}
+            <div className="glass-strong rounded-2xl p-4 border border-[#3d91f4]/30 bg-[#3d91f4]/5 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-[#3d91f4]/15 flex items-center justify-center flex-shrink-0">
+                <UserPlus className="w-4 h-4 text-[#3d91f4]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-xs">Create your account</p>
+                <p className="text-[11px] text-[var(--subtle-foreground)]">Save this campaign and track its growth.</p>
+              </div>
+              <button
+                onClick={() => router.push('/login')}
+                className="px-3 py-1.5 rounded-lg bg-[#3d91f4] text-white text-xs font-semibold flex-shrink-0"
+              >
+                Sign Up
+              </button>
+            </div>
+          </div>
         )}
 
         <div className="glass-strong rounded-2xl p-4 xs:p-5 sm:p-6 space-y-5 gpu-layer">

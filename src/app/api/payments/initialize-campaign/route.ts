@@ -185,6 +185,11 @@ export async function POST(request: NextRequest) {
             subtotalCents: pricing.subtotalCents,
             platformFeesCents: pricing.platformFeesCents,
             platformFeePercent: pricing.platformFeePercent,
+            // Task 51/migration 022: needed so createDirectCampaign()
+            // can persist estimated_duration_days -- viewCount for the
+            // sibling target_view_count column is already snapshotted
+            // one level up (campaign.viewCount), not duplicated here.
+            durationDays: pricing.durationSlot.days,
           },
         },
       },
