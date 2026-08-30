@@ -64,6 +64,26 @@ each rule — this is the same content, kept in sync.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note, same session (2026-08-30, latest of all) — Task 57
+> CLOSED: root cause confirmed by the corrected query, fix written as
+> `supabase_migration_020_trending_campaigns_show_planting.sql`.**
+> Query result (product owner ran it directly): the reported campaign
+> is sitting at `current_stage = 'planting'`, `total_streams = 0`,
+> `is_active = true` — exactly the state `get_trending_campaigns`'s old
+> `WHERE` clause excluded. Migration 020 changes that clause from
+> `tc.current_stage NOT IN ('planting', 'completed')` to
+> `tc.current_stage != 'completed'` — 'planting' campaigns now show,
+> 'completed' ones still don't. **Not yet applied to the live DB** —
+> same `supabase db push` hand-off as every prior migration, this
+> sandbox has no live-DB network path. Full write-up in Task 57's own
+> step 2/3 below. Deliberately did not touch the `trending_score`
+> formula in the same function (a new campaign will still score low,
+> just no longer be excluded outright) — flagged, not fixed, since it
+> wasn't part of what was actually diagnosed as broken. Once applied,
+> the next real check is building/running Velune on an actual device to
+> confirm the campaign now renders — still blocked on this sandbox
+> having no Android SDK.
+>
 > **Newest note, same session (2026-08-30, latest of all) — step 2's
 > query had a column-name bug (corrected), and the design question it
 > was meant to check is now ANSWERED — changing this diagnosis's own
@@ -9312,7 +9332,7 @@ blanket "migrate everyone's auth" project.
 
 ---
 
-## Task 57 — Cross-repo diagnosis: admin-published campaign not showing on Velune [ ] (DIAGNOSED, NOT FIXED — documentation only, per explicit instruction)
+## Task 57 — Cross-repo diagnosis: admin-published campaign not showing on Velune [x] (DIAGNOSED, ROOT CAUSE CONFIRMED, FIX WRITTEN — not yet applied to the live DB)
 
 **Ask, from the product owner directly:** an admin published a live
 campaign in Mavins-web and it is not appearing on Velune (the
@@ -9421,56 +9441,58 @@ whether *this specific* campaign shows:
    **This was the single most likely explanation and it's now ruled
    out.** Velune is NOT calling a function that doesn't exist — move
    straight to step 2 below, don't re-run this check.
-2. **Step 2's own query had a bug — corrected below, not yet
-   re-run.** The first attempt (`select id, title, ...`) failed:
-   `ERROR: 42703: column "title" does not exist`. Confirmed directly
-   against `supabase_schema.sql`: `title` lives on `public.tracks`, not
-   `track_campaigns` — that table only has `track_id` (a nullable FK)
-   and `resolved_song_id`, no direct text label of its own. Corrected
-   query, needs a join:
-   ```sql
-   select tc.id, t.title, tc.current_stage, tc.total_streams,
-          tc.is_active, tc.is_paused, tc.target_genres, tc.created_at
-   from track_campaigns tc
-   left join tracks t on t.id = tc.track_id
-   order by tc.created_at desc
-   limit 10;
-   ```
-   (`left join`, not inner — `track_id` is nullable, so a campaign
-   resolved only via `resolved_song_id` would otherwise silently
-   disappear from the result rather than showing with a NULL title.)
-   **Still needs to actually be run** — the product owner's reply this
-   round answered the *design* question below instead of re-running
-   this query, which is valuable on its own (see below) but doesn't
-   replace checking this specific campaign's actual row.
-3. **The "should a brand-new campaign show immediately" design
-   question is now ANSWERED, and it changes this diagnosis's own
-   conclusion — this is no longer just a secondary factor to note in
-   passing.** Product owner, verbatim: new campaigns should show
-   immediately; when multiple campaigns are active, the home page
-   displays them in a shuffled slideshow; campaigns are additionally
-   queued into their respective genres (matches `target_genres`/the
-   `p_genre` parameter already in `get_trending_campaigns`'s own
-   signature — that part of the architecture already exists as
-   intended). **This directly contradicts `get_trending_campaigns`'s
-   own live `WHERE` clause** (`supabase_schema.sql` line ~200):
-   `tc.current_stage NOT IN ('planting', 'completed')` — every
+2. **DONE (2026-08-30) — corrected query run, result confirms the
+   reported campaign is sitting exactly where step 3 predicted.**
+   Result:
+
+   | id                                   | title | current_stage | total_streams | is_active | is_paused | target_genres   | created_at                    |
+   | ------------------------------------- | ----- | -------------- | -------------- | --------- | --------- | ---------------- | ------------------------------ |
+   | ff616798-ee70-4488-a37f-a61abd743b92 | null  | planting       | 0              | true      | false     | ["Afrobeats"]     | 2026-08-29 12:21:10.726697+00 |
+
+   `current_stage = 'planting'`, `total_streams = 0`, `is_active =
+   true` — a real, live, active campaign, sitting exactly at the stage
+   `get_trending_campaigns`'s `WHERE` clause excludes. Combined with
+   step 1 (RPCs confirmed live) and step 3's now-answered design
+   question below, this is the confirmed root cause, not a suspected
+   one.
+3. **CONFIRMED root cause (2026-08-30) — fixed this session, migration
+   written, not yet applied to the live DB.** The "should a brand-new
+   campaign show immediately" design question is answered: new
+   campaigns should show immediately; when multiple campaigns are
+   active, the home page displays them in a shuffled slideshow;
+   campaigns are additionally queued into their respective genres
+   (matches `target_genres`/the `p_genre` parameter already in
+   `get_trending_campaigns`'s own signature — that part of the
+   architecture already exists as intended). This directly contradicted
+   `get_trending_campaigns`'s own live `WHERE` clause
+   (`tc.current_stage NOT IN ('planting', 'completed')`) — every
    brand-new campaign starts at `current_stage = 'planting'` (that
-   column's own `DEFAULT`), so this line excludes precisely the
-   campaigns the product owner just said should show immediately.
-   **This is no longer "working as designed, just worth confirming
-   the design" (this section's own earlier framing) — the design has
-   now been confirmed to be the opposite of what's implemented.** If
-   step 2's query (once actually run) shows the reported campaign
-   sitting at `current_stage = 'planting'`, that combination — a real
-   campaign, RPCs confirmed live, sitting at exactly the stage this
-   line excludes — would be sufficient to call this diagnosis's actual
-   root cause found, not just suspected. **Still not fixed this
-   session, per this task's own "documentation only" instruction** —
-   the indicated fix (once step 2 confirms it) is removing or altering
-   `'planting'` from that `NOT IN (...)` list, but that's a live-DB
-   function edit, deliberately left for a session/action explicitly
-   scoped to make it, not bundled into a diagnosis-only pass.
+   column's own `DEFAULT`), so that line excluded precisely the
+   campaigns the product owner said should show immediately. Step 2's
+   result above confirms this is exactly what happened to the reported
+   campaign — root cause found, not just suspected.
+
+   **Fix: `supabase_migration_020_trending_campaigns_show_planting.sql`**
+   — `CREATE OR REPLACE FUNCTION public.get_trending_campaigns`,
+   identical to the current live definition except the `WHERE` clause
+   changes from `tc.current_stage NOT IN ('planting', 'completed')` to
+   `tc.current_stage != 'completed'` — 'planting' campaigns are now
+   included, 'completed' ones stay excluded (nothing in this diagnosis
+   or the product owner's answer touched whether a *finished* campaign
+   should keep showing, so that exclusion is left alone). Deliberately
+   did **not** touch the `trending_score` formula in the same function
+   — a brand-new, zero-stream 'planting' campaign will now be
+   *included* but still scores low (the `CASE tc.current_stage ... ELSE
+   10` branch, same weight as before this migration), so it may sort
+   near the bottom of a strictly-ordered result. Whether Velune's Home
+   screen renders strictly by `trending_score` or shuffles the returned
+   set (the product owner's own word, "shuffled") isn't something this
+   migration needed to resolve — that's Velune's own client-side
+   rendering choice, flagged here as worth knowing, not changed, since
+   it was never diagnosed as broken, only the `WHERE` clause was.
+   **Not yet applied to the live DB** — same `supabase db push`
+   hand-off as every prior migration in this file; this sandbox has no
+   live-DB network path to apply it directly.
 4. Separately (lower priority, not blocking #2/#3): reconcile the seed
    engine's stated 15-minute cadence against its actual once-daily
    cron, one way or the other.
@@ -9485,10 +9507,11 @@ limitation as every prior on-device task in that repo's history) —
 building/installing on a real device to see the actual UI once step 2
 above resolves is still a separate, not-yet-taken step.
 
-No SQL beyond the two confirmation/read-only queries above was run —
-nothing was changed in either repo's code or the database this
-session. This remains a diagnosis for the next session (in either
-repo) to finish acting on, now one step further disambiguated.
+Only one write was made this session, and it's a schema/function
+migration file, not a live-DB change: `supabase_migration_020_
+trending_campaigns_show_planting.sql` (see step 3 above). No other SQL
+beyond the two read-only confirmation queries was run, and nothing in
+either repo's application code was touched this session.
 
 ### Correction to Velune's own `HANDOVER_CAMPAIGN.md` — filed there too, noted here for visibility
 
