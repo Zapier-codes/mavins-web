@@ -64,7 +64,22 @@ each rule — this is the same content, kept in sync.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-08-30, latest of all) — Task 48's remaining
+> **Newest note (2026-08-30, latest of all) — Task 48-b split into 4
+> parts (per explicit instruction, same pattern as Task 48 itself),
+> part (a) done, b-d not started.** `create_time`/`update_time`
+> (Nakama-native) vs `created_at`/`updated_at` (this app's bolt-on)
+> resolved: they're not competing for the same job, so nothing needed
+> migrating. Confirmed via grep that this app's own code exclusively
+> and consistently uses `created_at`/`updated_at` (one write site,
+> `settings/page.tsx`; one read site, `admin/users/page.tsx`) and has
+> zero references anywhere to the Nakama-native pair, which is
+> maintained entirely by Nakama's own server runtime. No code changed
+> — this was a resolve-the-question investigation, not a migration.
+> Full write-up in Task 48's own "48-b Part a" entry, directly below
+> "48-a." **Next: 48-b Part b** (`metadata` vs `metadata_json`, same
+> kind of investigation) — Parts c and d still not started either.
+>
+> **Newest note (2026-08-30, previous) — Task 48's remaining
 > scope split into parts a-e (per explicit instruction), part (a)
 > fully implemented, b-e not started.** New `reassign_role` action on
 > `PATCH /api/admin/users/[id]` — root-only, sets the base `role`
@@ -74,8 +89,7 @@ each rule — this is the same content, kept in sync.
 > clears `admin_role`/`admin_permissions` on revocation. Verified
 > against 6 concrete branching-logic cases (throwaway Node script) plus
 > `npx tsc --noEmit` clean. Full write-up in Task 48's own "48-a" entry
-> below. **Parts 48-b (duplicate-column/identity resolution) through
-> 48-e (data-quality follow-ups) are scoped but not started** — see
+> below. **Parts 48-c through 48-e are scoped but not started** — see
 > that same section for what each covers and their dependency order
 > (48-c blocked on 48-b; 48-d/48-e independent).
 >
@@ -7324,9 +7338,20 @@ instruction — "do a only full implementation"):**
   questions Group 2 flagged but didn't chase down** (`create_time`/
   `update_time` vs `created_at`/`updated_at`; `metadata` vs
   `metadata_json`; confirm `auth_user_id` vs Nakama's own `id` as the
-  key an admin-facing/gamification route should actually use). **Not
-  started.** A prerequisite for 48-c specifically — don't build Nakama-
-  as-primary-auth wiring on top of an unconfirmed identity column.
+  key an admin-facing/gamification route should actually use). A
+  prerequisite for 48-c specifically — don't build Nakama-as-primary-
+  auth wiring on top of an unconfirmed identity column. **Split into 4
+  parts this session, per explicit instruction — part (a) done, b-d
+  not started:**
+  - **48-b Part a — `create_time`/`update_time` vs `created_at`/
+    `updated_at`. [x] Done this session — see its own entry below.**
+  - **48-b Part b — `metadata` (Nakama-native) vs `metadata_json`
+    (this app's bolt-on). Not started.**
+  - **48-b Part c — confirm `auth_user_id` vs Nakama's own `id` as the
+    identity key admin/gamification routes should use. Not started.**
+  - **48-b Part d — synthesis: consolidate a/b/c into one clear
+    recommendation feeding 48-c. Not started; depends on b and c
+    first.**
 - **48-c — Wire "all real users authenticated through the Nakama
   instance" per the product owner's own recorded direction** (Group
   3's note above). The biggest, most architecturally significant
@@ -7410,6 +7435,66 @@ control for it); the "what does role revert to on revocation"
 question (Task 46f-e's own still-open item) is answered at the
 UI-caller layer, not by this route, which just takes whatever `role`
 value it's given.
+
+### 48-b Part a — `create_time`/`update_time` vs `created_at`/`updated_at` [x]
+
+**Done this session (2026-08-30) — resolved, no code changed.** This
+was a "which side is authoritative" investigation per Group 2's own
+framing ("check both columns exist before assuming there's only one,
+and grep for which this app's own routes actually use"), not a schema
+migration — and the answer turns out to be that **the two pairs aren't
+actually competing for the same job, so there's nothing to migrate
+away from:**
+
+- Grepped every reference to `created_at`/`updated_at` scoped to the
+  `users` table specifically (filtered out the same column names on
+  `track_campaigns`, `wallet_ledger`, `reseller_*`, etc., which are a
+  different, unrelated question): **`src/app/settings/page.tsx` is the
+  only place anywhere in this app that ever explicitly writes
+  `users.updated_at`** (on profile save). `src/app/admin/users/page.tsx`
+  reads `u.created_at` to display a "member since"-style date.
+  `created_at` itself is never set explicitly on insert anywhere
+  (`create-user/route.ts`'s insert has no `created_at` field at all) —
+  it's populated purely by the column's own DB-level `DEFAULT now()`,
+  which is exactly the right way for an immutable "when was this row
+  born" field to work.
+- Grepped for `create_time`/`update_time` (the Nakama-native pair)
+  anywhere in this app's own `src/`: **zero hits, anywhere.** This
+  app's code has never once read or written either of those two
+  columns. They're maintained entirely by Nakama's own server-side
+  runtime, invisible to every Supabase query this app makes.
+- Checked tracked migrations for any trigger syncing the two pairs:
+  none exists. They are genuinely independent, not two views onto the
+  same underlying update mechanism.
+
+**Conclusion: `created_at`/`updated_at` is already the correct,
+already-consistently-used pair for this app's own purposes — not
+because the Nakama-native pair is wrong, but because they answer
+different questions.** `create_time`/`update_time` reflect Nakama's
+own internal auth-server bookkeeping (useful only if a future feature
+specifically needs "when did Nakama's own runtime last touch this
+identity," e.g. for an auth-audit purpose this app doesn't currently
+have); `created_at`/`updated_at` reflect this app's own bolt-on
+activity, which is what `admin/users/page.tsx`'s display and any
+future app-side "last profile update" feature should keep using. No
+migration, no column drop, no code change — this resolves the
+question Group 2 raised rather than acting on an assumption either
+way.
+
+**One adjacent, smaller finding, flagged rather than fixed here (out
+of this narrowly-scoped part's remit — "which pair is authoritative,"
+not "audit every update call site for completeness"):**
+`settings/page.tsx` is the *only* place that touches `updated_at` on a
+`users` row — every other route that legitimately updates a `users`
+row (wallet-crediting in the confirmation/checkout flow,
+`add-funds/route.ts`, any future admin user-edit action) does not
+touch `updated_at` at all. If a future feature ever wants "last
+touched" to mean "last touched by any app-side write," not just "last
+profile-settings save," those other call sites would need the same
+`updated_at: new Date().toISOString()` line `settings/page.tsx`
+already has. Not fixed here since it wasn't this part's question to
+answer, and touching every one of those call sites is exactly the kind
+of scope-widening a narrowly-split part is meant to avoid.
 
 ---
 
