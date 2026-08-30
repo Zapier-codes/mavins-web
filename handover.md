@@ -64,13 +64,32 @@ each rule — this is the same content, kept in sync.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note, same session (2026-08-30, latest of all) — step 2's
+> query had a column-name bug (corrected), and the design question it
+> was meant to check is now ANSWERED — changing this diagnosis's own
+> conclusion.** The first `select id, title, ...` attempt failed
+> (`title` doesn't exist on `track_campaigns`, only on the joined
+> `tracks` table) — corrected query is in Task 57's own step 2 below,
+> **still needs to actually be run**. Separately, the product owner
+> answered the "should a brand-new campaign show immediately" question
+> directly: **yes** — multiple active campaigns show in a shuffled
+> home-page slideshow, and campaigns are additionally queued by genre
+> (matching `target_genres`, already in the schema). **This directly
+> contradicts `get_trending_campaigns`'s own live `WHERE` clause**
+> (`current_stage NOT IN ('planting', 'completed')` — every new
+> campaign starts at `'planting'`). This is no longer "working as
+> designed, worth confirming" — the design has been confirmed to be
+> the opposite of what's implemented. Full reasoning in Task 57's own
+> step 3. **Still not fixed — documentation only, per this task's own
+> instruction.** Once the corrected step-2 query is actually run and
+> confirms the campaign sits at `'planting'`, that's sufficient to
+> call the root cause found, not just suspected.
+>
 > **Newest note, same session (2026-08-30, later than the note below
 > it) — Task 57's leading hypothesis RULED OUT: `get_trending_campaigns`/
 > `record_campaign_stream` are confirmed live in the database** (product
 > owner ran the check directly — both exist with the expected
-> signatures). **Next: check the specific published campaign's own
-> `current_stage`/`total_streams`** — the exact query is in Task 57's
-> own §"What would resolve this, in order", step 2. Also wired live
+> signatures). Also wired live
 > Supabase credentials into Velune's `local.properties` this session
 > (closes part of that repo's own §8 blocker) — app itself not built/
 > run, no Android SDK in this sandbox.
@@ -9348,23 +9367,27 @@ completely silent, no visible error anywhere, indistinguishable from
 and, if true, the fix is a pure database action — running the
 already-written SQL — not a code change in either repo.
 
-### Two more real, secondary factors — confirmed, not the primary suspect
+### Two more real, secondary factors when this section was first
+### written — the first of these is now confirmed to be the actual
+### likely root cause, see "What would resolve this" step 3 below
 
 Even once/if the RPCs are confirmed live, two more things affect
 whether *this specific* campaign shows:
 
 1. **`get_trending_campaigns` deliberately excludes brand-new
-   campaigns.** Its own `WHERE` clause: `tc.is_active AND NOT
-   tc.is_paused AND tc.current_stage NOT IN ('planting', 'completed')`
-   — a campaign only becomes eligible once `record_campaign_stream`
-   has advanced it past `planting`, which per that same function's own
-   stage-advance logic requires `total_streams >= 10000`. A genuinely
-   live, `is_active = true` campaign that simply hasn't crossed 10,000
-   total streams yet **will not show, by design** — this reads as a
-   "trending" feed intentionally hiding brand-new campaigns, not a
-   bug, but it's worth confirming with the product owner whether that
-   design matches what "an admin published a campaign" was expected to
-   do (show immediately vs. show once it has traction).
+   campaigns.** Its own `WHERE` clause: `tc.current_stage NOT IN
+   ('planting', 'completed')` (alongside `tc.is_active AND NOT
+   tc.is_paused`) — a campaign only becomes eligible once
+   `record_campaign_stream` has advanced it past `planting`, which per
+   that same function's own stage-advance logic requires
+   `total_streams >= 10000`. **Originally flagged here as "reads like
+   an intentional design, worth confirming rather than assuming" — now
+   confirmed to be the OPPOSITE of the intended design, see step 3
+   below.** A genuinely live, `is_active = true` campaign that simply
+   hasn't crossed 10,000 total streams yet will not show under the
+   current code, but the product owner has since said new campaigns
+   should show immediately — this is no longer an open design
+   question, it's a known mismatch between code and intent.
 2. **The seed engine that grows `total_streams` runs far less often
    than its own code says it does.** `seedEngine.service.ts`'s own
    header comment: "runs on a cron schedule (every 15 minutes)". The
@@ -9398,27 +9421,57 @@ whether *this specific* campaign shows:
    **This was the single most likely explanation and it's now ruled
    out.** Velune is NOT calling a function that doesn't exist — move
    straight to step 2 below, don't re-run this check.
-2. **NEXT — check the specific published campaign's own
-   `current_stage`/`total_streams` directly:**
+2. **Step 2's own query had a bug — corrected below, not yet
+   re-run.** The first attempt (`select id, title, ...`) failed:
+   `ERROR: 42703: column "title" does not exist`. Confirmed directly
+   against `supabase_schema.sql`: `title` lives on `public.tracks`, not
+   `track_campaigns` — that table only has `track_id` (a nullable FK)
+   and `resolved_song_id`, no direct text label of its own. Corrected
+   query, needs a join:
    ```sql
-   select id, title, current_stage, total_streams, is_active, is_paused, created_at
-   from track_campaigns
-   order by created_at desc
+   select tc.id, t.title, tc.current_stage, tc.total_streams,
+          tc.is_active, tc.is_paused, tc.target_genres, tc.created_at
+   from track_campaigns tc
+   left join tracks t on t.id = tc.track_id
+   order by tc.created_at desc
    limit 10;
    ```
-   If the campaign in question is still at `current_stage = 'planting'`
-   with `total_streams` well under 10,000, that's expected behavior
-   under the filter documented above — not a bug. At that point the
-   product-owner conversation becomes "should a brand-new campaign
-   show immediately" (a design question) rather than "why is this
-   broken" (a bug to fix). If it's already past `planting` with
-   `total_streams >= 10000` and still not showing on Velune, that
-   contradicts both hypotheses checked so far and points at something
-   not yet considered — worth re-reading `get_trending_campaigns`'s
-   full `WHERE` clause again at that point, not just the two
-   conditions already quoted above (there may be a third filter
-   condition not yet surfaced in this diagnosis).
-3. Separately (lower priority, not blocking #1/#2): reconcile the seed
+   (`left join`, not inner — `track_id` is nullable, so a campaign
+   resolved only via `resolved_song_id` would otherwise silently
+   disappear from the result rather than showing with a NULL title.)
+   **Still needs to actually be run** — the product owner's reply this
+   round answered the *design* question below instead of re-running
+   this query, which is valuable on its own (see below) but doesn't
+   replace checking this specific campaign's actual row.
+3. **The "should a brand-new campaign show immediately" design
+   question is now ANSWERED, and it changes this diagnosis's own
+   conclusion — this is no longer just a secondary factor to note in
+   passing.** Product owner, verbatim: new campaigns should show
+   immediately; when multiple campaigns are active, the home page
+   displays them in a shuffled slideshow; campaigns are additionally
+   queued into their respective genres (matches `target_genres`/the
+   `p_genre` parameter already in `get_trending_campaigns`'s own
+   signature — that part of the architecture already exists as
+   intended). **This directly contradicts `get_trending_campaigns`'s
+   own live `WHERE` clause** (`supabase_schema.sql` line ~200):
+   `tc.current_stage NOT IN ('planting', 'completed')` — every
+   brand-new campaign starts at `current_stage = 'planting'` (that
+   column's own `DEFAULT`), so this line excludes precisely the
+   campaigns the product owner just said should show immediately.
+   **This is no longer "working as designed, just worth confirming
+   the design" (this section's own earlier framing) — the design has
+   now been confirmed to be the opposite of what's implemented.** If
+   step 2's query (once actually run) shows the reported campaign
+   sitting at `current_stage = 'planting'`, that combination — a real
+   campaign, RPCs confirmed live, sitting at exactly the stage this
+   line excludes — would be sufficient to call this diagnosis's actual
+   root cause found, not just suspected. **Still not fixed this
+   session, per this task's own "documentation only" instruction** —
+   the indicated fix (once step 2 confirms it) is removing or altering
+   `'planting'` from that `NOT IN (...)` list, but that's a live-DB
+   function edit, deliberately left for a session/action explicitly
+   scoped to make it, not bundled into a diagnosis-only pass.
+4. Separately (lower priority, not blocking #2/#3): reconcile the seed
    engine's stated 15-minute cadence against its actual once-daily
    cron, one way or the other.
 
