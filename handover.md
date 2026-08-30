@@ -1,7 +1,88 @@
 # Handover — mavins-web
 
+## Unified hand-off command format — MANDATORY, every session, all three repos
+
+**Kept identical across all three repos' handover files — this file's
+copy, Velune's `HANDOVER_CAMPAIGN.md`, and B-Pay-backend's own
+`handover.md` should all read the same here. If you edit this section,
+copy the same edit into the other two in the same session** (same rule
+this project already applies to any "cross-repo status" note).
+
+**Added to this file for the first time this session (2026-08-30) —
+this repo's own `handover.md` didn't have this section at all until
+now, discovered while cross-referencing Velune's copy for an unrelated
+diagnosis (see Task 57 below). Copy this same addition into
+B-Pay-backend's `handover.md` too, next time that repo is touched —
+not done this session since this session never cloned it.**
+
+Whenever a session finishes work — in this repo alone, or this one
+plus another — the final message must end with **one single,
+copy-pasteable, `&&`-chained command line** covering every repo
+touched this session, nothing else. Never separate blocks per repo,
+never prose interleaved between repos, never a bare `git am` without
+its `git push` right after it:
+
+```
+cd ~/<repo-1-local-dir> && git am ~/storage/downloads/<repo-1-slug>-<description>.patch && git push origin main && cd ~/<repo-2-local-dir> && git am ~/storage/downloads/<repo-2-slug>-<description>.patch && git push origin main
+```
+
+Extend with more `&& cd ~/<repo> && git am ... && git push ...`
+segments for however many repos were actually touched. A single-repo
+session still uses this exact shape — just a one-segment chain, not a
+different/shorter format.
+
+**Fixed rules:**
+1. Patch filenames: always `<repo-slug>-<short-description>.patch`,
+   lowercase-hyphenated. Fixed slugs: `mavins-web`, `b-pay-backend`,
+   `velune`.
+2. `cd` targets use each repo's **real local folder name/casing**,
+   which is NOT always the slug or the GitHub name:
+   - Mavins-web → `cd ~/mavins-web` (lowercase — GitHub repo is
+     capitalized `Zapier-codes/Mavins-web`, the local clone is not)
+   - B-Pay-backend → `cd ~/B-PAY-backend` (matches GitHub casing)
+   - Velune → `cd ~/Velune` (matches GitHub casing) — this repo pushes
+     directly to `main`, no fork/PR step, confirmed by a successful
+     `git am` + `git push origin main` run in this project.
+3. Every repo segment gets its own `git push origin main` right after
+   its own `git am` — never batch every `git am` first and push once
+   at the end.
+4. All three currently push the same way (`git push origin main`) —
+   B-Pay-backend's still auto-joins its open upstream PR on push, no
+   extra command; Mavins-web and Velune push straight to `main` with
+   no PR step at all. If any repo's push mechanics ever change, update
+   this section (in all three files) and that repo's cross-repo status
+   note together.
+5. Nothing between or after the chain — explanatory prose goes before
+   this command block, never interleaved with or appended after it.
+
+See B-Pay-backend's own `handover.md` → "Unified hand-off command
+format" for the full original write-up with complete rationale for
+each rule — this is the same content, kept in sync.
+
+---
+
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
+>
+> **Newest note (2026-08-30, cross-repo) — an admin-published live
+> campaign wasn't showing on Velune; diagnosed, NOT fixed
+> (documentation only, per explicit instruction).** See Task 57 below
+> for the full write-up. Short version: this is very likely **not** a
+> code bug in either repo — `get_trending_campaigns`/
+> `record_campaign_stream` are correctly written in this file's own
+> `supabase_schema.sql` and Velune's app already correctly calls them,
+> but nothing in this file confirms those two RPCs were ever actually
+> run against the live database (as opposed to just written to the
+> file) — the same "confirmed applied to production" step the
+> `get_leaderboard()` fix elsewhere in this file went through, with no
+> equivalent note for these two. **Next session: confirm with the
+> product owner whether that SQL has ever been run live** — that one
+> answer determines whether the fix is a pure database action (run it)
+> or something else entirely (see Task 57's own §"What would resolve
+> this, in order" for the full disambiguation path). Also corrected a
+> real staleness bug in Velune's own `HANDOVER_CAMPAIGN.md` while
+> there (see Task 57's closing note) — that file's §7/`campaign_schema.sql`
+> described a since-removed admin UI and a since-superseded schema.
 >
 > **Newest note, same session (2026-08-30, later than Task 56 below) —
 > 56c's biggest open question (token-bridging approach) now has a
@@ -9206,5 +9287,134 @@ this task has no remaining work — the gamification stat-tracking goal
 is already met. If yes, implement the custom-auth bridge above,
 scoped to whichever specific live feature needs it, rather than a
 blanket "migrate everyone's auth" project.
+
+---
+
+## Task 57 — Cross-repo diagnosis: admin-published campaign not showing on Velune [ ] (DIAGNOSED, NOT FIXED — documentation only, per explicit instruction)
+
+**Ask, from the product owner directly:** an admin published a live
+campaign in Mavins-web and it is not appearing on Velune (the
+companion Android app) at all. This session cloned `Zapier-codes/Velune`
+fresh into the sandbox and read its actual current code end-to-end
+(not just its handover docs, which turned out to be stale — see the
+correction note at the end of this section) to find out why, rather
+than guessing from either side alone. **Documentation only this
+session, per explicit instruction — nothing below has been changed in
+either repo's code or database.**
+
+### What's actually built, confirmed correct on both sides
+
+Velune's `CampaignRepository.kt` (`app/src/main/kotlin/com/nikhil/yt/
+campaign/`) does **not** read from its own old standalone `campaigns`
+table — a few commits past what that repo's own `HANDOVER_CAMPAIGN.md`
+currently describes, it was migrated to call two RPCs,
+`get_trending_campaigns` and `record_campaign_stream`, whose response
+shape matches this repo's own `track_campaigns` schema field-for-field
+(`total_streams`, `trending_score`, `geographic_tier`, `current_stage`
+— even the exact stage-name strings, `planting`/`germination`/
+`root_system`/`branching`/`full_bloom`, match this repo's own
+`STAGE_TARGETS` in `seedEngine.service.ts` verbatim). Confirmed both
+RPCs are already fully written here, in `supabase_schema.sql` (lines
+~172–257) — `get_trending_campaigns` is commented `-- Velune Home
+screen + Mavins discovery`, `record_campaign_stream` is commented
+`-- Velune calls this on every play`, so this integration was
+deliberately designed, not accidental. **This is real, working,
+already-built cross-repo integration on both sides — there is no bug
+in Velune's own display code to fix, and the "clone Velune and adjust
+it" framing this task started from turned out to point at the wrong
+repo.**
+
+### The most likely actual cause — unconfirmed, needs a database check
+
+**No note anywhere in this file confirms `get_trending_campaigns`/
+`record_campaign_stream` were ever actually run against the live
+Supabase database**, as distinct from being written into
+`supabase_schema.sql`. This repo has an established, explicit
+convention for that distinction — e.g. the `get_leaderboard()` fix
+earlier in this file is logged as "**Already applied directly to
+production** via Supabase SQL Editor by the product owner (confirmed
+success)". No equivalent line exists for either of these two RPCs.
+**If they were only ever written to the file and never run live,
+Velune's app calls a Postgres function that doesn't exist** — PostgREST
+would return an error, and `CampaignRepository.kt`'s own
+`fetchActiveCampaigns()` silently catches any non-2xx response or
+exception into `emptyList()` (by design, for a graceful empty Home
+section — not a bug in itself, but it means this failure mode is
+completely silent, no visible error anywhere, indistinguishable from
+"no campaigns exist"). **This is the single most likely explanation**
+and, if true, the fix is a pure database action — running the
+already-written SQL — not a code change in either repo.
+
+### Two more real, secondary factors — confirmed, not the primary suspect
+
+Even once/if the RPCs are confirmed live, two more things affect
+whether *this specific* campaign shows:
+
+1. **`get_trending_campaigns` deliberately excludes brand-new
+   campaigns.** Its own `WHERE` clause: `tc.is_active AND NOT
+   tc.is_paused AND tc.current_stage NOT IN ('planting', 'completed')`
+   — a campaign only becomes eligible once `record_campaign_stream`
+   has advanced it past `planting`, which per that same function's own
+   stage-advance logic requires `total_streams >= 10000`. A genuinely
+   live, `is_active = true` campaign that simply hasn't crossed 10,000
+   total streams yet **will not show, by design** — this reads as a
+   "trending" feed intentionally hiding brand-new campaigns, not a
+   bug, but it's worth confirming with the product owner whether that
+   design matches what "an admin published a campaign" was expected to
+   do (show immediately vs. show once it has traction).
+2. **The seed engine that grows `total_streams` runs far less often
+   than its own code says it does.** `seedEngine.service.ts`'s own
+   header comment: "runs on a cron schedule (every 15 minutes)". The
+   actual deployed `vercel.json`: `"schedule": "0 3 * * *"` — once a
+   day. Real discrepancy, confirmed by reading both files directly —
+   not itself an outage, but it means stage progression (and therefore
+   crossing the 10,000-stream `germination` threshold above) is far
+   slower than the code's own comment implies. Worth its own fix
+   (either correct the comment to match reality, or fix the cron to
+   match the comment's stated intent — a product decision, not
+   attempted here) but not the primary suspect for "not showing up at
+   all."
+
+### What would resolve this, in order
+
+1. **Confirm with the product owner** whether `get_trending_campaigns`/
+   `record_campaign_stream` have ever been run against the live
+   Supabase database via the SQL Editor (same step the leaderboard fix
+   went through). If not, running them is very likely the actual fix —
+   verify by checking Postgres for `get_trending_campaigns`'s
+   existence directly (`select proname from pg_proc where proname =
+   'get_trending_campaigns'`) rather than re-deriving this from app
+   behavior alone.
+2. If they're already live, check the specific published campaign's
+   own `current_stage`/`total_streams` directly — if it's still at
+   `planting` with well under 10,000 total streams, that's expected
+   behavior under §1's filter above, not a bug; the product-owner
+   conversation becomes "should a brand-new campaign show immediately"
+   rather than "why is this broken."
+3. Separately (lower priority, not blocking #1/#2): reconcile the seed
+   engine's stated 15-minute cadence against its actual once-daily
+   cron, one way or the other.
+
+None of the above was executed this session — no SQL was run, no cron
+config was changed, no code in either repo was edited. This is a
+diagnosis for the next session (in either repo) to act on, once the
+product owner has answered the one question that actually
+disambiguates the leading hypothesis from the rest: has this SQL ever
+been run live.
+
+### Correction to Velune's own `HANDOVER_CAMPAIGN.md` — filed there too, noted here for visibility
+
+That file's §7 ("Admin flow... create/edit/pause/delete from the app")
+and its top-of-repo `campaign_schema.sql` both describe an **older,
+now-superseded** design — a self-contained Velune-only `campaigns`
+table with its own in-app admin screen. A later commit
+(`134cb37`, "remove Manage Campaigns entirely") deleted that admin UI
+outright, and several commits after that (`fa7d377`, `6dcd1b4`,
+`444de3f`, `28db525`) migrated the read path off that table entirely
+onto this repo's own `track_campaigns`, via the two RPCs above.
+`HANDOVER_CAMPAIGN.md`'s own text was never updated to reflect either
+change — corrected directly in that file this session (see Velune's
+own `HANDOVER_CAMPAIGN.md`, this same dated entry, for the full
+correction written in that repo's own voice).
 
 ---
