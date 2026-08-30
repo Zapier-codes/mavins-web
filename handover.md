@@ -3,17 +3,16 @@
 > **▶ START HERE — read this box only, then go straight to work. Skip
 > everything else below unless you get stuck.**
 >
-> **Newest session (2026-08-30, latest of all) — Group 1b answered:
-> no CHECK constraint on `role` at all. Task 48's Group 1 is now
-> FULLY CLOSED** (1a/1b/1c all answered — plain `varchar(20)`, no
-> enum, no constraint, DB default `'listener'` matching app code,
-> zero existing NULL-role rows). Adding `'artist'` needs zero schema
-> changes — application code only, plus optionally a column-default
-> `ALTER TABLE` for defense-in-depth. **Next: Groups 2-6** (full
-> `users` schema, gamification-data population, `role`×`tier`
-> cross-tab, RLS policies, triggers) **or the two open product
-> questions** — see Task 48's own entry below for the exact remaining
-> queries and questions.
+> **Newest session (2026-08-30, latest of all) — Task 48's Group 1 is
+> fully closed** (NULL-role audit: zero rows; CHECK constraint check:
+> none restrict `role`; combined with 1a/1c already answered — plain
+> `varchar(20)`, not an enum, DB default `'listener'`). Adding
+> `'artist'` needs zero schema changes. **Group 2 is next in queue —
+> give the product owner that exact query next** (full `users` schema
+> with nullability/defaults), then Groups 3-6 in order, then the two
+> open product questions — see Task 48's own entry below, each group
+> is now marked with its status so there's no need to re-derive
+> ordering.
 >
 > **Newest session (2026-08-30, latest of all) — Task 48 opened,
 > discovery only, no code, per explicit instruction. Supersedes
@@ -7779,9 +7778,10 @@ was moot once the count itself came back zero, so it was not run.
 This closes the "check for users with no role" part of "let's wire it
 fully" cleanly — nothing else to do here, no lingering unknown.
 
-**Group 2 — full `users` schema with nullability + defaults** (fuller
-than 46f-e's earlier column-name-only query — needed for anything this
-task touches, not just `role`):
+**Group 2 — NEXT IN QUEUE, give this to the product owner next.** Full
+`users` schema with nullability + defaults (fuller than 46f-e's
+earlier column-name-only query — needed for anything this task
+touches, not just `role`):
 ```sql
 select column_name, data_type, is_nullable, column_default
 from information_schema.columns
@@ -7789,7 +7789,8 @@ where table_schema = 'public' and table_name = 'users'
 order by ordinal_position;
 ```
 
-**Group 3 — is the gamification data actually populated, or is the
+**Group 3 (queued after Group 2) — is the gamification data actually
+populated, or is the
 system built but unused so far** (code confirms the routes exist and
 are wired; this checks whether real users have actually accumulated
 anything through them yet):
@@ -7805,7 +7806,7 @@ select
 from public.users;
 ```
 
-**Group 4 — `role` × `tier` cross-tab** (directly tests the naming-
+**Group 4 (queued after Group 3) — `role` × `tier` cross-tab** (directly tests the naming-
 overlap question above — if every `role='listener'` row is also
 `tier='T4'` and every `role='curator'` row has a high tier, that's
 real evidence they're meant to move together despite no code coupling
@@ -7815,7 +7816,7 @@ they're genuinely unrelated fields):
 select role, tier, count(*) from public.users group by role, tier order by role, tier;
 ```
 
-**Group 5 — RLS policies on `users` referencing `role`** (needed
+**Group 5 (queued after Group 4) — RLS policies on `users` referencing `role`** (needed
 before admin gets free-form write access to this column — confirm
 nothing in RLS assumes `role` can only ever be set to today's four
 values, which would silently block writing `'artist'` even after the
@@ -7826,7 +7827,8 @@ from pg_policies
 where schemaname = 'public' and tablename = 'users';
 ```
 
-**Group 6 — any insert/update triggers on `users`** (confirms whether
+**Group 6 (queued after Group 5, last group before the two open
+product questions) — any insert/update triggers on `users`** (confirms whether
 `role`'s default is ever set at the DB level, not just in this app's
 own `create-user` route — relevant since `public.users` is likely
 shared with another system per 46f-e's own finding, which could have
