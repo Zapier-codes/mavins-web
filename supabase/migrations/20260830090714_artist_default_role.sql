@@ -1,0 +1,43 @@
+-- ============================================================
+-- Migration 018 — Task 48, Part 2 of 3: role column-level default,
+-- 'listener' -> 'artist'
+-- ============================================================
+--
+-- Companion to Part 1 (already shipped, code-only:
+-- src/app/api/auth/create-user/route.ts's insert now explicitly sends
+-- role: 'artist'). This migration is the DB-level half — confirmed
+-- necessary, not optional defense-in-depth guessing, by Task 48's own
+-- Group 1 finding (handover.md): the column-level default and
+-- create-user/route.ts's old explicit insert value both independently
+-- agreed on 'listener' before Part 1, and the explicit insert always
+-- wins over the column default for rows THIS app creates — but the
+-- column default is what governs any OTHER writer to public.users
+-- that doesn't set role explicitly.
+--
+-- That "other writer" case is not hypothetical: confirmed by grep
+-- (handover.md, Task 48 Part 1's own note) that src/lib/auth/
+-- guestCheckout.ts's resolveOrCreateGuestAccount() and the Edge
+-- Function's ported copy (supabase/functions/korapay-webhook/
+-- index.ts) BOTH insert a new users row with no role field at all,
+-- relying entirely on this column default. Until this migration ships,
+-- a guest creating an account through the direct-pay campaign flow
+-- (Task 36) still gets 'listener', even with Part 1 already live.
+-- This migration is what actually closes that gap — Part 1 alone does
+-- not.
+--
+-- No CHECK constraint on role (Group 1, confirmed directly via
+-- pg_constraint query, not assumed) and a plain varchar(20) column,
+-- not an enum -- 'artist' (6 chars) needs no type/constraint change,
+-- purely a DEFAULT swap.
+--
+-- Deliberately does NOT touch any EXISTING row -- no UPDATE statement
+-- here. Every user who already has role = 'listener' today stays
+-- exactly that; this only changes what a FUTURE insert gets when it
+-- doesn't specify role explicitly. Task 48's product-owner answer was
+-- specifically about new signups going forward, not a retroactive
+-- reclassification of existing users -- conflating the two would be a
+-- real, unrequested behavior change, not a straightforward extension
+-- of what was asked.
+
+ALTER TABLE public.users
+  ALTER COLUMN role SET DEFAULT 'artist';
