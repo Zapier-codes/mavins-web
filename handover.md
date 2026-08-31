@@ -2,6 +2,20 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-08-30, latest of all) — Task 62: audited Velune
+> for admin functionality to remove, per direct instruction. Found
+> none to remove.** Thorough search (every file matching "admin"
+> case-insensitive, plus a second broader pass for
+> moderator/isAdmin/elevated-permission/superuser/AdminScreen/
+> AdminDashboard) turned up one false positive, one unrelated hardcoded
+> token flagged separately (`MusicService.kt`'s `VeluneAdminToken`,
+> a Together-Online-feature credential, nothing to do with admin
+> functionality), and a passive branding-config fetch client with no
+> in-app trigger — confirmed by tracing every call site, not assumed.
+> Full write-up, including a flagged architecture question about where
+> `admin.velune.app` should actually live, in Task 62's own section.
+> Nothing changed in Velune's code.
+>
 > **Newest note (2026-08-30, latest of all) — Task 59 Part 2b's
 > taxonomy question resolved: editorial classification, not runtime
 > string-matching.** Per direct instruction to scope this out the way
@@ -11899,6 +11913,94 @@ verify route's old (reference-less) redirect shape — none found.
 real Korapay checkout round-trip** — no live credentials in this
 sandbox, same limitation every prior Supabase/Korapay-touching task in
 this file has noted.
+
+---
+
+## Task 62 — Audit: remove all admin functionality from Velune [x]
+(AUDITED — none found to remove; two related, distinct findings
+flagged instead)
+
+**Ask, from the product owner directly:** all admin routes and
+functionality should live in the mavins-web repo, not Velune — remove
+any admin functions from the Velune repo.
+
+**Finding: there is no admin functionality in Velune's codebase to
+remove.** Cloned `Zapier-codes/Velune` fresh and searched thoroughly
+— every file matching `admin` (case-insensitive) across the whole
+`app/src/main/` tree, then a second, broader pass for
+`moderator`/`isAdmin`/`elevated permission`/`privileged`/`superuser`/
+`adminOnly`/`admin_role`/`AdminScreen`/`AdminDashboard` — **zero hits
+on the second pass, and the six hits on the first pass are not admin
+functionality**:
+
+- One is a straightforward false positive: `ShazamSignatureGenerator.kt`'s
+  `spreadMinus49` variable name coincidentally contains the substring
+  "admin" (`spre-admin-us49`), unrelated to anything administrative.
+- Four (`AppIconConfig.kt`, `AppIconRepository.kt`, `DynamicAppLogo.kt`,
+  `PreferenceKeys.kt`) are a **passive branding-config fetch client** —
+  Velune reads an app-icon/logo config published by an external
+  "admin dashboard," rendering whatever's published. Confirmed there is
+  no in-app trigger for this at all beyond a background/cache refresh:
+  `AppIconRepository`'s `forceRefresh()` is only reachable via a Hilt
+  `EntryPoint` (`AppIconEntryPoint.kt`, a DI access point for non-Hilt
+  callers like a launcher-icon `BroadcastReceiver`), not any button,
+  screen, or user-facing action — searched for every call site to
+  confirm this, not assumed from the class name alone. **This is a
+  client consuming externally-published config, not admin
+  functionality implemented in this repo** — nothing to remove, same
+  as an app fetching a remote feature-flag file wouldn't be "admin
+  functionality" either.
+- One is unrelated to this ask entirely, flagged separately below, not
+  conflated with it: `MusicService.kt`'s `VeluneAdminToken`.
+
+**Flagged, not touched — a real architecture question worth the
+product owner's attention, separate from "is there admin code to
+remove":** `AppIconRepository.kt`'s `REMOTE_CONFIG_URL` points at
+`https://admin.velune.app/api/branding/icon-config` — a domain and
+service distinct from wherever mavins-web's own real `/admin`
+dashboard (Task 46) actually runs. Nothing in either repo confirms
+`admin.velune.app` is a real, built, deployed service (it may simply
+be a placeholder URL for a not-yet-built admin surface) — but if a
+branding-publish capability is ever built for real, the product
+owner's own stated principle here ("all admin functionality should be
+in mavins-web") argues for adding a "Velune Branding" tab to
+mavins-web's existing `/admin` dashboard rather than standing up a
+second, separate `admin.velune.app` service. Not built either way this
+session — flagged as a design recommendation for whenever this
+branding-publish feature is actually prioritized, not assumed to be in
+scope now.
+
+**Separate, unrelated finding surfaced by the same audit, worth its
+own attention regardless of this task's outcome:** `MusicService.kt`
+line 2227, inside `startTogetherOnlineHost()` (the "Together Online"
+group-listening-session feature, unrelated to campaigns/admin
+entirely): `val togetherToken = "VeluneAdminToken"` — a **hardcoded
+literal string used as a Bearer token** against
+`TogetherOnlineApi`. The very next line, `if (togetherToken == null)`,
+is dead code — a string literal can never be null, so that guard
+(clearly meant to handle a *missing* token) can never actually fire.
+Two real problems, distinct from "admin functionality to remove":
+(1) a hardcoded credential shipped inside a distributed APK is the
+same class of issue this project already treated as "already
+compromised" once found for mavins-web's own hardcoded admin password
+(Task 46, resolved there) — decompiling an APK to read a string
+constant is trivial; (2) the dead null-check suggests this was
+probably meant to read from a real, provisioned-per-install or
+per-session token source and got left as a hardcoded placeholder.
+**Not fixed here** — this task's own ask was specifically about admin
+functionality, and this is a different feature (group listening
+sessions) with its own token-provisioning design question (should the
+Together Online backend issue per-session tokens instead of a shared
+static one?) that deserves its own dedicated pass, not a rushed fix
+folded into an unrelated task. Flagged clearly so it isn't lost.
+
+**Nothing changed in Velune's code** — this task's own outcome is "no
+admin functionality exists to remove," confirmed by a thorough,
+documented search rather than assumed. Documentation only, same
+established reason every Velune-touching task in this file has stayed
+that way (no Android build environment in this sandbox) — though in
+this specific case there was nothing to build regardless, since
+there's nothing to remove.
 
 ---
 
