@@ -85,6 +85,14 @@ CREATE TABLE IF NOT EXISTS public.track_campaigns (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     completed_at TIMESTAMPTZ,
+    -- Migration 023 (Task 59 Part 1): per-genre LRU-fair-rotation
+    -- cursor for queue-slot campaign selection. NULL means never
+    -- served a queue slot yet -- ordered first, so every campaign
+    -- gets an initial turn before any campaign gets a second. Not the
+    -- same signal as `updated_at` above (deliberately) -- see
+    -- migration 023's own header for why a dedicated column, not a
+    -- reused one.
+    last_queue_slot_at TIMESTAMPTZ,
     CONSTRAINT one_active_campaign_per_track UNIQUE (track_id, is_active) DEFERRABLE INITIALLY DEFERRED
 );
 
@@ -246,6 +254,53 @@ LANGUAGE SQL SECURITY DEFINER SET search_path = public STABLE AS $$
   LIMIT p_limit;
 $$;
 GRANT EXECUTE ON FUNCTION public.get_trending_campaigns(INTEGER, TEXT, TEXT) TO anon;
+
+-- get_next_campaign_for_queue_slot — Task 59 Part 1: genre-locked,
+-- LRU-fair-rotation queue-slot selection, no competitive scoring of
+-- any kind. Deliberately separate from get_trending_campaigns above
+-- (still used for the home banner, unchanged, until Task 59 Part 3
+-- rebuilds that surface) — see migration 023's own header for the
+-- full reasoning.
+CREATE OR REPLACE FUNCTION public.get_next_campaign_for_queue_slot(p_genre TEXT)
+RETURNS TABLE (
+    campaign_id UUID, track_id UUID, artist_id UUID,
+    artist_name TEXT, track_title TEXT, cover_url TEXT,
+    source_url TEXT, resolved_song_id TEXT
+)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+    v_campaign_id UUID;
+BEGIN
+    IF p_genre IS NULL OR btrim(p_genre) = '' THEN
+        RETURN;
+    END IF;
+
+    SELECT tc.id INTO v_campaign_id
+    FROM public.track_campaigns tc
+    WHERE tc.is_active AND NOT tc.is_paused
+      AND p_genre = ANY(tc.target_genres)
+    ORDER BY tc.last_queue_slot_at ASC NULLS FIRST, tc.id
+    FOR UPDATE SKIP LOCKED
+    LIMIT 1;
+
+    IF v_campaign_id IS NULL THEN
+        RETURN;
+    END IF;
+
+    UPDATE public.track_campaigns
+    SET last_queue_slot_at = NOW()
+    WHERE id = v_campaign_id;
+
+    RETURN QUERY
+    SELECT tc.id, tc.track_id, tc.artist_id, u.artist_name, t.title,
+           t.cover_url, tc.source_url, tc.resolved_song_id
+    FROM public.track_campaigns tc
+    LEFT JOIN public.tracks t ON t.id = tc.track_id
+    JOIN public.users u ON u.id = tc.artist_id
+    WHERE tc.id = v_campaign_id;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION public.get_next_campaign_for_queue_slot(TEXT) TO anon;
 
 -- record_campaign_stream — Velune calls this on every play
 CREATE OR REPLACE FUNCTION public.record_campaign_stream(

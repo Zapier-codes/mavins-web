@@ -2,6 +2,26 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-08-30, latest of all) — Task 59 Part 1 of 3
+> built: `supabase_migration_023_fair_rotation_queue_slot.sql`.** New
+> RPC `get_next_campaign_for_queue_slot(p_genre TEXT)` — genre-locked,
+> LRU-fair rotation (least-recently-served campaign always wins, via a
+> new `last_queue_slot_at` column), zero competitive scoring anywhere
+> in the selection. Deliberately a new function, not a rewrite of
+> `get_trending_campaigns` in place — that one still serves Velune's
+> home banner unchanged until Part 3 rebuilds that surface, so nothing
+> currently live changes behavior yet. Verified via a throwaway Python
+> simulation (4 checks, all passed, including the core guarantee: 3
+> cycles of 3 eligible campaigns served each exactly once per cycle,
+> zero early repeats) — not against live Postgres, same standing
+> sandbox limitation as every prior SQL-only task. `supabase_schema.sql`
+> updated to match, in the same commit. **Not yet applied to the live
+> DB.** **Next: Task 59 Part 2** (Velune — wire actual queue
+> interleaving, every 5th slot, to call this new function, honoring
+> Round 3's already-resolved fail-closed genre rule) or **Part 3**
+> (Velune — rebuild the home banner as its own separate surface) —
+> both still `[ ]`, independent of each other, pick either.
+>
 > **Newest note (2026-08-30, latest of all) — migrations 019–022 ALL
 > confirmed applied to the live DB.** Product owner ran the deploy from
 > the `proot-distro` container; `supabase db push` initially refused
@@ -10790,6 +10810,81 @@ already-confirmed hard rule that the true live-campaign count must
 never be revealed — so coexistence isn't just redundant, it would
 actively undermine a rule this task already treats as non-negotiable.
 This closes both of Part a's remaining open items.
+
+### Round 4 — split into 3 explicit parts, per instruction; Part 1 built this session [Part 1: x, Parts 2-3: not started]
+
+**Per explicit instruction to build the corrected design now, split
+into 3 parts, doing only the first:**
+
+- **Part 1 (mavins-web, DB-side) — done this session.** A new,
+  genre-locked, fair-rotation RPC for queue-slot selection — the
+  foundational piece, buildable and independently verifiable without
+  either Velune-side surface existing yet.
+- **Part 2 (Velune) — not started.** Wire actual queue interleaving
+  (every 5th slot) to call Part 1's new function, honoring Round 3's
+  already-resolved fail-closed genre rule (inject only from
+  `MoodAndGenresScreen`-originated queues; every other queue type
+  injects nothing).
+- **Part 3 (Velune) — not started.** Rebuild the home banner as its
+  own separate surface — single card, 30 seconds each, reshuffle
+  specifically on app-background-then-resume, never reveal the live
+  count. Independent of Part 2 — different surface, different rules,
+  no shared code expected beyond "what counts as a live campaign."
+
+**Part 1 built:
+`supabase_migration_023_fair_rotation_queue_slot.sql`.** New function
+`get_next_campaign_for_queue_slot(p_genre TEXT)` — deliberately
+**separate** from `get_trending_campaigns`, not a rewrite of it in
+place: that function is still what Velune's home banner currently
+calls (Task 59 Round 2's own trace), and rebuilding the banner is Part
+3, not Part 1 — changing `get_trending_campaigns`'s own behavior now
+would silently change what's currently live before that surface's own
+redesign even exists. This is a pure addition; nothing currently
+deployed changes behavior until Part 2 starts calling the new function.
+
+**Fairness mechanism: per-genre least-recently-served rotation (a new
+`last_queue_slot_at` column on `track_campaigns`), not randomization
+and not a separately-stored cursor/index.** Chosen over pure
+`ORDER BY random()` because "no race to the top... all is
+accommodated for" (the product owner's own words) reads as a
+guarantee, not a statistical likelihood — true LRU rotation means
+every eligible campaign in a genre gets served before any repeats,
+every single time, with no small-sample luck involved (pure
+randomization can, by chance, serve the same campaign twice in a row
+while another goes unseen — fair only over a large N, not turn by
+turn). No stream count, budget size, `trending_score`, or any other
+performance signal enters the selection logic anywhere — deliberately,
+since any of those would silently reintroduce the exact competitive
+ranking this whole task exists to remove. Concurrency handled via
+`SELECT ... FOR UPDATE SKIP LOCKED`: two callers requesting a slot at
+the same moment don't block each other or both land on the same
+"most overdue" campaign — the second simply moves on to the
+next-fairest candidate.
+
+**Verified via a throwaway Python simulation of the selection logic
+(written, run, discarded — not committed, this project's own
+established convention for SQL that can't be run live), 4 checks, all
+passed:** fail-closed on `NULL`/empty/whitespace-only genre; inactive
+and paused campaigns never selected across 20 calls; genre lock holds
+(an R&B-only request never returns a hip-hop campaign); and the core
+guarantee itself — 3 full cycles of 3 eligible campaigns produced
+exactly `[A, B, C, A, B, C, A, B, C]`, each campaign served exactly
+once per cycle with zero early repeats.
+
+**Deliberately NOT included in Part 1, flagged rather than silently
+built:** the "industry-standard refinements" this task's own earlier
+section proposed as suggestions, not confirmed asks — frequency
+capping (same listener shouldn't see the identical campaign repeatedly
+within one session) would need a per-listener/session parameter this
+function doesn't take yet. Left for a future part once confirmed.
+
+`npx tsc --noEmit` clean (no TypeScript touched — this is a SQL-only
+migration). `supabase_schema.sql` updated in the same commit to
+include both the new column and function, keeping the master schema
+file in sync per Task 58's own established convention (that task
+found and fixed a real drift there). **Not yet applied to the live
+DB** — same `supabase db push` hand-off as every prior migration in
+this file.
 
 ---
 
