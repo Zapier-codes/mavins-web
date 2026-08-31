@@ -64,20 +64,18 @@ each rule — this is the same content, kept in sync.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-08-30, latest of all) — Task 48-b Part b done,
-> same session pattern as Part a: `metadata` (Nakama-native, invisible
-> to this repo, same reasoning as Part a's `create_time`/`update_time`)
-> and `metadata_json` (this app's own tracked column) are genuinely
-> independent, not competing — no migration needed. One real
-> difference from Part a worth knowing before touching 48-c/48-d:
-> `metadata_json` isn't just "the right column already in use" the way
-> `created_at`/`updated_at` were — it's defined but currently used by
-> zero lines of this app's code anywhere, a genuinely empty extension
-> point, not a working pair. Full write-up in Task 48's own "48-b Part
-> b" entry, directly below "48-b Part a." **Next: 48-b Part c**
-> (confirm `auth_user_id` vs Nakama's own `id` as the identity key
-> admin/gamification routes should use) — Part d (synthesis) depends
-> on b and c both, so it's still blocked until c is done too.
+> **Newest note (2026-08-30, latest of all) — Task 48-b Part c done,
+> same session pattern as a and b: `id` (Nakama-native, this app's own
+> signup flow explicitly sets `public.users.id = auth.users.id` at
+> insert time) is the identity key every real route already uses;
+> `auth_user_id` is unused anywhere in this app's code today. Not a
+> dead column though — it's very likely the reverse-direction bridge
+> a real Nakama-primary-auth architecture (48-c itself) will need once
+> a user can be provisioned natively through Nakama first. Full
+> write-up in Task 48's own "48-b Part c" entry, directly below "48-b
+> Part b." **Next: 48-b Part d** — synthesis, now unblocked (a, b, and
+> c all done) — consolidate all three into one clear recommendation
+> feeding the actual 48-c architecture work.
 >
 > **Newest note (2026-08-30, previous) — Task 48's remaining
 > scope split into parts a-e (per explicit instruction), part (a)
@@ -7349,10 +7347,11 @@ instruction — "do a only full implementation"):**
     (this app's bolt-on). [x] Done this session — see its own entry
     below.**
   - **48-b Part c — confirm `auth_user_id` vs Nakama's own `id` as the
-    identity key admin/gamification routes should use. Not started.**
+    identity key admin/gamification routes should use. [x] Done this
+    session — see its own entry below.**
   - **48-b Part d — synthesis: consolidate a/b/c into one clear
-    recommendation feeding 48-c. Not started; depends on b and c
-    first.**
+    recommendation feeding 48-c. Now unblocked (a, b, and c all done)
+    — not started yet.**
 - **48-c — Wire "all real users authenticated through the Nakama
   instance" per the product owner's own recorded direction** (Group
   3's note above). The biggest, most architecturally significant
@@ -7550,6 +7549,66 @@ mean 48-c/48-d (Nakama-primary-auth wiring, gamification extension)
 should treat `metadata_json` as a genuinely available, currently-empty
 extension point if either ends up needing one — not assume it already
 holds anything.
+
+---
+
+### 48-b Part c — `auth_user_id` vs Nakama's own `id` as the identity key [x]
+
+**Done this session (2026-08-30) — resolved with concrete evidence
+from three independent sources, not a coin-flip judgment call:**
+`id` is the identity key every real, existing route already uses;
+`auth_user_id` is unused, anywhere, by any of this app's own code.
+
+- **The signup flow itself is the deciding evidence.**
+  `login/page.tsx`'s real (only actually-used, per Task 47's own
+  finding) `signUp()` path does `await supabase.from('users').insert({
+  id: user.id, ... })`, where `user` comes from
+  `supabase.auth.getUser()` — **this app explicitly sets
+  `public.users.id` equal to Supabase Auth's own `auth.users.id` at
+  account-creation time, by design.** `auth_user_id` is never touched
+  by this insert at all.
+- **Grepped every admin/gamification route that resolves a user row**
+  (`api/admin/users/[id]/route.ts`,
+  `api/gamification/streak/update/route.ts`, and the other
+  gamification routes alongside it): every single one keys off
+  `.eq('id', ...)`. Zero references to `auth_user_id` anywhere in
+  `src/`, confirmed again with a fresh grep scoped to this specific
+  question (same result Group 2's own note already implied, now
+  directly verified against real route code rather than schema alone).
+
+**Conclusion: for every route that exists in this app today, `id` is
+the correct and only-actually-working identity key.** `auth_user_id`
+is not a bug or an oversight being worked around — it's genuinely
+unused, currently `NULL` for every row this app's own signup path has
+ever created.
+
+**What `auth_user_id` is actually for, and why 48-c (the real Nakama-
+primary-auth task, not this lettered sub-part) needs to know this
+before building:** per Group 2's own original framing ("almost
+certainly the bridge to Supabase's own `auth.users`") and the product
+owner's recorded direction ("all real users should be authenticated
+through the Nakama instance") — the likely intended architecture is
+the reverse of today's: a user provisioned **natively through Nakama**
+(e.g. a mobile/game client authenticating directly via the Nakama SDK,
+receiving Nakama's own auto-generated `id`) would need a *separate*
+bridge to a Supabase Auth session for this Next.js web app to
+recognize them — and `auth_user_id` is very likely that bridge column,
+reserved for exactly that direction, not the one this app's current
+Supabase-Auth-first signup flow happens to use. **This app has never
+exercised that path** (nothing here creates a Nakama-native account
+first and links it after) — which is exactly why the column sits
+unused today, and exactly the gap 48-c's actual architecture change
+needs to close, not evidence that the column is dead/removable.
+
+**Adjacent finding, flagged rather than fixed here (out of this
+narrowly-scoped part's remit):**
+`api/gamification/streak/update/route.ts` accepts a raw `userId` from
+the request body and queries `.eq('id', userId)` with **no server-side
+session/ownership verification at all** — any caller can update any
+user's streak by supplying an arbitrary id. Real, but a different
+question ("is this route's auth correct") than this part's own
+("which column is the identity key") — noted for whoever picks up
+48-d (gamification extension) next, not chased down here.
 
 ---
 
