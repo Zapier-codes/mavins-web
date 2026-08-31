@@ -64,20 +64,20 @@ each rule — this is the same content, kept in sync.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-08-30, latest of all) — Task 48-b split into 4
-> parts (per explicit instruction, same pattern as Task 48 itself),
-> part (a) done, b-d not started.** `create_time`/`update_time`
-> (Nakama-native) vs `created_at`/`updated_at` (this app's bolt-on)
-> resolved: they're not competing for the same job, so nothing needed
-> migrating. Confirmed via grep that this app's own code exclusively
-> and consistently uses `created_at`/`updated_at` (one write site,
-> `settings/page.tsx`; one read site, `admin/users/page.tsx`) and has
-> zero references anywhere to the Nakama-native pair, which is
-> maintained entirely by Nakama's own server runtime. No code changed
-> — this was a resolve-the-question investigation, not a migration.
-> Full write-up in Task 48's own "48-b Part a" entry, directly below
-> "48-a." **Next: 48-b Part b** (`metadata` vs `metadata_json`, same
-> kind of investigation) — Parts c and d still not started either.
+> **Newest note (2026-08-30, latest of all) — Task 48-b Part b done,
+> same session pattern as Part a: `metadata` (Nakama-native, invisible
+> to this repo, same reasoning as Part a's `create_time`/`update_time`)
+> and `metadata_json` (this app's own tracked column) are genuinely
+> independent, not competing — no migration needed. One real
+> difference from Part a worth knowing before touching 48-c/48-d:
+> `metadata_json` isn't just "the right column already in use" the way
+> `created_at`/`updated_at` were — it's defined but currently used by
+> zero lines of this app's code anywhere, a genuinely empty extension
+> point, not a working pair. Full write-up in Task 48's own "48-b Part
+> b" entry, directly below "48-b Part a." **Next: 48-b Part c**
+> (confirm `auth_user_id` vs Nakama's own `id` as the identity key
+> admin/gamification routes should use) — Part d (synthesis) depends
+> on b and c both, so it's still blocked until c is done too.
 >
 > **Newest note (2026-08-30, previous) — Task 48's remaining
 > scope split into parts a-e (per explicit instruction), part (a)
@@ -7346,7 +7346,8 @@ instruction — "do a only full implementation"):**
   - **48-b Part a — `create_time`/`update_time` vs `created_at`/
     `updated_at`. [x] Done this session — see its own entry below.**
   - **48-b Part b — `metadata` (Nakama-native) vs `metadata_json`
-    (this app's bolt-on). Not started.**
+    (this app's bolt-on). [x] Done this session — see its own entry
+    below.**
   - **48-b Part c — confirm `auth_user_id` vs Nakama's own `id` as the
     identity key admin/gamification routes should use. Not started.**
   - **48-b Part d — synthesis: consolidate a/b/c into one clear
@@ -7495,6 +7496,60 @@ profile-settings save," those other call sites would need the same
 already has. Not fixed here since it wasn't this part's question to
 answer, and touching every one of those call sites is exactly the kind
 of scope-widening a narrowly-split part is meant to avoid.
+
+### 48-b Part b — `metadata` vs `metadata_json` [x]
+
+**Done this session (2026-08-30) — same shape of "which side is
+authoritative" investigation as Part a, same conclusion: the two
+aren't competing, nothing to migrate.**
+
+- `users.metadata_json JSONB DEFAULT '{}'` is a real, tracked column —
+  defined in `supabase_schema.sql`'s original base table definition,
+  confirmed present since before any of the numbered migrations
+  (002-022) — none of which ever touches it; grepped every migration
+  file for `metadata_json`, only hit is that one base definition.
+- Grepped this app's entire `src/` for `metadata_json` (exact column
+  name), `metadataJson`/`userMetadata`/`metaData` (camelCase variants
+  a client-side reference might use instead): **zero hits, anywhere,
+  under any naming convention.** Unlike Part a's `created_at`/
+  `updated_at` (which `settings/page.tsx` and `admin/users/page.tsx`
+  genuinely read/write), **`metadata_json` is currently pure dead
+  weight — defined, but never read or written by a single line of this
+  app's own code.**
+- Grepped for bare `metadata` scoped to the `users` table specifically
+  (same filtering discipline as Part a): every hit anywhere in `src/`
+  is `payment_sessions.metadata` — a completely different table, used
+  for the campaign-intent snapshot Task 36's direct-pay flow depends
+  on. **Zero hits for `users.metadata`.**
+- `create_time`/`update_time` (Part a's finding) are also absent from
+  `supabase_schema.sql` — confirmed again here as a sanity check on
+  Part a's own methodology, not re-litigated. Nakama's own account
+  model has a native `metadata` field (a JSON blob for arbitrary
+  custom user data) alongside its native `create_time`/`update_time` —
+  same as those two, this would be maintained entirely by Nakama's own
+  runtime and invisible to every Supabase query this app makes, not
+  something that would appear in this repo's own tracked schema/
+  migrations even if it exists on the live `users` row.
+
+**Conclusion, same shape as Part a: genuinely independent columns
+answering different questions, not two views on the same data — no
+migration, no column drop, no code change.** `metadata` (if present on
+the live row) is Nakama's own internal bookkeeping field, invisible to
+this app; `metadata_json` is this app's own bolt-on extension point,
+provisioned but never actually wired up to anything.
+
+**Real difference from Part a's finding, worth flagging plainly since
+it changes what "resolved" means here:** Part a's pair both have a
+live, working purpose today (Nakama uses its pair internally, this
+app's pair is genuinely read/displayed). `metadata_json` has **no
+current purpose at all** — it's not that this app is using the wrong
+column, it's that it isn't using either column for user-level
+arbitrary metadata, at all. That's not a bug (nothing is currently
+broken by an unused column sitting at its default `'{}'`), but it does
+mean 48-c/48-d (Nakama-primary-auth wiring, gamification extension)
+should treat `metadata_json` as a genuinely available, currently-empty
+extension point if either ends up needing one — not assume it already
+holds anything.
 
 ---
 
