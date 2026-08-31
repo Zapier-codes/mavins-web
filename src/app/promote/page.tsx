@@ -420,6 +420,13 @@ export default function PromotePage() {
   // below). Not migrated to /campaign-live for the same reason —
   // see that page's own header comment.
   const [showGuestCampaignSuccess, setShowGuestCampaignSuccess] = useState(false);
+  // Task 61 — the real target countries for the guest success
+  // visualization, fetched by reference once available. Empty until
+  // the fetch resolves (or if there's no reference / the fetch fails)
+  // — CampaignSuccessVisualization already handles an empty list
+  // gracefully (header only, no ring), so no separate loading state
+  // is needed here.
+  const [guestCampaignTargetCountries, setGuestCampaignTargetCountries] = useState<{ code: string; country: string; flag: string }[]>([]);
   const [topGeo, setTopGeo] = useState<{ country: string; flag: string } | null>(null);
   const [homeCountryCode, setHomeCountryCode] = useState<string | null>(null);
   const [targetCountries, setTargetCountries] = useState<string[]>([]);
@@ -454,7 +461,8 @@ export default function PromotePage() {
     checkCountryCurrencyDrift(referenceData.countries);
   }, [referenceData]);
 
-  // Task 36 Part 4 — a guest lands back here from Korapay checkout via
+  // Task 36 Part 4 / Task 61 — a guest lands back here from Korapay
+  // checkout via
   // /api/payments/verify/[reference]?redirect=/promote%3Fcampaign_created%3D1
   // (see goDirectPayCampaign below). That verify route is a pure
   // status read/redirect (Task 33 Part 2a) — it does NOT establish a
@@ -466,13 +474,47 @@ export default function PromotePage() {
   // flagging here, not attempting it as part of this task. So: show a
   // confirmation, but don't pretend they're logged in or try to fetch
   // "their" campaigns — there's no session to fetch them with.
+  //
+  // Task 61: the verify route now appends `?reference=` onto this
+  // same redirect (previously dropped there — see that route's own
+  // comment) — captured into state here, on the one render where it's
+  // still in the URL, since the effect below strips the query params
+  // right after (a refresh/back-navigation shouldn't re-show this
+  // indefinitely). Deliberately NOT read again from `searchParams`
+  // after that strip — a second effect below does the actual fetch,
+  // gated on `referenceData` (itself async) separately, so it isn't
+  // at the mercy of which of the two happens to resolve first.
+  const [guestCampaignReference, setGuestCampaignReference] = useState<string | null>(null);
   useEffect(() => {
     if (searchParams.get('campaign_created') !== '1') return;
     setShowGuestCampaignSuccess(true);
-    // Strip the query param so a refresh/back-navigation doesn't
+    setGuestCampaignReference(searchParams.get('reference'));
+    // Strip the query params so a refresh/back-navigation doesn't
     // re-show this indefinitely.
     router.replace('/promote');
   }, [searchParams, router]);
+
+  // The actual fetch — separate from the effect above so it isn't
+  // gated on `searchParams` (already stripped by the time this needs
+  // to run if `referenceData` wasn't ready on the very first render).
+  // If there's no reference (an older bookmarked link) or the fetch
+  // fails, this silently stays an empty list — the same graceful
+  // "header only" behavior this page already had before this fix, not
+  // a new failure mode.
+  useEffect(() => {
+    if (!guestCampaignReference || !referenceData) return;
+    fetch(`/api/payments/campaign-intent/${encodeURIComponent(guestCampaignReference)}`)
+      .then((res) => res.json())
+      .then((json) => {
+        if (!json.success) return;
+        const codes: string[] = json.targetCountries ?? [];
+        const resolved = codes
+          .map((code) => referenceData.countries.find((c) => c.code === code))
+          .filter((c): c is { code: string; country: string; flag: string } => !!c);
+        setGuestCampaignTargetCountries(resolved);
+      })
+      .catch(() => { /* stays empty */ });
+  }, [guestCampaignReference, referenceData]);
 
   // Local currency, derived from the app-wide geo context (fetched once
   // at app initialization by GeoProvider, mounted in layout.tsx — see
@@ -778,25 +820,21 @@ export default function PromotePage() {
         </div>
 
         {showGuestCampaignSuccess && (
-          // Task 33 Part 3 / Task 36 Part 4: no target-country data is
-          // available here to visualize — a guest's browser state is
-          // gone by the time they return from Korapay's checkout (see
-          // goDirectPayCampaign's own comment above for why
-          // stashPendingCampaign is deliberately not called for this
-          // path), and the redirect URL
-          // (/promote?campaign_created=1) doesn't carry a reference to
-          // fetch the server-side snapshot by either. Renders with an
-          // empty list, which the component handles gracefully
-          // (header only, no visualization) rather than guessing at
-          // data that isn't there. A future session completing Task 36
-          // Part 4 properly could close this gap by threading the
-          // reference through the redirect and fetching
-          // payment_sessions.metadata.campaign server-side.
+          // Task 61 (handover.md, formalizing "Task 36 Part 4") —
+          // real target countries now, not always an empty list. The
+          // reference-threading gap (verify route dropping the
+          // reference on its own final redirect) is fixed — see that
+          // route's own comment — and guestCampaignTargetCountries is
+          // populated by the effect above once the fetch resolves.
+          // Still renders gracefully with an empty ring if there's no
+          // reference (an older bookmarked link) or the fetch hasn't
+          // resolved yet — CampaignSuccessVisualization already
+          // handles that case, unchanged.
           <div className="space-y-3">
             <CampaignSuccessVisualization
               title="Payment confirmed!"
               subtitle="Your campaign is being set up now — this can take a minute."
-              targetCountries={[]}
+              targetCountries={guestCampaignTargetCountries}
             />
             {/* Task 51 (handover.md): the guest conversion CTA that
                 task asks for, without needing the real campaign-id

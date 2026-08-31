@@ -75,7 +75,17 @@ export async function GET(
     if (session.status === 'success') {
       // Crediting already happened (or is happening) on the webhook
       // path, not here — this route only reports status.
-      return NextResponse.redirect(new URL(redirectPath, request.url));
+      //
+      // Task 61 (handover.md, formalizing "Task 36 Part 4"): append
+      // the reference this route already has (its own path param) as
+      // a query param on the way out — this was the one place it got
+      // dropped. Everything upstream of here (Korapay's own
+      // redirect_url, this route's own URL) already carries it
+      // correctly; only this final hop to the caller-supplied
+      // `redirect` target didn't forward it along.
+      const target = new URL(redirectPath, request.url);
+      target.searchParams.set('reference', reference);
+      return NextResponse.redirect(target);
     }
 
     if (session.status === 'failed') {

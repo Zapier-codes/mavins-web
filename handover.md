@@ -2,6 +2,18 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-08-30, latest of all) — Task 61 built and
+> closed.** The guest campaign-success screen now shows real target
+> countries instead of an always-empty list. The actual gap was one
+> line, not the whole redirect chain the task's own original write-up
+> assumed: `api/payments/verify/[reference]/route.ts` already had the
+> reference in scope on its success path and simply never appended it
+> to its own outbound redirect — fixed there, plus a new narrow
+> `api/payments/campaign-intent/[reference]` read route and
+> `promote/page.tsx` wiring to consume it.
+> `npx tsc --noEmit` clean; not verified against a live Korapay
+> round-trip (no live credentials in this sandbox).
+>
 > **Standing principle, added this session (2026-08-30) — applies to
 > every task in this file going forward, not just the ones below it:**
 > when work turns up a real gap and a comparable problem has already
@@ -11384,7 +11396,7 @@ doesn't rediscover the same suspicion and re-investigate it.
 
 ---
 
-## Task 61 — Formalizing "Task 36 Part 4": guest success visualization shows no target countries [ ]
+## Task 61 — Formalizing "Task 36 Part 4": guest success visualization shows no target countries [x]
 
 **This has been referenced by name — "Task 36 Part 4" — in at least
 two other places in this file (Task 33 item 3's own note, and Task
@@ -11452,17 +11464,82 @@ solved, the more complete fix is likely routing guests to
 inline `showGuestCampaignSuccess` banner in isolation — but that
 requires a real campaign id to exist by the time the guest returns,
 which depends on the webhook-created-campaign race Task 51's note also
-flags. Worth deciding which of the two (fix the inline banner's
-countries, or resolve the race and route guests to `/campaign-live`
-directly) before starting, rather than building the smaller fix and
-then immediately replacing it.
+flags.
 
-**Deliberately not started — documentation only.** No code changed
-this session. Small, well-scoped, single-session-sized fix once
-picked up — doesn't need product-owner input first (a UX-completeness
-gap in an already-shipped feature, not a new product decision), just
-needs step 1's Korapay-docs confirmation and the routing decision
-immediately above before writing the actual change.
+**Which of the two to build first — resolved, not left as a pre-start
+decision, per the standing principle at the top of this file:** built
+the smaller, inline-banner fix now, not the `/campaign-live` routing.
+The `/campaign-live` migration depends on resolving a separate, larger
+race condition (Task 51's own open item) that has nothing to do with
+this task's actual ask — gating a concrete, immediately-correct fix on
+an unrelated, bigger piece of unfinished work would leave the visible
+bug live for no benefit. The reference-threading mechanism built here
+isn't wasted work either way: `/campaign-live?id=...` will still need
+*some* way to resolve a reference to a real campaign id once that race
+is fixed, and this session's fix is the same underlying mechanism
+(reference survives the redirect, a server route resolves it) that
+work would build on, not something it would have to undo.
+
+### Built, this session (2026-08-30)
+
+**Step 1 — confirmed via Korapay's own docs first, not assumed:**
+Checkout Redirect supports a per-session custom `redirect_url`, and
+**Korapay itself already appends the transaction reference** as
+`?reference=...` on that URL after payment completes. Turned out not
+to matter for the actual fix, though — see below.
+
+**The real gap was one line, not the whole chain assumed in this
+section's original write-up.** Tracing the actual code (not
+re-deriving from the description above) found the reference was
+already surviving every hop up through
+`api/payments/verify/[reference]/route.ts` — Korapay redirects there
+with the reference in the URL *path itself*, so it was never actually
+at risk of being lost in the Korapay leg at all. The one place it
+genuinely got dropped: that route's own final
+`NextResponse.redirect(new URL(redirectPath, request.url))` on the
+success path — it had `reference` in scope (its own path param) and
+simply never appended it to the URL it redirected the browser to.
+Fixed with a 2-line change to that one line, not a rework of
+`goDirectPayCampaign()`'s `redirectTo` or the Korapay leg at all.
+
+1. **`api/payments/verify/[reference]/route.ts`** — the success-path
+   redirect now does
+   `target.searchParams.set('reference', reference)` before
+   redirecting, instead of forwarding `redirectPath` unmodified.
+2. **New `api/payments/campaign-intent/[reference]/route.ts`** — a
+   narrow, reference-gated read of
+   `payment_sessions.metadata.campaign.targetCountries` (service-role
+   client; that table has RLS enabled with zero policies, confirmed
+   directly, so this can't be a direct browser-side query). Same
+   no-additional-auth posture as the verify route right next to it —
+   the reference itself is the capability, an unguessable
+   server-generated token, not a user-suppliable id.
+3. **`promote/page.tsx`** — the `campaign_created` effect now captures
+   `?reference=` into state on the one render it's present (before
+   `router.replace` strips it), a separate effect fetches the new
+   route once both that reference and `useReferenceData()`'s own store
+   are available (deliberately not chained through `searchParams`
+   itself, which would already be stripped by the time a slow
+   `referenceData` load resolved), and maps the returned country codes
+   to `{code, country, flag}` via `referenceData.countries` — the same
+   lookup pattern already used elsewhere on this page.
+   `CampaignSuccessVisualization` now renders the real
+   `guestCampaignTargetCountries` instead of a hardcoded `[]`. Still
+   renders gracefully empty for an older bookmarked link with no
+   reference, or if the fetch fails — unchanged fallback behavior, not
+   a new failure mode.
+
+Verified: `npx tsc --noEmit` clean. A throwaway Node script (written,
+run, deleted, not committed) checked the redirect-URL-building logic
+against 3 cases — existing query param preserved, no existing query
+param, and a reference containing special characters correctly
+percent-encoded — all passed. Grepped for any other code assuming the
+verify route's old (reference-less) redirect shape — none found.
+
+**Not independently confirmed against a live Supabase instance or a
+real Korapay checkout round-trip** — no live credentials in this
+sandbox, same limitation every prior Supabase/Korapay-touching task in
+this file has noted.
 
 ---
 
