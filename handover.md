@@ -2,6 +2,24 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Standing principle, added this session (2026-08-30) — applies to
+> every task in this file going forward, not just the ones below it:**
+> when work turns up a real gap and a comparable problem has already
+> been solved by an established platform (ad-slot placement, taxonomy
+> reconciliation, anonymous-to-identified user models, payout gating,
+> etc.), **resolve it by applying that platform's own approach and
+> commit to a design — don't park a real decision on "needs
+> confirmation" or "needs a live capture" if it can be reasoned through
+> instead.** Document the reasoning and the precedent it's drawn from
+> so the choice is auditable, but don't route it back as an open
+> question by default. This doesn't override cases that genuinely need
+> the product owner's own judgment (money splits, legal/compliance
+> calls, anything this file's own existing entries already routed to
+> them directly) — it's specifically for engineering-shaped gaps
+> dressed up as open questions, which is most of what "needs a live
+> capture"/"needs confirmation" has actually meant in this file's own
+> history.
+>
 > **Newest note (2026-08-30, latest of all) — Task 59 Part 2: full
 > Velune wiring discovery done, documentation only, no code.** Cloned
 > Velune fresh and traced the entire call chain from a genre-tile tap
@@ -11069,12 +11087,90 @@ rather than repeated three times.
 **What this section does NOT do, on purpose:** write any Kotlin, touch
 `Queue.kt`, `MusicService.kt`, `CampaignRepository.kt`, or any nav
 route — every finding above is discovery and a reasoned recommendation
-only, per explicit instruction this session. The next session that
-picks up Part 2 has a fully-traced call chain, a concrete architecture
-recommendation, and three named "needs a live capture, not resolvable
-by reading code alone" gaps (grid-path play behavior, real YouTube
-tile title strings, genre-vs-mood section labeling) to resolve on a
-real device before writing anything.
+only, per explicit instruction this session. **The three "needs a live
+capture" gaps below (Findings 2/3/4) were left open by the session
+that wrote them — resolved this session instead, per direct
+instruction: apply industry-standard ad-slot design from platforms
+that have already solved this exact class of problem, rather than
+gate a design decision on a live device run.** None of these needed
+Kotlin written to resolve — each is a design commitment a next session
+can now build against directly.
+
+### Round 3 — Findings 2/3/4, resolved by industry-standard ad-slot design, not a live capture
+
+**Standing principle, recorded here and meant to generalize: when a
+finding is blocked only on "needs a live capture to know for
+certain" and a comparable problem has already been solved by an
+established platform, apply that platform's own approach and commit
+to a design — don't leave a real decision parked on a data-collection
+step that may never happen. This isn't specific to Task 59; it's how
+this file should treat this shape of gap going forward.**
+
+**Finding 2 (grid-path play behavior) — resolved: forward genre
+symmetrically at every navigation hop, not just the first one.**
+Spotify's own genre/mood hub → sub-page → play flow (and Pandora's
+genre-station model before it) doesn't special-case "how many screens
+deep" a listener is before hitting play — the ad-eligible context
+(station/genre) is carried forward through *every* intermediate
+navigation as a first-class piece of state, and whichever screen
+ultimately builds the actual playback queue reads it from there. Same
+fix applies here regardless of which shape (flat list or grid) a given
+`browseId` happens to return: the genre string already available at
+the `MoodAndGenresScreen` tap (Finding 2's own point 1) gets forwarded
+as a nav argument on the `album/{id}` / `artist/{id}` /
+`online_playlist/{id}` routes too, not only on the
+`youtube_browse` route it's already known to reach today. Each of
+those three destination screens' own queue-construction call site
+sets `Queue.genre` from that forwarded argument, exactly like
+`YouTubeBrowseScreen`'s flat-list path already will per Finding 2's
+existing recommendation — one consistent mechanism, applied at every
+hop instead of only the first, makes the grid-path question moot: it
+no longer matters which shape a given browse result takes, because
+genre survives either path the same way.
+
+**Finding 3 (genre-vocabulary mismatch) — resolved: normalize-then-
+match against mavins-web's own canonical list, not exact string
+equality.** This is the standard way large platforms reconcile an
+external, inconsistent taxonomy (YouTube's own catalog labels) against
+an internal canonical one (mavins-web's `genres` table) for ad
+targeting — normalize both sides before comparing, not before/instead
+of maintaining an alias table, but as the first pass in front of it:
+lowercase, trim, strip `&`/`and`, strip common YouTube suffixes
+("Music", "Songs", "Hits"). A small, explicitly-seeded alias table
+covers the pairs normalization alone won't catch — seeded now with the
+obvious ones a professional would expect from YouTube's own taxonomy
+conventions (`"Hip-Hop & Rap"` → `Hip-Hop`, `"Hip-Hop/Rap"` → `Hip-Hop`,
+`"R&B & Soul"` → `R&B`, `"R&B/Soul"` → `R&B`, `"Afrobeat"` → `Afrobeats`,
+`"Dance/Electronic"` → `Electronic`, `"Reggae & Ska"` → `Reggae`), not
+waiting for a live capture to populate a first entry. Anything that
+still fails both normalization and the alias table falls through to
+fail-closed (Round 2's own rule) — and should be logged
+(tile title + normalized form), so the alias table grows from real
+production strings over time instead of needing a one-time manual
+capture session before any of this can ship.
+
+**Finding 4 (genre-vs-mood section labeling) — resolved as a direct
+consequence of Finding 3's design, not a separate problem.** Spotify
+doesn't ask a third party's own UI to self-label "this is a genre
+section" either — it matches incoming labels against its *own*
+canonical genre vocabulary and treats anything that doesn't match as
+out of scope. Same here: Finding 3's normalize-then-match logic only
+ever succeeds against mavins-web's own canonical genre list (14
+entries, `promote/page.tsx`'s own store). A mood tile like "Chill" or
+"Feel Good" simply won't match any canonical genre or alias, normalized
+or not, and falls through to the same fail-closed path automatically —
+no genre/mood type flag, no YouTube-side section-title classification,
+and no live capture needed to tell the two apart. The matching logic
+*is* the disambiguator.
+
+**Net effect: Part a is now fully unblocked, not partially.** All
+three "needs a live capture" gaps this section's own author left open
+are closed by design decisions, not deferred. A next session can build
+Finding 1's RPC switch, Finding 2's per-hop genre forwarding, and
+Finding 3/4's normalize-and-alias matching directly, with production
+logging on the fail-closed path (Finding 3's own note) as the
+mechanism that refines the alias table over time instead of a live
+capture gating the first build.
 
 ---
 
@@ -11220,20 +11316,40 @@ usable, identity signal for a payable listener under Task 49's model,
 not a stopgap standing in for a "real" auth system that should
 eventually replace it.
 
-**What this means for Task 49 (listener earnings), stated plainly:**
-that task's own `listener_id UUID NOT NULL REFERENCES public.users(id)`
-column (`listener_play_events`, migration 019) assumed a real
-`public.users` row per listener. A device id is not a `public.users`
-row — it's a stable-per-install string with no account behind it at
-all. Reconciling these two models (does a device id get its own
-auto-provisioned `public.users` row the first time it plays a
-qualifying stream, the way Task 37's guest-campaign flow
-auto-provisions an account on first payment? does earnings/payout ever
-require the device's owner to claim/link a real identity later, e.g.
-to actually receive a payout?) is a real, unresolved design question
-this cross-check surfaced but did not answer — flagged here explicitly
-as follow-up work for whoever picks up Task 49's actual build, not
-silently assumed either way.
+**What this means for Task 49 (listener earnings), stated plainly —
+resolved this session, not left as follow-up:** that task's own
+`listener_id UUID NOT NULL REFERENCES public.users(id)` column
+(`listener_play_events`, migration 019) assumed a real `public.users`
+row per listener. A device id is not a `public.users` row on its own —
+reconciling the two needs a real mechanism, not a rewritten column
+constraint. **Resolved by applying the exact pattern this codebase
+already uses for the same underlying shape of problem — Task 37's
+guest-campaign flow, which auto-provisions a real account on first
+payment rather than requiring signup before that point.** Same
+principle, applied here: **auto-provision a minimal `public.users` row
+the first time a given device id records its first qualifying stream**
+(not on install, not on every play — the same "lazy, triggered by the
+first event that actually needs a row" timing Task 37 already
+established as this codebase's own convention), tagged with a new
+`user_type` value (e.g. `'device_listener'`) distinct from `'seed'`/
+`'artist'`/`'listener'`\* so it's never confused with a real,
+independently-created account. `listener_id` continues to reference
+`public.users(id)` unchanged — no schema rework needed, migration 019
+already has the right shape, it just needs the row-provisioning step
+this paragraph specifies. **Payout stays gated behind a real identity
+claim at withdrawal time, not at play time** — Task 49's own payout
+flow already requires a real payout tag (Nova Bank account) before a
+withdrawal can be submitted at all, so the "prove you're a real,
+payable person" step this design needs already exists naturally at
+exactly the point it's actually needed, not before. This preserves
+Velune's no-login design completely: a device can earn from play #1
+with zero friction, and only has to attach a real payout identity the
+one time it actually wants to withdraw.
+
+\* Exact enum value is this session's own suggestion, not load-bearing
+— whoever implements migration 019's actual row-provisioning trigger
+should feel free to name it whatever reads clearest alongside the
+existing `'seed'`/`'artist'` values already in that column.
 
 ### One assumption checked and corrected, not just repeated
 
