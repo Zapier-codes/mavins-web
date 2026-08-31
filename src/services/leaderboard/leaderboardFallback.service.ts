@@ -8,8 +8,12 @@
  * clearly-fictional ranking that reshuffles on every load so repeat
  * visitors don't see the exact same names/order each time.
  *
- * Every name below is an invented stage name — not a real artist.
+ * Task 53: Now uses the draft asset manifest (src/lib/assets/manifest.ts)
+ * for avatar images. These are draft placeholders — not real people.
+ * When real creative assets arrive, only the manifest needs updating.
  */
+
+import { ARTIST_IMAGES, type ArtistAsset } from '@/lib/assets/manifest';
 
 export interface LeaderboardEntry {
   rank: number;
@@ -21,17 +25,8 @@ export interface LeaderboardEntry {
   id: string;
 }
 
-const FALLBACK_NAME_POOL: string[] = [
-  'Amaka Sound', 'Kwame Beats', 'Zainab Vibes', 'Tunde Rhythm', 'Ngozi Flow',
-  'Chidi Wave', 'Aisha Grooves', 'David Tempo', 'Grace Melody', 'Marcus Beatz',
-  'Sarah Tunes', 'Phillip Sonic', 'Blessing Echo', 'Ifeoma Pulse', 'Kenechi Groove',
-  'Fatima Notes', 'Emeka Sound', 'Halima Beats', 'Chinedu Flow', 'Amina Vibe',
-  'Obinna Rhythm', 'Yetunde Wave', 'Segun Tempo', 'Ada Melody', 'Nkechi Pulse',
-  'Bayo Groove', 'Funke Sonic', 'Ikenna Echo', 'Rita Beatz', 'Tobi Tunes',
-];
-
-const MIN_ENTRIES = 15;
-const MAX_ENTRIES = 30;
+const MIN_ENTRIES = 8;
+const MAX_ENTRIES = 15;
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -42,23 +37,26 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-/** Builds a fresh, randomly-sized (15-30), randomly-ordered fallback ranking
- * each time it's called, with a descending (jittered, non-robotic) stream
- * count so the podium/rank UI still reads sensibly. */
+/** Builds a fresh, randomly-sized (8-15), randomly-ordered fallback ranking
+ * each time it's called, using draft artist assets for avatars.
+ * Stream counts are descending (jittered, non-robotic) so the podium/rank
+ * UI still reads sensibly. */
 export function getFallbackLeaderboard(): LeaderboardEntry[] {
+  const pool = shuffle([...ARTIST_IMAGES]);
   const count = MIN_ENTRIES + Math.floor(Math.random() * (MAX_ENTRIES - MIN_ENTRIES + 1));
-  const names = shuffle(FALLBACK_NAME_POOL).slice(0, count);
+  const selected = pool.slice(0, count);
 
   let streams = 180_000 + Math.floor(Math.random() * 60_000);
 
-  return names.map((name, i) => {
+  return selected.map((artist: ArtistAsset, i: number) => {
     const jitter = Math.floor(Math.random() * 4_000);
     const entry: LeaderboardEntry = {
       rank: i + 1,
-      artist_name: name,
+      artist_name: artist.name,
       total_streams: Math.max(500, streams - jitter),
       total_campaigns: 1 + Math.floor(Math.random() * 8),
-      id: `fallback-${name}`,
+      avatar_url: artist.src,
+      id: `fallback-${artist.id}`,
     };
     streams = Math.max(500, streams - jitter - (6_000 + Math.floor(Math.random() * 5_000)));
     return entry;

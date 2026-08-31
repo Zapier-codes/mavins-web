@@ -1,14 +1,19 @@
 // src/services/earnings/earningsTicker.service.ts
 /**
- * Public earnings ticker for the landing-page marquee ("Phillip just earned
+ * Public earnings ticker for the landing-page marquee ("Pharrell just earned
  * $200 from YouTube views"). Same posture as publicStats.service.ts: only
  * ever exposes a first name + platform + amount (never emails, ids, or
  * anything sensitive), queries best-effort against `wallet_ledger` joined to
  * `users` from the seed network, and falls back to a curated snapshot so the
  * marquee never renders empty on a fresh env or when RLS blocks anon reads.
+ *
+ * Task 53: Fallback names now come from the draft asset manifest
+ * (src/lib/assets/manifest.ts) rather than hardcoded fictional names.
+ * These are draft placeholders — not real people.
  */
 
 import { createClient } from '@/lib/supabase/client';
+import { ARTIST_IMAGES } from '@/lib/assets/manifest';
 
 export type TickerPlatform = 'youtube' | 'spotify' | 'tiktok' | 'instagram' | 'soundcloud';
 
@@ -42,23 +47,21 @@ function firstName(fullName: string | null | undefined): string {
   return fullName.trim().split(/\s+/)[0];
 }
 
-// Curated snapshot — realistic first names drawn from the same country mix
-// as the promote page's demographic breakdown, so the fallback matches the
-// live shape when the network is warm.
-const FALLBACK_ITEMS: EarningTickerItem[] = [
-  { id: 'f1', name: 'Phillip', amountCents: 20000, platform: 'youtube', createdAt: new Date().toISOString() },
-  { id: 'f2', name: 'Amaka', amountCents: 8400, platform: 'spotify', createdAt: new Date().toISOString() },
-  { id: 'f3', name: 'Kwame', amountCents: 15250, platform: 'tiktok', createdAt: new Date().toISOString() },
-  { id: 'f4', name: 'Sarah', amountCents: 4300, platform: 'instagram', createdAt: new Date().toISOString() },
-  { id: 'f5', name: 'Tunde', amountCents: 32000, platform: 'youtube', createdAt: new Date().toISOString() },
-  { id: 'f6', name: 'Grace', amountCents: 6100, platform: 'soundcloud', createdAt: new Date().toISOString() },
-  { id: 'f7', name: 'Chidi', amountCents: 11800, platform: 'spotify', createdAt: new Date().toISOString() },
-  { id: 'f8', name: 'Zainab', amountCents: 9200, platform: 'tiktok', createdAt: new Date().toISOString() },
-  { id: 'f9', name: 'Marcus', amountCents: 27500, platform: 'youtube', createdAt: new Date().toISOString() },
-  { id: 'f10', name: 'Ngozi', amountCents: 5600, platform: 'instagram', createdAt: new Date().toISOString() },
-  { id: 'f11', name: 'David', amountCents: 14300, platform: 'spotify', createdAt: new Date().toISOString() },
-  { id: 'f12', name: 'Aisha', amountCents: 7900, platform: 'tiktok', createdAt: new Date().toISOString() },
-];
+/** Build fallback items from draft artist assets.
+ *  Shuffled on every call so repeat visitors see variety. */
+function buildFallbackItems(): EarningTickerItem[] {
+  const shuffled = [...ARTIST_IMAGES].sort(() => Math.random() - 0.5);
+  const platforms: TickerPlatform[] = ['youtube', 'spotify', 'tiktok', 'instagram', 'soundcloud'];
+  const amounts = [20000, 8400, 15250, 4300, 32000, 6100, 11800, 9200, 27500, 5600, 14300, 7900];
+
+  return shuffled.slice(0, 12).map((artist, i) => ({
+    id: `f-${artist.id}`,
+    name: artist.name.split(/\s+/)[0], // first name only
+    amountCents: amounts[i % amounts.length],
+    platform: platforms[i % platforms.length],
+    createdAt: new Date().toISOString(),
+  }));
+}
 
 let cached: { data: EarningTickerItem[]; fetchedAt: number } | null = null;
 const CACHE_TTL_MS = 60_000;
@@ -80,7 +83,7 @@ export async function getEarningsTicker(): Promise<{ items: EarningTickerItem[];
       .limit(20);
 
     if (error || !data || data.length === 0) {
-      return { items: FALLBACK_ITEMS, isLive: false };
+      return { items: buildFallbackItems(), isLive: false };
     }
 
     const items: EarningTickerItem[] = data.map((row: any) => ({
@@ -94,6 +97,6 @@ export async function getEarningsTicker(): Promise<{ items: EarningTickerItem[];
     cached = { data: items, fetchedAt: Date.now() };
     return { items, isLive: true };
   } catch {
-    return { items: FALLBACK_ITEMS, isLive: false };
+    return { items: buildFallbackItems(), isLive: false };
   }
 }
