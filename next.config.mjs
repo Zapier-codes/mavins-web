@@ -1,7 +1,14 @@
-﻿/** @type {import('next').NextConfig} */
+/** @type {import('next').NextConfig} */
 const nextConfig = {
   images: {
-    domains: ['picsum.photos', 'images.unsplash.com', 'cdn.soundwave.com'],
+    domains: [
+      'picsum.photos',
+      'images.unsplash.com',
+      'cdn.soundwave.com',
+      'api.deezer.com',
+      'e-cdns-images.dzcdn.net',
+      'cdns-images.dzcdn.net',
+    ],
     formats: ['image/avif', 'image/webp'],
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
@@ -34,10 +41,6 @@ const nextConfig = {
     return config;
   },
   experimental: {
-    // optimizeCss (critters) has known issues silently dropping stylesheets
-    // on some routes in production builds — disabled after it was linked to
-    // components rendering unstyled (raw underlined links, no glass/theme
-    // styling) in Chrome production builds.
     scrollRestoration: true,
     optimizePackageImports: ['recharts', 'lucide-react'],
   },

@@ -4,11 +4,14 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/hooks/auth/useAuth';
 import { supabase } from '@/lib/supabase/client';
-import { formatCompactNumber } from '@/lib/campaign/pricing';
+import { formatCompactNumber, formatCents } from '@/lib/campaign/pricing';
 import { cn } from '@/lib/utils/cn';
 import { getFallbackLeaderboard } from '@/services/leaderboard/leaderboardFallback.service';
 import { AnimatedCounter } from '@/components/ui/AnimatedCounter';
-import { Trophy, TrendingUp, TrendingDown, Crown, Medal, Award } from 'lucide-react';
+import { 
+  Trophy, TrendingUp, TrendingDown, Crown, Medal, Award,
+  Music, DollarSign, Headphones, ChevronDown, ChevronUp
+} from 'lucide-react';
 
 interface LeaderboardEntry {
   rank: number;
@@ -16,21 +19,41 @@ interface LeaderboardEntry {
   total_streams: number;
   total_campaigns: number;
   avatar_url?: string;
+  coverart?: string;
+  estimated_revenue_cents: number;
+  listen_earn_cents: number;
+  songs_per_day: number;
   id: string;
 }
 
-// Real leaderboard rows refresh on this cadence so rank/streams stay current
-// without the visitor having to reload — this is what actually makes
-// position 1 "move" over time: real totals changing, not a fake shuffle.
 const REFRESH_MS = 45_000;
+
+function CoverImage({ src, alt, className }: { src?: string; alt: string; className?: string }) {
+  const [error, setError] = useState(false);
+  if (!src || error) {
+    return (
+      <div className={`bg-gradient-to-br from-[var(--accent-light)] to-[var(--accent-dark)] flex items-center justify-center text-sm font-bold ${className}`}>
+        {alt.charAt(0)}
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={`object-cover ${className}`}
+      onError={() => setError(true)}
+      loading="lazy"
+    />
+  );
+}
 
 export default function LeaderboardPage() {
   const { user } = useAuth();
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [filter, setFilter] = useState<'all' | 'week' | 'month'>('all');
   const [isLoading, setIsLoading] = useState(true);
-  // Previous rank per entry id, so we can show a small up/down/same
-  // indicator when a refresh reorders the board.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const prevRanksRef = useRef<Map<string, number>>(new Map());
   const [rankDeltas, setRankDeltas] = useState<Map<string, number>>(new Map());
   const [isFallback, setIsFallback] = useState(false);
@@ -63,6 +86,10 @@ export default function LeaderboardPage() {
       total_streams: Number(d.total_streams) || 0,
       total_campaigns: Number(d.total_campaigns) || 0,
       avatar_url: d.avatar_url,
+      coverart: d.coverart || d.avatar_url,
+      estimated_revenue_cents: Number(d.estimated_revenue_cents) || 0,
+      listen_earn_cents: Number(d.listen_earn_cents) || 0,
+      songs_per_day: Number(d.songs_per_day) || 5,
       id: d.artist_id || `row-${i}`,
     }));
 
@@ -118,7 +145,6 @@ export default function LeaderboardPage() {
           )}
         </div>
 
-        {/* Filters */}
         <div className="flex items-center justify-center gap-2">
           {(['all', 'week', 'month'] as const).map((f) => (
             <button
@@ -136,7 +162,6 @@ export default function LeaderboardPage() {
           ))}
         </div>
 
-        {/* Top 3 Podium */}
         {entries.length >= 3 && (
           <div className="flex items-end justify-center gap-3 pt-4">
             <AnimatePresence>
@@ -153,8 +178,8 @@ export default function LeaderboardPage() {
                     transition={{ type: 'spring', stiffness: 260, damping: 26 }}
                     className={cn('flex flex-col items-center', positions[i])}
                   >
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[var(--accent-light)] to-[var(--accent-dark)] flex items-center justify-center text-sm font-bold shadow-lg shadow-[var(--accent)]/20 mb-2">
-                      {entry.artist_name.charAt(0)}
+                    <div className="w-14 h-14 rounded-xl overflow-hidden border-2 border-[var(--accent)]/30 shadow-lg shadow-[var(--accent)]/20 mb-2">
+                      <CoverImage src={entry.coverart} alt={entry.artist_name} className="w-full h-full" />
                     </div>
                     <div className={cn(
                       'w-20 rounded-t-2xl bg-gradient-to-t flex items-end justify-center pb-2',
@@ -173,7 +198,6 @@ export default function LeaderboardPage() {
           </div>
         )}
 
-        {/* List */}
         <div className="space-y-2">
           {isLoading ? (
             Array.from({ length: 5 }).map((_, i) => (
@@ -188,6 +212,7 @@ export default function LeaderboardPage() {
             <AnimatePresence initial={false}>
               {entries.slice(3).map((entry) => {
                 const delta = rankDeltas.get(entry.id) || 0;
+                const isExpanded = expandedId === entry.id;
                 return (
                   <motion.div
                     key={entry.id}
@@ -198,34 +223,73 @@ export default function LeaderboardPage() {
                     exit={{ opacity: 0 }}
                     transition={{ type: 'spring', stiffness: 300, damping: 30 }}
                     className={cn(
-                      'flex items-center gap-4 p-4 rounded-xl border',
+                      'rounded-xl border cursor-pointer',
                       getRankStyle(entry.rank)
                     )}
+                    onClick={() => setExpandedId(isExpanded ? null : entry.id)}
                   >
-                    <div className="w-8 flex flex-col items-center justify-center">
-                      {getRankIcon(entry.rank)}
-                      {delta !== 0 && (
-                        <span className={cn(
-                          'flex items-center text-[9px] font-bold mt-0.5',
-                          delta > 0 ? 'text-[#1db954]' : 'text-rose-400'
-                        )}>
-                          {delta > 0 ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
-                        </span>
-                      )}
+                    <div className="flex items-center gap-4 p-4">
+                      <div className="w-8 flex flex-col items-center justify-center">
+                        {getRankIcon(entry.rank)}
+                        {delta !== 0 && (
+                          <span className={cn(
+                            'flex items-center text-[9px] font-bold mt-0.5',
+                            delta > 0 ? 'text-[#1db954]' : 'text-rose-400'
+                          )}>
+                            {delta > 0 ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
+                          </span>
+                        )}
+                      </div>
+                      <div className="w-12 h-12 rounded-xl overflow-hidden border border-[var(--border)] flex-shrink-0 shadow-lg shadow-black/10">
+                        <CoverImage src={entry.coverart} alt={entry.artist_name} className="w-full h-full" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate">{entry.artist_name}</p>
+                        <p className="text-xs text-[var(--subtle-foreground)]">{entry.total_campaigns} campaigns</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-sm tabular-nums">
+                          <AnimatedCounter value={entry.total_streams} formatFn={formatCompactNumber} duration={900} />
+                        </p>
+                        <p className="text-xs text-[var(--subtle-foreground)]">streams</p>
+                      </div>
+                      <div className="text-[var(--muted-foreground)]">
+                        {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </div>
                     </div>
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[var(--accent-light)] to-[var(--accent-dark)] flex items-center justify-center text-sm font-bold flex-shrink-0 shadow-lg shadow-[var(--accent)]/20">
-                      {entry.artist_name.charAt(0)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">{entry.artist_name}</p>
-                      <p className="text-xs text-[var(--subtle-foreground)]">{entry.total_campaigns} campaigns</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold text-sm tabular-nums">
-                        <AnimatedCounter value={entry.total_streams} formatFn={formatCompactNumber} duration={900} />
-                      </p>
-                      <p className="text-xs text-[var(--subtle-foreground)]">streams</p>
-                    </div>
+
+                    {isExpanded && (
+                      <div className="px-4 pb-4 pt-0 grid grid-cols-2 gap-3 border-t border-[var(--border)]/50">
+                        <div className="flex items-center gap-2 p-2.5 rounded-lg bg-[var(--accent)]/5">
+                          <Music className="w-4 h-4 text-[var(--accent)]" />
+                          <div>
+                            <p className="text-[10px] text-[var(--muted-foreground)]">Est. Revenue</p>
+                            <p className="text-xs font-bold">{formatCents(entry.estimated_revenue_cents)}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 p-2.5 rounded-lg bg-[var(--emerald)]/5">
+                          <Headphones className="w-4 h-4 text-[var(--emerald)]" />
+                          <div>
+                            <p className="text-[10px] text-[var(--muted-foreground)]">Listen & Earn</p>
+                            <p className="text-xs font-bold">{formatCents(entry.listen_earn_cents)}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-400/5">
+                          <DollarSign className="w-4 h-4 text-amber-400" />
+                          <div>
+                            <p className="text-[10px] text-[var(--muted-foreground)]">Songs / Day</p>
+                            <p className="text-xs font-bold">{entry.songs_per_day}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 p-2.5 rounded-lg bg-rose-400/5">
+                          <TrendingUp className="w-4 h-4 text-rose-400" />
+                          <div>
+                            <p className="text-[10px] text-[var(--muted-foreground)]">Campaigns</p>
+                            <p className="text-xs font-bold">{entry.total_campaigns}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </motion.div>
                 );
               })}
