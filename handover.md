@@ -2,6 +2,19 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-08-30, latest of all) — Task 56c's own addendum
+> reconciles with Task 48-c Part 1, below.** Both independently reached
+> the same trust-model conclusion (Supabase's own `id` is the only
+> thing any RLS/session ever trusts — no conflict there), but 48-c
+> Part 1's bridge is client-triggered (assumes Nakama-SDK-first login)
+> while 56c's own recommendation was a simpler server-only bridge
+> needing zero new UI. **Before Part 2 (client-side Nakama SDK
+> integration, flagged "next" below) gets built: get direct
+> confirmation whether a live/real-time Nakama feature is actually
+> planned** — if not, the server-only bridge already fully satisfies
+> the stat-tracking gamification goal and Part 2 isn't needed at all.
+> See Task 56c's own "Addendum, later session" for the full reasoning.
+>
 > **Newest note (2026-08-30, latest of all) — Task 48-c Part 1 done:
 > the server-side Nakama-identity bridge.** New
 > `nakamaService.verifyClientSession()` (verifies a client's Nakama
@@ -10019,6 +10032,48 @@ this task has no remaining work — the gamification stat-tracking goal
 is already met. If yes, implement the custom-auth bridge above,
 scoped to whichever specific live feature needs it, rather than a
 blanket "migrate everyone's auth" project.
+
+**Addendum, later session (2026-08-30) — reconciling with Task 48-c,
+which landed after the recommendation above and before this note.**
+Task 48-c Part 1 (server-side Nakama-identity bridge,
+`POST /api/auth/nakama-bridge`) proceeded to build real auth-bridge
+code without first getting the "is a live Nakama feature actually
+planned" confirmation this section asked for — worth flagging plainly,
+not silently treated as already answered.
+
+**The good news: 48-c Part 1's own trust-model decision (48-b Part d's
+synthesis) independently reached the same core conclusion this section
+did — Supabase's own `id` stays the only thing any RLS policy or
+session ever trusts; Nakama is never given authority over identity,
+only ever a linked attribute via `auth_user_id`.** No conflict on that
+point; two sessions converged on the same architecture from different
+angles, which is reassuring, not concerning.
+
+**Where they genuinely diverge: entry-point design.** This section's
+own custom-auth bridge is **server-only, triggered by the existing
+Supabase signup flow** — zero new client-side code, invisible to the
+user. 48-c Part 1's bridge is **client-triggered** — it verifies a
+Nakama session token the client already obtained, meaning it assumes
+a user authenticates via Nakama's own SDK *first*. Its own commit
+message confirms Part 2 (client-side Nakama SDK integration — wiring
+`authenticateEmail`/`authenticateCustom`/`authenticateDevice` into the
+actual login/signup UI) is "next" and starts from zero.
+
+**Before Part 2 gets built: the original question is still
+unanswered, and it's the one that decides whether Part 2 is needed at
+all.** If no live/real-time Nakama feature is actually planned (this
+section's own original recommendation), the stat-tracking goal is
+already fully met by the simpler, server-only bridge above — applied
+at the existing `create-user/route.ts` signup moment, exactly as
+already described, no new UI required, and 48-c Part 1's own
+client-triggered bridge route becomes infrastructure with no caller
+rather than something worth wiring a client flow into. If a live
+feature genuinely is planned, Part 2 is legitimate work and should
+proceed — 48-c Part 1's bridge is real, correct, reusable code for
+that case specifically. **Same recommendation as before, now more
+urgent given real auth code already exists and Part 2 is queued as
+"next": get the live-feature question answered before Part 2, not
+after.**
 
 ---
 
