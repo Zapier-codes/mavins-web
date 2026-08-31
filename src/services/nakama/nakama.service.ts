@@ -57,6 +57,50 @@ class NakamaService {
   }
 
   /**
+   * Task 48-c Part 1 (handover.md): verifies a CLIENT's own Nakama
+   * session token (not this service's server-authenticated session)
+   * by calling Nakama's `GET /v2/account` with it as the bearer token.
+   * Nakama itself validates the token's signature/expiry before
+   * returning anything — a successful response here means the caller
+   * genuinely holds a live Nakama session, and the `id` in the
+   * response is Nakama's own authoritative user id for that session,
+   * never something trusted from client-supplied input. This is the
+   * verification step 48-c's bridge endpoint needs before it can
+   * safely link/provision a Supabase identity for whoever this is.
+   *
+   * Deliberately a direct REST call rather than reconstructing a
+   * nakama-js `Session` object from just a token string (that class
+   * expects several fields this bridge doesn't have reason to parse
+   * out of a raw client-supplied token) — same "call the REST API
+   * directly" style already used in `api/nakama/route.ts`.
+   */
+  async verifyClientSession(clientToken: string): Promise<{ nakamaUserId: string; username: string | null } | null> {
+    try {
+      const response = await fetch(`https://${NAKAMA_HOST}:${NAKAMA_PORT}/v2/account`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${clientToken}` },
+      });
+
+      if (!response.ok) {
+        console.warn(`[Nakama] verifyClientSession: /v2/account returned ${response.status}`);
+        return null;
+      }
+
+      const account = await response.json();
+      const nakamaUserId: string | undefined = account?.user?.id;
+      if (!nakamaUserId) {
+        console.warn('[Nakama] verifyClientSession: /v2/account response had no user.id');
+        return null;
+      }
+
+      return { nakamaUserId, username: account?.user?.username ?? null };
+    } catch (err: any) {
+      console.warn('[Nakama] verifyClientSession failed:', err.message);
+      return null;
+    }
+  }
+
+  /**
    * Write a leaderboard record.
    * Used by the seed engine to sync campaign/artist stream counts.
    */
