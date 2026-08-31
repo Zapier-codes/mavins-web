@@ -2,6 +2,24 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-08-30, latest of all) — formalized "Task 36
+> Part 4" as Task 61.** That phrase had been referenced by name in two
+> other places in this file (Task 33 item 3, Task 51's own "Not done"
+> note) without ever actually being written up — confirmed by grep
+> before writing it, not assumed. Covers the guest success
+> visualization showing no target countries (`targetCountries={[]}`
+> in `promote/page.tsx`'s guest path), with the industry-standard fix
+> (thread the payment reference through the Korapay redirect, look up
+> the already-snapshotted `payment_sessions.metadata.campaign` on
+> return — most of this is already built, only the reference-threading
+> step is missing) written up in full in Task 61's own entry. Also
+> flags a real sequencing decision for whoever picks it up: given Task
+> 51 now exists, fixing the old inline guest banner in isolation vs.
+> resolving the webhook-campaign-id race and routing guests to
+> `/campaign-live` directly are two different scopes — worth deciding
+> which before starting, not building the smaller one and immediately
+> replacing it. **Documentation only, no code changed.**
+>
 > **Newest note (2026-08-30, latest of all) — Task 56c's own addendum
 > reconciles with Task 48-c Part 1, below.** Both independently reached
 > the same trust-model conclusion (Supabase's own `id` is the only
@@ -10909,6 +10927,88 @@ the same four names — zero hits, no write path exists there either.
 ever sees a permanently-wrong number, because no artist ever sees
 these fields at all. No fix needed; noted here so a future session
 doesn't rediscover the same suspicion and re-investigate it.
+
+---
+
+## Task 61 — Formalizing "Task 36 Part 4": guest success visualization shows no target countries [ ]
+
+**This has been referenced by name — "Task 36 Part 4" — in at least
+two other places in this file (Task 33 item 3's own note, and Task
+51's "Not done / worth a follow-up" section) without ever actually
+being written up as its own entry until now.** Confirmed by grepping
+this file for the literal phrase before writing this: both references
+exist, neither points anywhere real. This entry is that missing
+write-up, not a new finding layered on top of an existing one.
+
+**Confirmed by directly reading the code, not assumed from either of
+those earlier summaries:** `CampaignSuccessVisualization.tsx` (Task 33
+item 3) is genuinely built and wired into the guest success path
+(`showGuestCampaignSuccess` in `promote/page.tsx`, still the current
+guest UI as of Task 51 — see that task's own "deliberately NOT
+migrated" note) — but that call site passes `targetCountries={[]}`.
+The animation shows a header with no countries to animate, because the
+guest's original in-browser campaign selection is gone by the time
+they return from Korapay's hosted checkout — a full page navigation
+happened in between.
+
+**Industry-standard mitigation — the same pattern Stripe Checkout
+Sessions and PayPal Orders both use for exactly this class of
+problem:** never rely on client-side memory surviving a redirect to an
+external payment processor. Persist the intent server-side first,
+keyed by a reference, and thread that reference — not the data itself
+— through the entire round-trip: save what needs to survive before
+redirecting away, pass the same reference through to the return URL,
+then look the reference up server-side on return to reconstruct
+exactly what happened.
+
+**This app already has most of this built — confirmed by reading the
+actual code, not assumed:**
+- **Persist server-side first — already done.** `payment_sessions.metadata`
+  (JSONB, Task 33's own table) already gets the campaign intent
+  snapshotted into it before the guest is redirected — confirmed via
+  `promote/page.tsx`'s own comment: *"the intent already snapshotted in
+  `payment_sessions.metadata.campaign."* The target-country data
+  genuinely exists server-side, tied to the reference, right now.
+- **Thread the reference through the redirect — the actual missing
+  piece.** `goDirectPayCampaign()` hardcodes the return URL as a fixed
+  string, `redirectTo: '/promote?campaign_created=1'`, with no
+  reference appended at all.
+- **Look it up on return — not yet built**, but straightforward once
+  the reference above is available: a small server-side lookup of
+  `payment_sessions.metadata.campaign.targetCountries` by reference.
+
+**The scoped fix, once picked up:**
+1. Confirm Korapay's checkout-redirect API actually supports a
+   per-session custom return/success URL (standard for hosted checkout
+   products, but not yet independently confirmed against Korapay's own
+   docs — don't assume, check first, same discipline this file applies
+   to every other Korapay-specific claim).
+2. Change `goDirectPayCampaign()`'s `redirectTo` to include the
+   reference, e.g. `` `/promote?campaign_created=1&ref=${reference}` ``
+   (the reference already exists at that point in the flow).
+3. On the `campaign_created` return, read `?ref=` and fetch
+   `payment_sessions.metadata.campaign.targetCountries` server-side.
+4. Pass the real result into `CampaignSuccessVisualization` instead of
+   the current `targetCountries={[]}`.
+
+**Given Task 51 now exists:** once this reference-threading problem is
+solved, the more complete fix is likely routing guests to
+`/campaign-live?id=...` the same way authenticated users already are
+(per Task 51's own "Not done" note), rather than patching the old
+inline `showGuestCampaignSuccess` banner in isolation — but that
+requires a real campaign id to exist by the time the guest returns,
+which depends on the webhook-created-campaign race Task 51's note also
+flags. Worth deciding which of the two (fix the inline banner's
+countries, or resolve the race and route guests to `/campaign-live`
+directly) before starting, rather than building the smaller fix and
+then immediately replacing it.
+
+**Deliberately not started — documentation only.** No code changed
+this session. Small, well-scoped, single-session-sized fix once
+picked up — doesn't need product-owner input first (a UX-completeness
+gap in an already-shipped feature, not a new product decision), just
+needs step 1's Korapay-docs confirmation and the routing decision
+immediately above before writing the actual change.
 
 ---
 
