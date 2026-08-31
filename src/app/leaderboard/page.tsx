@@ -38,50 +38,39 @@ export default function LeaderboardPage() {
   const loadLeaderboard = useCallback(async (isBackgroundRefresh = false) => {
     if (!isBackgroundRefresh) setIsLoading(true);
     setIsFallback(false);
-    // get_leaderboard is a SECURITY DEFINER RPC granted to the `anon` role, so
-    // it works for signed-out visitors. The fallback below intentionally does
-    // NOT join the `users` table directly — that table's RLS policy only
-    // allows reading your own row, so a client-side join would silently
-    // return no artist names for anonymous visitors.
-    const { data, error } = await supabase
-      .rpc('get_leaderboard', { p_limit: 50 })
-      .catch(() => {
-        // Fallback if the RPC is unavailable for some reason
-        return supabase
-          .from('track_campaigns')
-          .select('artist_id, total_streams')
-          .eq('is_active', true)
-          .order('total_streams', { ascending: false })
-          .limit(50);
-      });
 
-    const rows = Array.isArray(data) ? data : [];
+    const { data, error } = await supabase.rpc('get_leaderboard', { p_limit: 50 });
 
-    let formatted: LeaderboardEntry[];
-    if (!error && rows.length > 0) {
-      formatted = rows.map((d: any, i: number) => ({
-        rank: i + 1,
-        artist_name: d.artist_name || d.artist?.artist_name || 'Unknown Artist',
-        total_streams: d.total_streams || 0,
-        total_campaigns: d.total_campaigns || 1,
-        avatar_url: d.avatar_url || d.artist?.avatar_url,
-        id: d.artist_id || d.artist_name || `row-${i}`,
-      }));
-    } else {
-      // DB unreachable / RLS blocked / genuinely empty on a fresh env — show
-      // a rotating, clearly-fictional ranking rather than "No entries yet."
-      formatted = getFallbackLeaderboard();
+    if (error) {
+      console.error('Leaderboard RPC error:', error);
+      setEntries(getFallbackLeaderboard());
       setIsFallback(true);
+      setIsLoading(false);
+      return;
     }
 
-    // Diff against the previous snapshot to drive the up/down movement
-    // indicators — computed from whatever we just actually fetched, not
-    // randomized for effect.
+    const rows = Array.isArray(data) ? data : [];
+    if (rows.length === 0) {
+      setEntries(getFallbackLeaderboard());
+      setIsFallback(true);
+      setIsLoading(false);
+      return;
+    }
+
+    const formatted = rows.map((d: any, i: number) => ({
+      rank: i + 1,
+      artist_name: d.artist_name || 'Unknown Artist',
+      total_streams: Number(d.total_streams) || 0,
+      total_campaigns: Number(d.total_campaigns) || 0,
+      avatar_url: d.avatar_url,
+      id: d.artist_id || `row-${i}`,
+    }));
+
     const deltas = new Map<string, number>();
     formatted.forEach((entry) => {
       const prev = prevRanksRef.current.get(entry.id);
       if (prev !== undefined && prev !== entry.rank) {
-        deltas.set(entry.id, prev - entry.rank); // positive = moved up
+        deltas.set(entry.id, prev - entry.rank);
       }
     });
     prevRanksRef.current = new Map(formatted.map((e) => [e.id, e.rank]));
