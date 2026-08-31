@@ -4,7 +4,6 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { isAdmin } from '@/lib/auth/isAdmin';
 import { calculatePricing } from '@/lib/campaign/pricing';
 import { getServerReferenceData } from '@/lib/campaign/referenceDataCache';
-import { purchaseGrowthMetrics } from '@/lib/growth/purchaseMetrics';
 
 interface CreateCampaignBody {
   sourceUrl: string;
@@ -12,7 +11,7 @@ interface CreateCampaignBody {
   genre?: string;
   geographicTier?: string;
   targetCountries?: string[];
-  skipMetrics?: boolean; // Admin toggle
+  skipMetrics?: boolean;
 }
 
 async function debitWalletForCampaign(admin: any, userId: string, amountCents: number, reference: string) {
@@ -44,7 +43,6 @@ export async function POST(request: NextRequest) {
     const referenceData = await getServerReferenceData(admin);
     const pricing = calculatePricing(body.viewCount, referenceData);
 
-    // Duplicate check
     const { data: existingActive } = await admin
       .from('track_campaigns').select('id, current_stage, total_budget_cents, spent_cents')
       .eq('artist_id', authUser.id).eq('source_url', body.sourceUrl).eq('is_active', true)
@@ -62,51 +60,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // === GROWTH METRICS WIRING ===
-    let skipMetrics = body.skipMetrics ?? false;
-    let freshConnectOrderId: string | null = null;
-
-    if (!skipMetrics) {
-      try {
-        // Shuffle services and pick 4
-        const { data: shuffled } = await admin.rpc('shuffle_daily_services', {
-          p_campaign_id: null,
-          p_platform: 'YouTube',
-          p_daily_target: Math.ceil(pricing.viewCount / pricing.durationSlot.days),
-          p_budget_cents: Math.floor(pricing.subtotalCents / 2), // 50% to growth
-        });
-
-        if (shuffled && shuffled.length > 0) {
-          // Purchase from the first (best) service
-          const primary = shuffled[0];
-          const orderResult = await purchaseGrowthMetrics({
-            service: primary.service_id,
-            link: body.sourceUrl,
-            quantity: primary.assigned_qty,
-          });
-          freshConnectOrderId = orderResult.order.toString();
-
-          // Log the order
-          await admin.from('campaign_service_orders').insert({
-            campaign_id: null, // will update after campaign insert
-            service_id: primary.service_id,
-            provider_order_id: freshConnectOrderId,
-            metric_type: 'views',
-            quantity_ordered: primary.assigned_qty,
-            cost_cents: primary.cost_cents,
-            status: 'pending',
-          });
-        }
-      } catch (fcError: any) {
-        console.error('[Campaign Create] Growth metrics purchase failed (non-fatal):', fcError.message);
-      }
-    }
-    // === END GROWTH METRICS WIRING ===
+    // Admin can toggle skip_metrics; regular users always purchase metrics
+    const skipMetrics = callerIsAdmin ? (body.skipMetrics ?? false) : false;
 
     const { data, error } = await admin.from('track_campaigns').insert({
       source_url: body.sourceUrl,
       artist_id: authUser.id,
-      total_budget_cents: callerIsAdmin ? 0 : pricing.subtotalCents,
+      total_budget_cents: callerIsAdmin ? 0 : pricing.totalCostCents,
       spent_cents: 0,
       geographic_tier: body.geographicTier || 'local',
       target_countries: body.targetCountries || [],
@@ -130,15 +90,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
-    // Update campaign_service_orders with the real campaign_id
-    if (freshConnectOrderId) {
-      await admin.from('campaign_service_orders')
-        .update({ campaign_id: data.id })
-        .eq('provider_order_id', freshConnectOrderId)
-        .is('campaign_id', null);
+    // Initialize growth budget record (only if not skipping metrics)
+    if (!skipMetrics) {
+      const growthCents = Math.floor(pricing.totalCostCents * 0.5);
+      const reserveCents = Math.floor(growthCents * 0.05);
+      const spendableCents = growthCents - reserveCents;
+      const dailyBudget = Math.floor(spendableCents / pricing.durationSlot.days);
+
+      await admin.from('campaign_growth_budgets').insert({
+        campaign_id: data.id,
+        total_growth_cents: growthCents,
+        reserve_cents: reserveCents,
+        spendable_cents: spendableCents,
+        daily_budget_cents: dailyBudget,
+        remaining_cents: spendableCents,
+      });
     }
 
-    return NextResponse.json({ success: true, campaignId: data.id, skipMetrics, freshConnectOrderId });
+    return NextResponse.json({ success: true, campaignId: data.id, skipMetrics });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err?.message || 'Failed to create campaign' }, { status: 500 });
   }
