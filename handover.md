@@ -231,6 +231,38 @@ each rule — this is the same content, kept in sync.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-08-30, latest of all) — Task 59 Part 2 traced
+> end-to-end (8-file call chain), NOT implemented — documentation
+> only, no Kotlin written.** This box was stale relative to the real
+> commit history when this session started (pointed at "next: 48-c"
+> when Tasks 48-c, 53-56, 59 Rounds 1-4, 60, and 61 had all already
+> happened since) — worth knowing in case this happens again: **always
+> check `git log --oneline -20` against this box's own claims before
+> trusting it blindly.** This session's own finding: wiring genre
+> through to the new fair-rotation RPC
+> (`get_next_campaign_for_queue_slot`, migration 023) touches 8 files
+> (`MoodAndGenresScreen.kt` → `NavigationBuilder.kt` →
+> `YouTubeBrowseViewModel`/`YouTubeBrowseScreen.kt` →
+> `PlayerConnection.kt` → `MusicService.kt` → `CampaignInjectedQueue.kt`
+> → `CampaignRepository.kt`), and surfaces a real architecture mismatch
+> worth understanding before anyone builds this: the new RPC is
+> designed for one-atomic-call-per-slot fairness bookkeeping,
+> but `CampaignInjectedQueue` currently pre-fetches a batch once and
+> rotates it locally — naively swapping the provider function would
+> silently corrupt the fairness guarantee, not just miss it. Full call
+> chain (file + line for every hop), the architecture-mismatch
+> reasoning, and a two-part build plan (2a: repository + queue
+> refactor, safe in isolation; 2b: the wider nav/UI threading, with one
+> flagged-but-non-blocking taxonomy question) are in Task 59's own
+> "Round 5" entry. **No Android SDK/Google Maven access exists in this
+> sandbox — confirmed again this session — so no Velune Kotlin change
+> in this entire project has ever been compile-verified; that's an
+> ongoing, structural limitation, not something this session could
+> resolve.** Next: build Part 2a (self-contained, lowest immediate
+> risk), or Part 3 (banner carousel, fully independent of Part 2) —
+> whichever the next session judges more valuable; this session did not
+> rank them against each other.
+>
 > **Newest note (2026-08-30, latest of all) — Task 48-b fully done, all
 > 4 parts (a-d), including the architecture decision — resolved, not
 > left open.** Part d synthesizes a/b/c: no schema migration is needed
@@ -11202,7 +11234,151 @@ capture gating the first build.
 
 ---
 
-## Task 60 — Cross-repo diagnosis: Velune double-records every campaign
+### Round 5 — Part 2 traced end-to-end, full call chain grounded, NOT implemented — documentation only, per this project's own established norm for Velune Kotlin work
+
+**Investigated Part 2 fully this session — every file and line in the
+real call chain, not assumed. Did not write the implementation.**
+Two separate reasons, both real, not just caution for its own sake:
+(1) this sandbox has no Android SDK/Google Maven access (confirmed —
+network allowlist covers npm/PyPI/crates/GitHub, nothing
+Android-specific), so a real Gradle/Kotlin compile is not possible
+here at all — every prior Velune task in this file (57, 59 Rounds 1-4,
+60) has stayed documentation-only for exactly this reason, and this
+session found no new capability that changes that; (2) tracing the
+call chain surfaced that "wire the genre parameter through" is a real
+8-file architecture change, not a small plumbing tweak — worth a
+precise plan handed off cleanly rather than a large, unverifiable diff
+risking silent breakage in a codebase with no compile safety net here.
+
+**The full call chain, confirmed by direct reads, file and line cited
+for each hop:**
+
+1. `MoodAndGenresScreen.kt` line 91 — genre-tile tap:
+   `navController.navigate("youtube_browse/${it.endpoint.browseId}?params=${it.endpoint.params}")`.
+   **No genre string is passed today.**
+2. `NavigationBuilder.kt` line 299 — the route definition:
+   `"youtube_browse/{browseId}?params={params}"`, resolving to
+   `YouTubeBrowseScreen(navController)`. **This exact route is also
+   used by `ExploreScreen.kt` and `HomeScreenComponents.kt`** (confirmed
+   via grep) for unrelated, non-genre-tile browsing — any change here
+   needs a new parameter that safely defaults to "no genre" for those
+   two other callers, not a route fork (a fork would be cleaner in
+   isolation but means duplicating the whole composable registration).
+3. `YouTubeBrowseScreen.kt` — reads `browseId`/`params` implicitly via
+   `viewModel: YouTubeBrowseViewModel = hiltViewModel()` (standard
+   Compose Navigation + Hilt `SavedStateHandle` pattern, not explicit
+   function args) — a genre nav arg would need the same treatment.
+   Real `playQueue` call site: line 187,
+   `playerConnection.playQueue(YouTubeQueue.radio(song.toMediaMetadata()))`.
+4. `PlayerConnection.kt` line 152 — `fun playQueue(queue: Queue) { service.playQueue(queue) }`,
+   a thin one-line pass-through. Needs the same new parameter, forwarded.
+5. `MusicService.kt` line 1483 — `fun playQueue(queue: Queue, playWhenReady: Boolean = true)`,
+   the actual single choke point every queue type in the whole app goes
+   through (confirmed — this is the only `CampaignInjectedQueue`
+   construction site anywhere). Line 1554 is where
+   `CampaignInjectedQueue` gets built today, with
+   `campaignProvider = { campaignRepo.fetchActiveCampaignMediaItems() }`.
+6. `CampaignInjectedQueue.kt` — **this is the one hop that isn't just
+   plumbing.** See the architecture-mismatch finding below.
+7. `CampaignRepository.kt` — needs a new function calling the new RPC
+   (doesn't exist yet; `fetchActiveCampaignMediaItems()` is the closest
+   existing analog, calls `get_trending_campaigns` today, not migration
+   023's new function).
+
+**The real correctness issue, not just missing wiring: `CampaignInjectedQueue`'s
+execution model doesn't match the new RPC's design at all.**
+Confirmed by reading both closely, this session. The RPC
+(`get_next_campaign_for_queue_slot`, migration 023) is designed to be
+called **once per slot, atomically** — each call does an
+`ORDER BY last_queue_slot_at ASC NULLS FIRST ... FOR UPDATE SKIP LOCKED
+LIMIT 1` pick-and-mark in one transaction, which is *how* the "every
+eligible campaign gets a turn before any repeats, guaranteed, not
+statistical" property is enforced. `CampaignInjectedQueue.kt`, as
+written today, calls its `campaignProvider` lambda **once** per queue
+instance (`getInitialStatus()`, line ~66), gets back a batch of up to
+~10 campaigns, and then rotates through that fixed local batch via a
+one-time `campaignOrder = ...indices.shuffled()` for every slot in that
+whole queue — no further calls happen. **Naively swapping the provider
+lambda to call the new RPC in a loop upfront (e.g., 10 times, matching
+today's batch size) would be actively wrong, not just suboptimal**: it
+would mark all 10 campaigns' `last_queue_slot_at` as "just served"
+immediately, even though most of them won't actually reach a real
+played slot until much later in that queue (or possibly never, if the
+queue ends early) — corrupting the fairness bookkeeping for every
+*other* listener's queue being built concurrently, which would
+unfairly deprioritize campaigns that were only ever provisionally
+reserved, not genuinely played. **The correct fix is an architecture
+change, not a parameter swap:** `CampaignInjectedQueue`'s `inject()`
+(currently synchronous) needs to become `suspend`, and call the new
+per-slot RPC **fresh, once, at the moment each actual slot position is
+reached** during real queue construction — not pre-fetch a batch. This
+also means the constructor's `campaignProvider: suspend () -> List<MediaItem>`
+shape itself needs to change to something like
+`campaignSlotProvider: suspend () -> MediaItem?`, called per-slot
+rather than once.
+
+**A real, unresolved taxonomy question, flagged precisely rather than
+guessed at — but confirmed NOT a safety/correctness risk either way,
+only a completeness one.** `MoodAndGenresScreen`'s screen name is
+literally "Mood **and** Genres" — its tile grid mixes true genres
+(e.g., "Hip-Hop," "R&B") with moods that aren't genres at all (e.g.,
+"Chill," "Feel Good," "Workout" — inferred from the screen's own name
+and the shared YouTube Music catalog pattern this screen wraps, not
+independently confirmed against the live tile list this session).
+`it.title` (the only per-tile label available at the nav-call site,
+per the code read above) would need to be passed through as the "genre"
+string for `get_next_campaign_for_queue_slot(p_genre)` — but there's no
+confirmed guarantee this label's exact text matches
+`track_campaigns.target_genres`' stored values (case, spelling,
+mood-vs-genre distinction at all). **This does not violate the
+absolute "never cross-genre" rule either way** — the RPC's own
+`p_genre = ANY(tc.target_genres)` filter means a non-matching or
+mood-labeled string simply returns zero eligible campaigns (the same
+fail-closed outcome as passing no genre at all), never an incorrect
+match. The only real cost of an unresolved mismatch is **under-injection**
+(genre-tile queues correctly get less campaign injection than intended
+if label text doesn't line up), not a rule violation — so this
+ambiguity is real and worth resolving before Part 2 ships, but isn't a
+blocking safety question the way the original genre-locking question
+was.
+
+**The plan, split into two sub-parts for whoever builds this — 2a is
+safe to build and reason about in isolation; 2b is the wider,
+riskier wiring pass:**
+- **Part 2a — `CampaignRepository.kt` + `CampaignInjectedQueue.kt`
+  only.** Add `fetchNextCampaignForQueueSlot(genre: String):
+  MediaItem?` (calls the migration 023 RPC, resolves the single
+  returned campaign into a playable `MediaItem` the same way
+  `fetchActiveCampaignMediaItems()` already resolves its batch — reuse
+  that resolution logic, don't reinvent it). Refactor
+  `CampaignInjectedQueue`'s `inject()` to `suspend`, calling a new
+  `campaignSlotProvider: suspend () -> MediaItem?` fresh per slot
+  instead of rotating a pre-fetched batch. **Every existing call site
+  of `CampaignInjectedQueue` (today, only `MusicService.kt` line 1554)
+  continues to compile by passing `campaignSlotProvider = { null }`**
+  — which correctly means "no injection," satisfying the fail-closed
+  default automatically, with zero behavior change anywhere until 2b
+  starts passing a real genre through.
+- **Part 2b — thread a real genre string through the 6-file nav/UI
+  chain above** (`MoodAndGenresScreen.kt` →
+  `NavigationBuilder.kt` → `YouTubeBrowseViewModel`/`YouTubeBrowseScreen.kt`
+  → `PlayerConnection.kt` → `MusicService.kt`), landing on a real
+  `campaignSlotProvider` for genre-tile-originated queues only. Should
+  resolve the taxonomy question above first (confirm `it.title`'s real
+  values against `track_campaigns.target_genres`'s actual stored
+  strings, live, before or during this part — not guessed at
+  build-time) — but per the finding above, shipping 2b even with an
+  unconfirmed mapping is safe to do provisionally, just possibly
+  under-delivering campaign impressions until the mapping is verified,
+  never violating the genre-lock rule itself.
+
+**Not done, still fully open after this round:** any actual code in
+either file, Part 3 (the banner carousel rebuild — independent of Part
+2, per this task's own earlier notes), and live verification of
+anything above against a real build (genuinely not possible from this
+sandbox, flagged consistently rather than silently skipped).
+
+---
 play, one call site silently fails outright; listener identity is
 device-based by design, not a missing-auth bug [ ]
 
