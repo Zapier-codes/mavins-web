@@ -66,7 +66,7 @@ export default function LeaderboardPage() {
 
     if (error) {
       console.error('Leaderboard RPC error:', error);
-      setEntries(getFallbackLeaderboard());
+      setEntries(getFallbackLeaderboard() as LeaderboardEntry[]);
       setIsFallback(true);
       setIsLoading(false);
       return;
@@ -74,7 +74,7 @@ export default function LeaderboardPage() {
 
     const rows = Array.isArray(data) ? data : [];
     if (rows.length === 0) {
-      setEntries(getFallbackLeaderboard());
+      setEntries(getFallbackLeaderboard() as LeaderboardEntry[]);
       setIsFallback(true);
       setIsLoading(false);
       return;
