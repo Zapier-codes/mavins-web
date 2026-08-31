@@ -2,6 +2,34 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-08-30, latest of all) — Task 59 Part 2: full
+> Velune wiring discovery done, documentation only, no code.** Cloned
+> Velune fresh and traced the entire call chain from a genre-tile tap
+> down to `MusicService`'s existing campaign-injection site, line by
+> line. **Key finding: the current queue-injection call is wired to
+> `get_trending_campaigns` (the wrong, fail-open-on-genre function),
+> not just missing a genre parameter** — it needs a genuine switch to
+> Part 1's new `get_next_campaign_for_queue_slot` (fail-closed), not a
+> parameter tweak to the old call. **Second key finding: genre context
+> doesn't exist anywhere in the current call chain** — a tapped genre
+> tile's own title is available at exactly one point
+> (`MoodAndGenresScreen.kt`) and is lost immediately at navigation;
+> traced the full chain and reasoned out a concrete, minimally-invasive
+> architecture recommendation (add `genre: String? get() = null` to
+> the `Queue` interface itself, not a new parameter threaded through
+> every `playQueue()` call site). **Three things flagged as needing a
+> live device/emulator run, not resolvable by reading code alone**:
+> which of two different play-paths a real genre-tile browse result
+> actually uses, the real YouTube tile title strings (for matching
+> against mavins-web's own genre vocabulary), and which section titles
+> YouTube labels as genres vs. moods. **Full findings — exact file/line
+> references, the fail-open-vs-fail-closed distinction, the
+> recommended `Queue` interface change, and the genre-vocabulary
+> mismatch — are all in Task 59's own "Part 2" section, inserted right
+> after Part 1's write-up.** Nothing built this session, per explicit
+> instruction — next session has a fully-traced path and a concrete
+> recommendation to build from, not a blank slate.
+>
 > **Newest note (2026-08-30, latest of all) — Task 59 Part 1 of 3
 > built: `supabase_migration_023_fair_rotation_queue_slot.sql`.** New
 > RPC `get_next_campaign_for_queue_slot(p_genre TEXT)` — genre-locked,
@@ -16,11 +44,11 @@
 > zero early repeats) — not against live Postgres, same standing
 > sandbox limitation as every prior SQL-only task. `supabase_schema.sql`
 > updated to match, in the same commit. **Not yet applied to the live
-> DB.** **Next: Task 59 Part 2** (Velune — wire actual queue
-> interleaving, every 5th slot, to call this new function, honoring
-> Round 3's already-resolved fail-closed genre rule) or **Part 3**
-> (Velune — rebuild the home banner as its own separate surface) —
-> both still `[ ]`, independent of each other, pick either.
+> DB.** **Next: Task 59 Part 3** (Velune — rebuild the home banner as
+> its own separate surface) is now the only fully-independent remaining
+> part — Part 2 has a documented plan but real open items needing a
+> live device run before it can be built with confidence.
+
 >
 > **Newest note (2026-08-30, latest of all) — migrations 019–022 ALL
 > confirmed applied to the live DB.** Product owner ran the deploy from
@@ -10885,6 +10913,168 @@ file in sync per Task 58's own established convention (that task
 found and fixed a real drift there). **Not yet applied to the live
 DB** — same `supabase db push` hand-off as every prior migration in
 this file.
+
+### Part 2 (Velune) — full wiring discovery, this session, per explicit instruction to clone Velune, discover, and document only, no code
+
+**Cloned Velune fresh and traced the entire call chain from a
+genre-tile tap down to `MusicService`'s existing campaign-injection
+wrapping site, line by line, so the next session that actually builds
+this doesn't have to rediscover any of it.** Nothing in this section
+is code — every file/line reference below is exactly where the real
+build touches, confirmed by reading, not inferred.
+
+**Finding 1 — the current queue-injection call is wired to the WRONG
+function entirely, not just missing a parameter.**
+`MusicService.kt`'s existing wrapping site (~line 1550-1557):
+```kotlin
+val wrappedQueue = com.nikhil.yt.playback.queues.CampaignInjectedQueue(
+    baseQueue = queue,
+    campaignProvider = { campaignRepo.fetchActiveCampaignMediaItems() }
+)
+```
+`CampaignRepository.fetchActiveCampaignMediaItems()` (line 81) calls
+`fetchActiveCampaigns(limit = 10)` (line 82) — **with no genre
+argument, leaving it at its default `null`** — which itself calls
+`.../rpc/get_trending_campaigns` (line 50), **the same competitive
+`trending_score`-ranked function the home banner uses**, and the exact
+function Task 59 Round 1 identified as wrong for this use case.
+**Confirmed precisely why this can't be fixed by just passing a genre
+string into the existing call**: `get_trending_campaigns` (migrations
+020/021) is **fail-open** on genre —
+`p_genre IS NULL OR p_genre = ANY(tc.target_genres)` — meaning it
+already silently shows every genre whenever no genre is supplied,
+which is exactly today's broken behavior. Migration 023's new
+`get_next_campaign_for_queue_slot` is deliberately **fail-closed**
+instead (no genre in, nothing returned) — a real, meaningful behavior
+difference, not a naming difference. **Part 2 needs a genuine switch
+to the new RPC endpoint, not a parameter added to the old call.** The
+existing `fetchActiveCampaigns()` function already has the exact URL-
+building pattern to copy (`"$url/rest/v1/rpc/<function_name>" +
+"?p_limit=$limit" + (genre?.let { "&p_genre=$it" } ?: "")`, lines
+50-53) — a new sibling function targeting
+`get_next_campaign_for_queue_slot` can mirror this pattern directly
+rather than needing to design a new request shape from scratch.
+
+**Finding 2 — genre context doesn't exist anywhere in the call chain
+from a genre-tile tap through to playback, and gets lost at the very
+first hop.** Traced the full chain:
+1. `MoodAndGenresScreen.kt` (line ~90) — a genre/mood tile's tap
+   handler navigates via
+   `navController.navigate("youtube_browse/${it.endpoint.browseId}?params=${it.endpoint.params}")`.
+   The tile's own display text (`moodAndGenres.title` in the tapped
+   `Item`, e.g. whatever string YouTube itself uses for "R&B") is
+   **available right here and nowhere else downstream** — it is not
+   part of the nav route and is not passed along.
+2. `NavigationBuilder.kt` (line 299) — the receiving route
+   `"youtube_browse/{browseId}?params={params}"` only declares
+   `browseId` and `params` as nav arguments. Confirmed directly: there
+   is no way for `YouTubeBrowseScreen` to know it was reached from a
+   genre tile at all, let alone which genre, unless a new argument is
+   added to this route.
+3. `YouTubeBrowseScreen.kt` — **two genuinely different play paths
+   exist in this one screen, and only one was fully traceable through
+   static reading:**
+   - A flat song list (line ~183-193): tapping a song calls
+     `playerConnection.playQueue(YouTubeQueue.radio(song.toMediaMetadata()))`
+     directly — this path is fully traced, confirmed line-accurate.
+   - A grid of albums/artists/playlists (line ~200+): tapping an item
+     here navigates *away* to `album/{id}`, `artist/{id}`, or
+     `online_playlist/{id}` — **not traced further this session**,
+     since which of these two shapes a real genre-tile's browse result
+     actually returns depends entirely on what YouTube's own API sends
+     back for that specific `browseId`, which varies and **can't be
+     determined by reading Kotlin source alone** — this needs a live
+     device/emulator run capturing a real `moodAndGenres()` →
+     `youtube_browse` response to know for certain, flagged as a
+     genuine limit of static-only discovery, not skipped carelessly.
+     If genre browsing actually lands on the grid path most of the
+     time, genre context would need to survive an *additional* hop
+     through `album`/`artist`/`online_playlist` screens' own separate
+     play-triggering code before ever reaching `MusicService` — real
+     added scope the next session should check for before assuming
+     Finding 1's fix alone is sufficient.
+4. `PlayerConnection.playQueue(queue: Queue)` (line 152) — a thin
+   wrapper, single `Queue` parameter, no metadata channel of any kind
+   alongside it.
+5. `MusicService.kt`'s existing wrapping site (traced in Finding 1
+   above) — the actual place genre would need to be read from, to
+   pass into the new RPC call.
+
+**Recommended architecture for carrying genre through this chain —
+reasoned from the actual code, not asked as a question, per explicit
+instruction:** extend the `Queue` interface itself
+(`playback/queues/Queue.kt`, currently a small 4-member interface)
+with `val genre: String? get() = null` — a Kotlin interface property
+with a default implementation, which every existing `Queue`
+implementer (`ListQueue`, `YouTubeQueue`, `LocalMixQueue`,
+`LocalAlbumRadio`, `YouTubeAlbumRadio`, `EmptyQueue`) inherits for
+free with zero changes required to any of them. Only the specific
+construction site(s) reached from a genre-tile tap need to build a
+queue that overrides this property with the real genre string. This
+is a smaller, more contained change than threading a new parameter
+through `playQueue()`'s own signature at every call site across the
+app (there are many — search/album/artist/playlist screens all call
+it) — the genre only needs to be known at construction time, not
+passed through every intermediate function call. `MusicService`'s
+existing wrapping site then simply reads `queue.genre` instead of
+always passing nothing, and passes it into the new RPC call from
+Finding 1.
+
+**Finding 3 — a real genre-vocabulary mismatch between the two apps,
+confirmed on both sides, not assumed on either.** Checked mavins-web's
+own canonical genre list directly: `complete-profile/page.tsx` (line
+10) hardcodes `['Afrobeats', 'Amapiano', 'Hip-Hop', 'R&B', 'Pop',
+'Electronic', 'Reggae', 'Gospel', 'Highlife', 'Jazz', 'Rock',
+'Afro-fusion', 'Drill', 'Dancehall']` — but `promote/page.tsx`'s own
+comment (Task 45 Part 4) says genres now come from
+`useReferenceData()`'s store (Task 46a's admin-editable table) instead
+of a hardcoded array, meaning **these two files may already be
+out of sync with each other** — worth a quick check by whoever picks
+this up, separate from the Velune-side problem. On Velune's side:
+`MoodAndGenres.Item` (`innertube/.../pages/MoodAndGenres.kt`) is raw,
+unstructured YouTube taxonomy — free-text `title` strings exactly as
+YouTube's own catalog UI presents them, with **no guarantee of
+matching mavins-web's own vocabulary byte-for-byte** even for genres
+that conceptually overlap (e.g. YouTube's own label might be
+"Hip-Hop & Rap" where mavins-web's is "Hip-Hop") — this can't be
+confirmed without a live capture of real tile title strings, same
+limitation as Finding 2's grid-path uncertainty. **Recommended
+approach, reasoned from how ad-serving platforms commonly reconcile
+two independently-sourced taxonomies, not asked as a question**: a
+small, explicitly-maintained alias/normalization table (YouTube's
+observed tile title → mavins-web's canonical genre string), populated
+from real captured tile titles once available, rather than attempting
+fuzzy/heuristic string matching — a maintained table is auditable and
+fails predictably (an unmapped tile simply doesn't inject a campaign,
+consistent with Round 3's fail-closed principle) where fuzzy matching
+can fail silently and unpredictably.
+
+**Finding 4 — `MoodAndGenresScreen` mixes moods and genres in the same
+undifferentiated tile list, with no type flag to tell them apart.**
+The screen's own name says as much, and `MoodAndGenres.kt`'s data
+model confirms it structurally: a `MoodAndGenres` object is just a
+`title` (a YouTube-provided section header — could be "Genres,"
+"Moods & moments," "Workout," etc., YouTube's own grouping, not
+Velune's) containing a flat list of `Item`s with no genre/mood
+boolean or enum anywhere. **Only genuinely genre-named sections should
+ever be eligible for campaign-genre-matching at all** — a mood tile
+like "Feel Good" or "Chill" has no defensible mapping onto
+`target_genres` and should be treated the same as any other
+non-genre-known queue under Round 3's fail-closed rule (inject
+nothing). Determining which section title(s) YouTube actually returns
+as genre-labeled (as opposed to mood-labeled) is the same "needs a
+live capture" limitation as Findings 2 and 3 — recorded together here
+rather than repeated three times.
+
+**What this section does NOT do, on purpose:** write any Kotlin, touch
+`Queue.kt`, `MusicService.kt`, `CampaignRepository.kt`, or any nav
+route — every finding above is discovery and a reasoned recommendation
+only, per explicit instruction this session. The next session that
+picks up Part 2 has a fully-traced call chain, a concrete architecture
+recommendation, and three named "needs a live capture, not resolvable
+by reading code alone" gaps (grid-path play behavior, real YouTube
+tile title strings, genre-vs-mood section labeling) to resolve on a
+real device before writing anything.
 
 ---
 
