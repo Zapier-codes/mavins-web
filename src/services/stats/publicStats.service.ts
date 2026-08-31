@@ -93,7 +93,8 @@ export async function getPublicSeedStats(): Promise<PublicSeedStats> {
     const supabase = createClient();
 
     const [seedUsersRes, campaignsRes, interactionsRes] = await Promise.allSettled([
-      supabase.from('users').select('id', { count: 'exact', head: true }).eq('role', 'seed'),
+      // FIX: use user_type (the actual column) instead of role
+      supabase.from('users').select('id', { count: 'exact', head: true }).eq('user_type', 'seed'),
       supabase
         .from('track_campaigns')
         .select('id, total_streams, is_active, geographic_tier', { count: 'exact' })
@@ -120,18 +121,27 @@ export async function getPublicSeedStats(): Promise<PublicSeedStats> {
       campaigns.map((c: any) => c.geographic_tier).filter(Boolean)
     ).size;
 
-    // If the live numbers came back empty (fresh env, RLS blocking anon, no
-    // seed data yet), prefer the curated fallback rather than showing zeros.
-    if (!totalSeededUsers && !totalStreamsDelivered) {
+    // FIX: only fall back to the full snapshot when ALL four headline fields
+    // came back empty — not when just two of them are zero. A fresh campaign
+    // with activeCampaigns=1 but totalStreamsDelivered=0 (legitimately, since
+    // it hasn't delivered yet) should NOT trigger the fallback.
+    const allFieldsEmpty =
+      !totalSeededUsers && !totalStreamsDelivered && !activeCampaigns && !countriesReached;
+
+    if (allFieldsEmpty) {
       cached = { data: FALLBACK_STATS, fetchedAt: Date.now() };
       return FALLBACK_STATS;
     }
 
+    // FIX: per-field fallback only when that specific field is genuinely
+    // missing/unreachable (null/undefined), NOT when it is a legitimate 0.
+    // A platform with zero active campaigns at some moment should show 0,
+    // not be silently replaced by a fake non-zero number.
     const live: PublicSeedStats = {
-      totalSeededUsers: totalSeededUsers || FALLBACK_STATS.totalSeededUsers,
-      totalStreamsDelivered: totalStreamsDelivered || FALLBACK_STATS.totalStreamsDelivered,
-      activeCampaigns: activeCampaigns || FALLBACK_STATS.activeCampaigns,
-      countriesReached: countriesReached || FALLBACK_STATS.countriesReached,
+      totalSeededUsers: totalSeededUsers ?? FALLBACK_STATS.totalSeededUsers,
+      totalStreamsDelivered: totalStreamsDelivered ?? FALLBACK_STATS.totalStreamsDelivered,
+      activeCampaigns: activeCampaigns ?? FALLBACK_STATS.activeCampaigns,
+      countriesReached: countriesReached ?? FALLBACK_STATS.countriesReached,
       // Trend, platform mix and demographic split need dedicated aggregate
       // RPCs to compute cheaply at scale — until those ship, pair the live
       // headline numbers with the representative shape from the fallback.

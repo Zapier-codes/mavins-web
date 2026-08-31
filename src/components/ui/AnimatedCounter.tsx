@@ -20,8 +20,8 @@ interface AnimatedCounterProps {
  * - Only runs while on screen (IntersectionObserver, observed once then disconnected).
  * - Single requestAnimationFrame loop per instance, cancelled on unmount.
  * - Skips straight to the final value for prefers-reduced-motion users.
- * - Does not re-trigger on every parent re-render — the animation is keyed off
- *   the target `value` changing, not the component re-rendering.
+ * - Re-triggers animation when `value` changes after the initial mount, so
+ *   placeholder→real-value patterns (e.g. wallet page loading) animate correctly.
  */
 export function AnimatedCounter({
   value,
@@ -36,8 +36,16 @@ export function AnimatedCounter({
   const elRef = useRef<HTMLSpanElement>(null);
   const rafRef = useRef<number | null>(null);
   const hasAnimatedRef = useRef(false);
+  const prevValueRef = useRef(value);
 
   useEffect(() => {
+    // If the value prop changed (e.g. placeholder 0 → real balance),
+    // reset the animation gate so the new value animates in.
+    if (value !== prevValueRef.current) {
+      hasAnimatedRef.current = false;
+      prevValueRef.current = value;
+    }
+
     const el = elRef.current;
     if (!el) return;
 
@@ -55,7 +63,7 @@ export function AnimatedCounter({
       }
 
       const start = performance.now();
-      const from = 0;
+      const from = display; // animate from current display value, not 0
 
       const tick = (now: number) => {
         const elapsed = now - start;

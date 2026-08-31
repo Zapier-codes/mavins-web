@@ -33,9 +33,11 @@ export default function LeaderboardPage() {
   // indicator when a refresh reorders the board.
   const prevRanksRef = useRef<Map<string, number>>(new Map());
   const [rankDeltas, setRankDeltas] = useState<Map<string, number>>(new Map());
+  const [isFallback, setIsFallback] = useState(false);
 
   const loadLeaderboard = useCallback(async (isBackgroundRefresh = false) => {
     if (!isBackgroundRefresh) setIsLoading(true);
+    setIsFallback(false);
     // get_leaderboard is a SECURITY DEFINER RPC granted to the `anon` role, so
     // it works for signed-out visitors. The fallback below intentionally does
     // NOT join the `users` table directly — that table's RLS policy only
@@ -69,6 +71,7 @@ export default function LeaderboardPage() {
       // DB unreachable / RLS blocked / genuinely empty on a fresh env — show
       // a rotating, clearly-fictional ranking rather than "No entries yet."
       formatted = getFallbackLeaderboard();
+      setIsFallback(true);
     }
 
     // Diff against the previous snapshot to drive the up/down movement
@@ -119,6 +122,11 @@ export default function LeaderboardPage() {
         <div className="text-center">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Leaderboard</h1>
           <p className="text-[var(--muted-foreground)] text-sm mt-1">Top artists by total streams</p>
+          {isFallback && (
+            <span className="inline-block mt-2 text-[10px] px-2 py-0.5 rounded-full bg-amber-400/10 text-amber-400 border border-amber-400/20">
+              Sample data
+            </span>
+          )}
         </div>
 
         {/* Filters */}
