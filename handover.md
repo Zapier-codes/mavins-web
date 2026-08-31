@@ -2,6 +2,30 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-08-30, latest of all) — migrations 019–022 ALL
+> confirmed applied to the live DB.** Product owner ran the deploy from
+> the `proot-distro` container; `supabase db push` initially refused
+> with "Found local migration files to be inserted before the last
+> migration on remote database" (the `20260830000019`-style timestamp
+> prefixes used sorted earlier than the container's last-recorded
+> migration) — resolved with `supabase db push --include-all`, which
+> applied all four cleanly, no errors: `20260830000019_listener_
+> earnings_schema.sql`, `..020_trending_campaigns_show_planting.sql`,
+> `..021_cold_start_guaranteed_slot.sql`,
+> `..022_campaign_target_metrics.sql`. **Worth remembering for any
+> future multi-migration push in one command: pass `--include-all`
+> from the start if pushing more than one new migration at once, don't
+> wait for the same warning to reappear.** This closes out: Task 57
+> (campaign-not-showing diagnosis) fully, end to end, root cause fixed
+> and live; Task 58 (cold-start guaranteed placement) fully, code and
+> deploy both done; Task 49's `listener_play_events` schema is live
+> (though Velune still has nothing writing to it yet — a separate,
+> already-flagged gap, not solved by this deploy); and campaign target
+> metrics (migration 022) are now persisted going forward. Updated
+> each task's own status note plus this file's relevant checkboxes
+> (Task 57 → fully closed, Task 58 → `[x]`) — see each task's own
+> entry for the specific update, not repeated in full here.
+>
 > **Newest note (2026-08-30, latest of all) — formalized "Task 36
 > Part 4" as Task 61.** That phrase had been referenced by name in two
 > other places in this file (Task 33 item 3, Task 51's own "Not done"
@@ -8694,9 +8718,12 @@ own "Velune investigation" section above already found that repo's
 current schema has no per-listener/per-play-duration data at all, so
 these new tables have nothing real to receive yet. Verified via
 `npx tsc --noEmit` (sanity check only — this was a schema-only, no-code
-change). Not independently verified against a live Supabase instance —
-migration 019 needs the same `supabase db push` hand-off every prior
-migration in this file has gone through.
+change). **Applied to the live DB, 2026-08-30 — confirmed via the
+product owner's own terminal log** (`supabase db push --include-all`,
+alongside migrations 020/021/022 in the same push, see this file's top
+box). Velune still has nothing to write to these tables yet (per the
+"nothing real to receive yet" note just above) — being live doesn't
+change that, just removes the last blocker to it.
 1. New table: `listener_play_events` (Velune writes directly, Mavins-web
    reads only)
    - `id` uuid PK
@@ -8864,7 +8891,10 @@ them from the `pricing` object each already has in hand at insert
 time. `initialize-campaign/route.ts`'s payment-session snapshot also
 gained `pricing.durationDays` so the guest webhook path has it too
 (`viewCount` was already snapshotted one level up). `supabase_schema.sql`
-updated to match.
+updated to match. **Applied to the live DB, 2026-08-30 — confirmed via
+the product owner's own terminal log** (`supabase db push
+--include-all`, alongside migrations 019/020/021 in the same push, see
+this file's top box).
 
 **Wired the authenticated flow:** `promote/page.tsx`'s `handleSubmit`
 success branch now does `router.push('/campaign-live?id=...')` instead
@@ -10095,7 +10125,7 @@ after.**
 
 ---
 
-## Task 57 — Cross-repo diagnosis: admin-published campaign not showing on Velune [x] (DIAGNOSED, ROOT CAUSE CONFIRMED, FIX WRITTEN — not yet applied to the live DB)
+## Task 57 — Cross-repo diagnosis: admin-published campaign not showing on Velune [x] (DIAGNOSED, ROOT CAUSE CONFIRMED, FIX WRITTEN AND APPLIED TO THE LIVE DB — fully closed)
 
 **Ask, from the product owner directly:** an admin published a live
 campaign in Mavins-web and it is not appearing on Velune (the
@@ -10253,9 +10283,11 @@ whether *this specific* campaign shows:
    migration needed to resolve — that's Velune's own client-side
    rendering choice, flagged here as worth knowing, not changed, since
    it was never diagnosed as broken, only the `WHERE` clause was.
-   **Not yet applied to the live DB** — same `supabase db push`
-   hand-off as every prior migration in this file; this sandbox has no
-   live-DB network path to apply it directly.
+   **Applied to the live DB, 2026-08-30 — confirmed via the product
+   owner's own terminal log, no errors** (`supabase db push
+   --include-all`, alongside migrations 019/021/022 in the same push —
+   see this file's top box for the full deploy confirmation, including
+   why `--include-all` was needed).
 4. Separately (lower priority, not blocking #2/#3): reconcile the seed
    engine's stated 15-minute cadence against its actual once-daily
    cron, one way or the other.
@@ -10293,7 +10325,7 @@ correction written in that repo's own voice).
 
 ---
 
-## Task 58 — Per-genre cold-start guaranteed placement (industry-standard reserved-slot pattern), layered on migration 020 [ ]
+## Task 58 — Per-genre cold-start guaranteed placement (industry-standard reserved-slot pattern), layered on migration 020 [x] (built and applied to the live DB)
 
 **Ask, from the product owner directly, continuing Task 57:** migration
 020 fixed the outright-exclusion bug, but does it fully solve the
@@ -10378,22 +10410,24 @@ same commit to match migrations 020 and 021 cumulatively, so a future
 session reading `supabase_schema.sql` directly (rather than replaying
 every migration file in order) sees the true current state.
 
-### "We want all campaigns to go live instantly" — already true, pending the live-DB push
+### "We want all campaigns to go live instantly" — CONFIRMED LIVE, 2026-08-30
 
 Checked `track_campaigns`'s own table definition directly: there is no
 `certified`/`approved`/`reviewed` gate anywhere on it —
 `is_active = TRUE` from the moment of creation (confirmed in the
 campaign-creation code path). The only thing that was ever blocking
 instant visibility was `get_trending_campaigns`'s own `WHERE` clause,
-which migration 020 already fixed. **This requirement is already
-satisfied in code** — the remaining step is the same one Task 57 left
-open: migration 020 (and now 021) actually being pushed to the live
-DB, still a project-owner-only step per every prior migration in this
-file. Velune's *old*, now-superseded standalone `campaigns` table did
-have `certified`/`isLive` manual toggle flags (see Task 57's own
-correction note) — but Task 57 already confirmed Velune migrated off
-that table entirely onto this RPC-based read path, so those old flags
-are dead code, not a live second gate.
+which migration 020 fixed, alongside migration 021's cold-start
+guaranteed-slot logic. **Both migrations are now applied to the live
+DB** (`supabase db push --include-all`, product owner's own terminal
+log, no errors — see this file's top box for the full confirmation).
+**This requirement is fully satisfied, in code and in the live
+database — nothing further needed here.** Velune's *old*,
+now-superseded standalone `campaigns` table did have `certified`/
+`isLive` manual toggle flags (see Task 57's own correction note) —
+but Task 57 already confirmed Velune migrated off that table entirely
+onto this RPC-based read path, so those old flags are dead code, not a
+live second gate.
 
 ### Two things this session could not safely resolve — flagging rather than guessing
 
@@ -10461,12 +10495,15 @@ above:
   connection here for whoever reads this next, not because anything
   in this session's own request crossed it.
 
-**Status: migration 021 written, not yet applied to the live DB —
-same project-owner-only `supabase db push` step as everything else in
-this file's queue.** No Velune-side code change needed for this task —
+**Status: applied to the live DB, 2026-08-30 — confirmed via the
+product owner's own terminal log, no errors** (`supabase db push
+--include-all`, alongside migrations 019/020/022 in the same push —
+see this file's top box for the full deploy confirmation and why
+`--include-all` was needed). No Velune-side code change needed for
+this task —
 `CampaignRepository.kt` already just displays whatever order
 `get_trending_campaigns` returns, so it benefits from this
-automatically once the migration is live, with nothing to change on
+automatically now that the migration is live, with nothing to change on
 that side.
 
 ---
