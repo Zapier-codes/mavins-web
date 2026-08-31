@@ -2,6 +2,25 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-08-30, latest of all) — Task 59 Part 2b's
+> taxonomy question resolved: editorial classification, not runtime
+> string-matching.** Per direct instruction to scope this out the way
+> real platforms actually do it: Spotify/Apple Music/YouTube Music
+> treat genre and mood as two separate, deliberately-curated
+> taxonomies from the start — campaign/ad targeting always keys off
+> the genre one specifically, never inferred from a tile's display
+> label at read time. New design: a `campaign_genre_tile_mapping`
+> table (Task 46a's own admin-CRUD pattern), populated automatically
+> by production-traffic logging (fail-closed by default, same as
+> before) and reviewed/confirmed by an admin — Round 3's own
+> normalize+alias matching logic still runs, but only to power an
+> auto-suggestion an admin confirms, never as the live targeting
+> decision on its own. Full schema, RLS, and the three-step wiring
+> (ingest → curate → target) are in Task 59's own new "Round 6"
+> section. Documentation only, no code — same standing reason every
+> Velune task in this file has stayed that way (no Android build
+> environment in this sandbox).
+>
 > **Newest note (2026-08-30, latest of all) — Task 61 built and
 > closed.** The guest campaign-success screen now shows real target
 > countries instead of an always-empty list. The actual gap was one
@@ -11363,20 +11382,184 @@ riskier wiring pass:**
   chain above** (`MoodAndGenresScreen.kt` →
   `NavigationBuilder.kt` → `YouTubeBrowseViewModel`/`YouTubeBrowseScreen.kt`
   → `PlayerConnection.kt` → `MusicService.kt`), landing on a real
-  `campaignSlotProvider` for genre-tile-originated queues only. Should
-  resolve the taxonomy question above first (confirm `it.title`'s real
-  values against `track_campaigns.target_genres`'s actual stored
-  strings, live, before or during this part — not guessed at
-  build-time) — but per the finding above, shipping 2b even with an
-  unconfirmed mapping is safe to do provisionally, just possibly
-  under-delivering campaign impressions until the mapping is verified,
-  never violating the genre-lock rule itself.
+  `campaignSlotProvider` for genre-tile-originated queues only. **The
+  taxonomy question below is now resolved by Round 6 (see that section,
+  further down this same task) — a curated `campaign_genre_tile_mapping`
+  table, not a live-capture-gated string match** — Part 2b can build
+  directly against that design; nothing here still needs a live device
+  run first.
 
 **Not done, still fully open after this round:** any actual code in
 either file, Part 3 (the banner carousel rebuild — independent of Part
 2, per this task's own earlier notes), and live verification of
 anything above against a real build (genuinely not possible from this
 sandbox, flagged consistently rather than silently skipped).
+
+---
+
+### Round 6 — Part 2b's taxonomy question resolved: editorial
+classification, not runtime string-matching, per how real platforms
+actually separate genre from mood
+
+**This closes the one thing Round 5's own Part 2b text left as "should
+resolve... before or during this part" — resolved here, by direct
+instruction, using the same standing principle Round 3 established
+(apply how an established platform already solved this exact class of
+problem, don't park a real decision on a live-capture step).**
+
+**How industry platforms actually do this — the load-bearing fact
+Round 3's own Finding 3/4 design didn't fully account for:** Spotify,
+Apple Music, and YouTube Music's own "Moods & Genres" browse surface —
+the exact feature Velune is mirroring — don't try to *infer* whether a
+given tile is a genre or a mood at read time. They maintain genre and
+mood as **two separate, deliberately-curated taxonomies from the
+start**. A track (or, here, a browse tile) can carry a genre tag and a
+mood tag simultaneously — mood is never a subtype of genre, and genre
+is never derived by testing a mood label against a genre vocabulary.
+Critically, **advertiser and campaign targeting always keys off the
+genre taxonomy specifically** — mood-based placement is its own,
+separate ad product (contextual/mood targeting) on these platforms,
+never a fallback path for genre targeting. The same category/context
+separation is codified generally in ad-tech via the IAB's content
+taxonomy standard: category and mood/context are kept as separate
+controlled vocabularies, and anything that can't be confidently mapped
+into the *targeting* vocabulary is excluded from that kind of
+targeting outright — never force-fit via string similarity.
+
+**What this means concretely: the classification itself should happen
+once, editorially, as maintained data — not be re-derived from
+`it.title` every time a tile is tapped.** Round 3's Finding 3/4
+normalize-then-match logic (lowercase/trim/strip suffixes, then
+compare against the canonical genre list + a seeded alias table) is
+still a good, standard piece of ad-tech tooling — but it's
+fundamentally a *matching algorithm run at read time*, which is a
+different (and, per how real platforms actually do it, a lesser)
+mechanism than deliberate curation. **This round doesn't discard
+Round 3's normalize+alias logic — it demotes it from "the live
+targeting decision" to "the suggestion engine that helps a human
+curate the real table faster," which is exactly the human-in-the-loop
+pattern real ad platforms use for anything monetization-adjacent (an
+automated classifier proposes, a human confirms, the confirmed
+mapping — not the classifier's live output — is what targeting
+actually reads).**
+
+**Design — a new admin-editable table, `campaign_genre_tile_mapping`,
+same CRUD pattern Task 46a already established for every other
+reference-data table in this app (`countries`, `genres`,
+`pricing_tiers`, `duration_slots`):**
+
+```sql
+CREATE TABLE IF NOT EXISTS public.campaign_genre_tile_mapping (
+  tile_title TEXT PRIMARY KEY,             -- raw, normalized (Round 3's
+                                            -- own lowercase/trim/strip-
+                                            -- suffix pass) tile title,
+                                            -- e.g. "hip-hop", "chill"
+  mapped_genre_id TEXT REFERENCES public.genres(id),
+                                            -- NULL means "confirmed
+                                            -- non-genre (mood/other)",
+                                            -- not "not yet reviewed" --
+                                            -- see is_reviewed below for
+                                            -- that distinction
+  suggested_genre_id TEXT REFERENCES public.genres(id),
+                                            -- Round 3's normalize+alias
+                                            -- logic's own best guess,
+                                            -- kept separate from
+                                            -- mapped_genre_id so a
+                                            -- wrong automated
+                                            -- suggestion can never
+                                            -- silently become live
+                                            -- targeting data
+  is_reviewed BOOLEAN NOT NULL DEFAULT false,
+                                            -- false = seen in production
+                                            -- via the fail-closed
+                                            -- logging path, not yet
+                                            -- looked at by an admin.
+                                            -- true + mapped_genre_id
+                                            -- NULL = an admin looked at
+                                            -- it and confirmed it's
+                                            -- genuinely mood/non-genre,
+                                            -- not just unreviewed.
+  first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  seen_count INTEGER NOT NULL DEFAULT 1,   -- how often production
+                                            -- traffic hit this tile --
+                                            -- lets an admin triage
+                                            -- high-volume unreviewed
+                                            -- tiles first
+  reviewed_by UUID REFERENCES public.users(id),
+  reviewed_at TIMESTAMPTZ
+);
+```
+
+RLS: same posture as every other Task 46a reference-data table —
+public `SELECT` (Velune needs to read this to resolve a tile at
+queue-build time; a client-side cache refreshed periodically, same
+pattern `useReferenceData()` already uses in mavins-web, avoids a
+network round-trip per tap), writes restricted to `service_role`/admin
+routes only, never a direct client write — an app-side write here
+would mean any tap could silently redefine what counts as a genre.
+
+**The wiring, end to end:**
+1. **Ingestion (automatic, no human step required to keep working):**
+   whenever `MoodAndGenresScreen.kt`'s tap handler (or, per Part
+   2b's own forwarding plan, any of the four downstream hops) resolves
+   a tile title against this table and finds no row at all, it does
+   two things — fails closed exactly as Round 3's rule already
+   requires (no genre forwarded, zero injection), **and** fires an
+   upsert: insert a new row (`tile_title`, `is_reviewed = false`,
+   `suggested_genre_id` = whatever Round 3's normalize+alias logic
+   proposes, possibly `NULL` if even that fails to match) or, if the
+   row already exists, bump `last_seen_at`/`seen_count`. This is the
+   same "production logging refines the table over time" mechanism
+   Round 3's own Finding 3 already proposed for its alias table —
+   reused here as the ingestion path for the curated table instead,
+   not a separate new mechanism.
+2. **Human curation (Task 46a's own admin CRUD, extended with one more
+   table):** an admin periodically reviews rows where `is_reviewed =
+   false`, ordered by `seen_count` descending (triage highest-traffic
+   unmapped tiles first) — each row already shows the automated
+   `suggested_genre_id` as a starting point, so most review actions are
+   a one-click confirm, not a cold classification decision. Confirming
+   sets `mapped_genre_id` (to the suggestion, or a different genre the
+   admin picks instead) and `is_reviewed = true`. Confirming a tile as
+   genuinely mood/non-genre sets `is_reviewed = true` with
+   `mapped_genre_id` left `NULL` — an explicit, deliberate "this is not
+   a genre" decision, not the same state as "nobody's looked at this
+   yet."
+3. **Targeting decision (what Velune's queue-construction code actually
+   reads):** look up the normalized tile title in this table.
+   `mapped_genre_id` present → that's the genre forwarded through Part
+   2b's nav chain. Row absent, or present with `mapped_genre_id NULL`
+   (whether reviewed-and-confirmed-mood or not-yet-reviewed) → fail
+   closed, no genre forwarded, same as today. **The live targeting path
+   never reads `suggested_genre_id` directly** — that column exists
+   purely to make step 2's human review faster, never to make a
+   targeting decision on its own. This is the one rule that actually
+   encodes "editorial curation, not runtime inference" as the real
+   mechanism, not just as a stated principle.
+
+**Why this doesn't strand Part 2b waiting on a live capture, same
+concern Round 3 already resolved for Findings 2-4:** the table starts
+empty, and every single tile is `NULL`-mapped (fail-closed) until an
+admin reviews it — meaning **Part 2b is buildable today, ships
+correctly from day one (zero injection until curated, exactly as safe
+as the current no-genre-forwarded state), and organically improves as
+real production tile titles flow in and get reviewed** — no
+"unblock this with a live device capture first" step anywhere in this
+design, the same property Round 3's own resolution achieved for the
+adjacent findings.
+
+**Relationship to Round 3's own Finding 3/4, stated plainly so a future
+session doesn't read this as a contradiction:** Round 3 is not wrong or
+discarded — its normalize/alias logic is still exactly what powers
+`suggested_genre_id` in step 1 above. What changes is *where the
+authoritative decision lives*: Round 3's original design let the
+matching algorithm's own live output double as the targeting decision;
+this round separates "algorithm suggests" from "table decides," which
+is both the more correct mechanism (matches how real platforms actually
+gate monetization-adjacent classification) and strictly safer (a bad
+automated match can never reach live targeting without a human
+confirming it first).
 
 ---
 play, one call site silently fails outright; listener identity is
