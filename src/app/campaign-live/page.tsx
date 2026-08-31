@@ -24,7 +24,7 @@
  * same "can't find that campaign" state below rather than a crash.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -159,7 +159,7 @@ function SummaryRow({ label, value }: { label: string; value: React.ReactNode })
   );
 }
 
-export default function CampaignLivePage() {
+function CampaignLiveContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, user } = useAuth();
@@ -373,5 +373,17 @@ export default function CampaignLivePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function CampaignLivePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-[#1db954] border-t-transparent animate-spin" />
+      </div>
+    }>
+      <CampaignLiveContent />
+    </Suspense>
   );
 }

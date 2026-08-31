@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useMemo, useRef, memo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef, memo, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/auth/useAuth';
@@ -393,7 +393,7 @@ const HOW_IT_WORKS = [
   { step: 4, title: 'Track Growth', desc: 'Real-time analytics', icon: BarChart3 },
 ];
 
-export default function PromotePage() {
+function PromoteContent() {
   const { user, isAuthenticated, isAdmin } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1071,5 +1071,17 @@ export default function PromotePage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function PromotePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-[var(--background)]">
+        <div className="w-8 h-8 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin" />
+      </div>
+    }>
+      <PromoteContent />
+    </Suspense>
   );
 }
