@@ -20,6 +20,22 @@
 > capture"/"needs confirmation" has actually meant in this file's own
 > history.
 >
+> **Newest note (2026-08-30, latest of all) — Task 59 Part 2's own
+> three "needs a live device run" findings (2/3/4, in the note right
+> below) are now resolved, not still open.** Per the standing principle
+> just above: genre-forwarding-through-every-nav-hop, normalize-then-
+> match-against-canonical-genres-with-a-seeded-alias-table, and
+> mood-tiles-fall-through-automatically are all real design
+> commitments now, not pending a live capture. Task 60's own remaining
+> open item (does a device id get a `public.users` row, and when) is
+> resolved too — auto-provision on first qualifying stream, same
+> pattern Task 37 already established, payout gated at withdrawal time
+> instead. Full write-ups in Task 59's own "Round 3" (under Part 2) and
+> Task 60's own "deeper question" section. **Nothing built — still
+> documentation only.** The note directly below (Task 59 Part 2's
+> original findings) is otherwise unchanged and still accurate on
+> everything else in it.
+>
 > **Newest note (2026-08-30, latest of all) — Task 59 Part 2: full
 > Velune wiring discovery done, documentation only, no code.** Cloned
 > Velune fresh and traced the entire call chain from a genre-tile tap
