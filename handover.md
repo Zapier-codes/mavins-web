@@ -281,10 +281,74 @@ See B-Pay-backend's own `handover.md` → "Unified hand-off command
 format" for the full original write-up with complete rationale for
 each rule — this is the same content, kept in sync.
 
+## Build-focus + mandatory task-splitting — MANDATORY, every session, all three repos
+
+**Added to all three repos' handover files this session (2026-08-30),
+kept identical the same way the section above it is — if you edit
+this section, copy the same edit into the other two in the same
+session.**
+
+**Direct product-owner instruction, two parts:**
+
+1. **All sessions should focus on building the code now, fully** — the
+   discovery/diagnosis-heavy phase this project spent a lot of recent
+   sessions in (schema queries, cross-repo diagnoses, architecture
+   proposals) should give way to actually implementing what's already
+   been decided. A task that's still genuinely blocked on a real open
+   product question stays blocked — don't force an answer that isn't
+   there — but a task sitting on a *resolved* decision with nothing
+   left but to write the code is exactly what a session should pick
+   next, in preference to opening a new discovery thread.
+2. **Every session must split whatever task it picks into parts, and
+   build only one of those parts** — never the whole task in one go,
+   regardless of how small the task looks at a glance. This formalizes,
+   as a standing rule rather than an occasional judgment call, the
+   pattern this project has already used successfully several times
+   (Task 33 Part 2's a/b/c/d split, Task 46's a/b/c/d/e split, Task
+   48-b/48-c's own lettered sub-splits) — each part stays independently
+   reviewable, independently revertible, and independently patchable,
+   and the natural stopping point after one part keeps a single
+   session's diff small enough to actually verify properly (`tsc`,
+   targeted checks, a throwaway comparison script) rather than
+   ballooning into something no one part of which got real scrutiny.
+
+**How to split, in practice:** before writing any code, write out the
+task's natural parts (even if the task text doesn't already list them —
+most won't yet, since this is a new standing rule) as their own labeled
+sub-entries in the handover file, the same way Task 46's own entry
+lists 46a/46b/46c/46d/46e. Pick the first genuinely unblocked part,
+build only that one, and leave the rest explicitly marked not-started
+for the next session — don't silently keep going into part two because
+it "was right there." If a task turns out to have exactly one
+indivisible unit of work (rare, but possible for something truly
+small), that's fine — say so explicitly in the write-up ("not split
+further, this is a single atomic change") rather than leaving it
+looking like a part was skipped.
+
 ---
 
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
+>
+> **Newest note (2026-08-30, latest of all) — new mandatory rule for
+> every session, all three repos: focus on building code now, and
+> split whatever task you pick into parts, building only one part per
+> session.** Full rule in the new "Build-focus + mandatory task-
+> splitting" section right after "Unified hand-off command format" near
+> the top of this file — kept in sync across all three repos.
+> **Applied immediately: Task 48-d (finish/wire the gamification
+> system) split into 5 parts (one per previously-unwired gamification
+> endpoint — confirmed via grep, all five existed with zero frontend
+> call sites), Part 1 (`streak/update`, wired into `AuthProvider.tsx`)
+> built and verified. Parts 2-5 explicitly not started.** See 48-d's
+> own dedicated section (right after 48-c) for the full write-up,
+> including a real gap found and flagged (not fixed): the
+> `award_points` RPC that route calls for streak milestones doesn't
+> exist anywhere in this repo's SQL. **This session started by
+> re-checking `git log` against this box's own claims first** (per the
+> note directly below this one, from the immediately prior session) —
+> found origin had moved again since that check; re-verified before
+> touching anything, no stale assumptions carried forward blind.
 >
 > **Newest note (2026-08-30, latest of all) — Task 59 Part 2 traced
 > end-to-end (8-file call chain), NOT implemented — documentation
@@ -7644,7 +7708,11 @@ instruction — "do a only full implementation"):**
 - **48-d — Finish/extend the gamification system** so it's "wired
   fully," informed by Group 3 (substantially populated, not dormant)
   and Group 4 (role/tier confirmed NOT coupled — manage them as two
-  independent fields, don't retrofit a sync). **Not started.**
+  independent fields, don't retrofit a sync). **Split into 5 parts (one
+  per gamification endpoint) this session — Part 1 (`streak/update`)
+  done, Parts 2-5 not started. See its own dedicated "48-d" section
+  below (after 48-c) for the full write-up — this bullet is now just a
+  pointer, not the current status.**
 - **48-e — Lower-priority data-quality follow-ups**: the three
   redundant `monthly_listeners*` columns, the seed-engine/artist-
   roster column cluster's connection to `SeedEngine`
@@ -8083,6 +8151,101 @@ to actually exercise `authenticateCustom` against a real server.
 
 ---
 
+### 48-d — Finish/extend the gamification system so it's "wired fully" [ ] — split into parts this session, Part 1 done
+
+**Confirmed via grep before starting, not assumed:** all five
+gamification API routes (`src/app/api/gamification/{streak/update,
+tasks/update, tasks/claim, points/history, tier/check}/route.ts`) are
+fully written, functionally real (49-154 lines each, real Supabase
+reads/writes, not stubs) — and **had zero call sites anywhere in the
+frontend**, confirmed by grepping every route path across `src/`
+outside the routes' own folders. This is exactly what "make the
+gamification logic start fully" turns out to mean concretely: five
+already-built endpoints nobody's UI ever calls.
+
+**Split into five parts, one per endpoint — per this session's own new
+mandatory task-splitting rule** (see this file's "Build-focus +
+mandatory task-splitting" section near the top). Wiring each endpoint
+in has a different trigger condition and a different UI surface, so
+they don't share much beyond "call a fetch somewhere" — genuinely
+separable, not an arbitrary split for its own sake.
+
+- **Part 1 — `streak/update`. [x] Done this session (2026-08-30).**
+- **Part 2 — `tasks/update`. [ ] Not started.**
+- **Part 3 — `tasks/claim`. [ ] Not started.**
+- **Part 4 — `points/history`. [ ] Not started.**
+- **Part 5 — `tier/check`. [ ] Not started.**
+
+#### Part 1 — wire `POST /api/gamification/streak/update` into the app
+
+The most self-contained of the five: fires once per authenticated
+day, no user-facing UI of its own needed to have real effect (it
+updates `streak`/`last_active` and can award milestone bonus points),
+and the route is already idempotent server-side (`last_active === today`
+→ early-return with the unchanged streak), so the client side doesn't
+need its own once-per-day logic — just "call it when a user becomes
+available," safely, as many times as React feels like re-rendering.
+
+**What changed:** `src/components/providers/AuthProvider.tsx` — new
+`useStreakUpdateOnLogin(userId)` hook, called from `AuthProvider`
+itself (the single app-wide auth boundary, confirmed wrapping the
+whole tree via `layout.tsx`) with `user?.id`. A `useRef` guard fires
+the `fetch` once per user-id transition (not per render) — chosen over
+relying solely on the server's own per-day idempotency so a logged-in
+session with the same user doesn't send a redundant network request
+on every `user` object reference change. On a fetch error, the guard
+resets so a later re-render can retry, rather than permanently giving
+up for the rest of that browser session.
+
+**Real gap found, flagged, not fixed here — deliberately out of Part
+1's scope:** `streak/update/route.ts` calls
+`supabase.rpc('award_points', { p_user_id, p_points, p_reason })` for
+milestone bonuses (7/14/30/60/100-day streaks). **`award_points` does
+not exist anywhere in this repo's SQL** — confirmed by grepping every
+`.sql` file in the repo root and every file under `supabase/migrations/`.
+The route already degrades gracefully (logs the RPC error, skips the
+notification, does NOT fail the whole request — core streak counting/
+incrementing still works perfectly without it), so this doesn't block
+Part 1's own value, but **milestone bonus points will silently never
+be awarded until this RPC is created**. Left for a future part (could
+be its own small migration-only part, or folded into whichever future
+part ends up touching points more broadly — e.g. Part 4's
+`points/history` work) rather than scope-creeping it into Part 1.
+
+**Verified:**
+- `npx tsc --noEmit` — clean across the repo.
+- **Guard-logic simulation** (throwaway script, deleted after, this
+  project's own established convention): modeled the ref-guard state
+  machine independent of React's actual scheduling — 11 scenarios
+  (null/undefined userId, first-fire, repeated re-renders with the
+  same user, a different user signing in, sign-out then the same user
+  signing back in within one browser session, and a network-error-
+  then-retry path) — **all 11 matched expected behavior exactly.** The
+  one interesting edge case confirmed intentional, not a bug: signing
+  out and back in as the *same* user within one browser session does
+  NOT re-fire the request (the ref still holds that user's id from
+  before) — harmless, since the server is idempotent per-day anyway;
+  not worth adding sign-out-resets-the-ref complexity for a rare edge
+  case with no real consequence.
+- **Not verified — no way to check this from a sandbox:** an actual
+  logged-in browser session hitting a live Supabase instance and
+  observing `streak`/`last_active` actually update, or a real 7-day
+  streak milestone firing (or silently not firing, per the flagged
+  `award_points` gap above). A future session with real access should
+  confirm at least once, same limitation as every other live-data
+  integration task in this file's history.
+
+**Note on this session's own base:** built on top of origin/main at
+commit `d67e818` — this repo had moved substantially (82 files, 1421
+lines of `handover.md` alone) since this session's own earlier work
+in the same conversation, including Task 48-c itself landing with a
+corrected resolution ("Nakama sync corrected to Supabase-primary,
+resolves direct conflict with Task 56c" — this session did not re-read
+that correction's own full content before writing this Part 1 note;
+a future session touching 48-c/48-d's auth-identity assumptions
+should re-read that commit directly rather than trust anything about
+identity primacy summarized earlier in this same file, since it was
+apparently revised at least once already).
 
 ---
 

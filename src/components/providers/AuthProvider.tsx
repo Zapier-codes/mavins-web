@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { isAdmin, ADMIN_CONFIG } from '@/lib/auth/isAdmin';
 
@@ -28,9 +28,50 @@ const AuthContext = createContext<AuthContextType>({
 
 const SESSION_KEY = 'mavins_session';
 
+// Task 48-d Part 1 (handover.md) — wires the previously-unwired
+// POST /api/gamification/streak/update into the app. Confirmed via
+// grep before starting: this endpoint (and the other four
+// gamification routes) had zero call sites anywhere in the frontend —
+// fully built, functionally complete, never actually invoked. This is
+// the ONLY one of the five wired this session, per this project's own
+// new mandatory task-splitting rule (see this file's "Build-focus +
+// mandatory task-splitting" section near the top) — tasks/update,
+// tasks/claim, points/history, and tier/check remain unwired, left for
+// separate future parts (48-d Part 2 onward), not attempted here.
+//
+// Fire-once-per-user-session guard: the route itself is already
+// idempotent server-side (returns the current streak unchanged if
+// `last_active` is already today, see that file's own early-return) —
+// this ref just avoids firing a redundant network request on every
+// re-render once a user is already loaded, not a correctness
+// requirement.
+function useStreakUpdateOnLogin(userId: string | null | undefined) {
+  const firedForUserId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!userId || firedForUserId.current === userId) return;
+    firedForUserId.current = userId;
+
+    fetch('/api/gamification/streak/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    }).catch((err) => {
+      // Non-fatal by design — a failed streak update should never
+      // block or visibly disrupt anything else in the app. Reset the
+      // guard so a later re-render (e.g. after a transient network
+      // failure) can retry for this same user.
+      console.error('Streak update failed:', err);
+      firedForUserId.current = null;
+    });
+  }, [userId]);
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  useStreakUpdateOnLogin(user?.id);
 
   useEffect(() => {
     const getSession = async () => {
