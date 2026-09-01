@@ -2,6 +2,28 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-09-01, latest of all) — Task 59 Part 3
+> (banner), mavins-web half done; Velune half still not started.**
+> New `supabase_migration_025_live_campaigns_banner.sql`,
+> `get_live_campaigns_for_banner()` — a clean new function (not a
+> retrofit of `get_trending_campaigns`, which is fundamentally scored/
+> limited/single-winner and wrong for this surface's own "no ranking,
+> all live campaigns" spec). **Also found and documented a real,
+> separate bug while tracing Velune's actual code first**:
+> `get_trending_campaigns` never returned `source_url`/
+> `resolved_song_id` at all, even though both are real
+> `track_campaigns` columns — Velune's `CampaignUrlResolver` needs one
+> of them, so the current live banner most likely renders nothing in
+> production today, independent of this task. Verified by direct
+> schema/column comparison (not a live-DB run or simulation — schema-
+> level check was the appropriate depth for a query this simple; said
+> plainly rather than overclaiming a deeper verification that didn't
+> happen). Migration not yet applied to the live DB. **Velune-side
+> rebuild** (replace `CampaignCardSection.kt`'s `LazyRow` with a
+> single-card, 30-second, resume-triggered-reshuffle view, per Round
+> 3's already-resolved "replace, don't coexist" decision) **still not
+> started** — full detail in Task 59 Part 3's own entry.
+
 > **Newest note (2026-09-01, latest of all) — Task 59 Part 2b-a built:
 > `campaign_genre_tile_mapping` schema, ingestion route, admin review
 > route — the mavins-web half of Part 2b.** Split Part 2b into 2b-a
@@ -11467,11 +11489,72 @@ into 3 parts, doing only the first:**
   already-resolved fail-closed genre rule (inject only from
   `MoodAndGenresScreen`-originated queues; every other queue type
   injects nothing).
-- **Part 3 (Velune) — not started.** Rebuild the home banner as its
-  own separate surface — single card, 30 seconds each, reshuffle
-  specifically on app-background-then-resume, never reveal the live
-  count. Independent of Part 2 — different surface, different rules,
-  no shared code expected beyond "what counts as a live campaign."
+- **Part 3 (Velune) — mavins-web half done this session; Velune UI half
+  still not started.** Rebuild the home banner as its own separate
+  surface — single card, 30 seconds each, reshuffle specifically on
+  app-background-then-resume, never reveal the live count. Independent
+  of Part 2 — different surface, different rules, no shared code
+  expected beyond "what counts as a live campaign."
+
+  **Done this session: new `supabase_migration_025_live_campaigns_banner.sql`,
+  `get_live_campaigns_for_banner()`.** Re-read the spec precisely
+  before building — this surface needs ALL live campaigns with NO
+  ranking whatsoever, a genuinely different shape from
+  `get_trending_campaigns` (migration 021), which is fundamentally a
+  scored, limited, single-winner-style function. Rather than retrofit
+  that function with a "disable scoring" flag, this is a clean new
+  function; `get_trending_campaigns` stays untouched, still serving
+  Part 1/2's queue-slot mechanic exactly as before. No `ORDER BY`
+  score/streams/date, no `LIMIT`, no geo/genre filter (this surface
+  crosses genres, confirmed in the original spec) — the whole point is
+  "the complete, true set of live campaigns," with Velune owning 100%
+  of the shuffle/rotation/display logic client-side.
+
+  **Also fixes a real, separately-confirmed bug found while tracing
+  Velune's actual current code before writing this migration** (not
+  assumed — read `CampaignCardSection.kt`, `CampaignRepository.kt`,
+  and `CampaignUrlResolver.kt` directly first): `get_trending_campaigns`'s
+  `RETURNS TABLE` never included `source_url` or `resolved_song_id` at
+  all, even though both are real columns directly on `track_campaigns`
+  (confirmed via `supabase_schema.sql` lines 56-57). Velune's own
+  `CampaignUrlResolver.resolve()` needs one of these two fields to
+  produce a playable video id (`row.resolvedSongId ?: extractVideoId(row.sourceUrl)`)
+  — without either, every row resolves to `null` and gets silently
+  filtered out by `parseTrendingRows`'s own `mapNotNull`. **This means
+  the current live home banner most likely renders nothing at all in
+  production today, regardless of how many campaigns are genuinely
+  live** — not something this task introduces, something tracing it
+  surfaced. Not fixed in `get_trending_campaigns` itself (deliberately
+  out of scope — Part 1/2 already committed to leaving that function
+  untouched); the new function just doesn't repeat the omission.
+
+  Verified by direct comparison against `supabase_schema.sql`'s real
+  `track_campaigns`/`users`/`tracks` column definitions and migration
+  021's own working `get_trending_campaigns` structure (same join
+  shape, minus the scoring/limiting logic this surface's spec
+  explicitly rules out) — confirmed every selected column
+  (`source_url`, `resolved_song_id`, `track_id`, `artist_id`,
+  `artist_name`, `track_title`, `cover_url`, `current_stage`) is real
+  and correctly typed. **Not run against a live database or simulated
+  with sample data** — no live DB access in this sandbox, and this
+  query's logic is simple enough (a single filtered `SELECT`, no
+  scoring arithmetic like migration 021's) that a schema-level check
+  was the appropriate verification depth, not a runtime simulation
+  overstating confidence beyond what was actually done. Migration not
+  yet applied to the live DB — same project-owner-only
+  `supabase db push` hand-off as every prior migration.
+
+  **Still needed, not started: the actual Velune-side rebuild** —
+  `CampaignCardSection.kt`'s current `LazyRow` (shows all active
+  campaigns at once, horizontally swipeable, and directly displays
+  `campaign.playCount`/a "New" pill — both violate the "never reveal
+  the live count" rule) needs replacing (not augmenting — Round 3's
+  own already-resolved decision) with a single-card view, a 30-second
+  auto-advance timer, and a `Lifecycle` observer that reshuffles
+  specifically `ON_RESUME` after a prior `ON_STOP` (not on every
+  recomposition, not periodically) — see `CampaignCardSection.kt`'s
+  own current structure (no timer/lifecycle logic exists there at all
+  today) for exactly what's being replaced.
 
 **Part 1 built:
 `supabase_migration_023_fair_rotation_queue_slot.sql`.** New function
