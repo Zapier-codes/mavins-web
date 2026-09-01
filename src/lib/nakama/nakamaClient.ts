@@ -7,12 +7,11 @@
 // established right after a normal Supabase login/signup succeeds,
 // never the other way around. This supersedes this file's original
 // version (and Part 1's `/api/auth/nakama-bridge` route/
-// `resolveOrLinkNakamaIdentity()`), which had built the reverse flow
-// — authenticate against Nakama FIRST, then mint a NEW Supabase
-// session from that identity. See Task 48-c's own handover.md entry
-// for the full correction write-up, including why Part 1's code is
-// now superseded rather than deleted outright (a product-owner call,
-// not made unilaterally here).
+// `resolveOrLinkNakamaIdentity()`, which had built the reverse flow —
+// authenticate against Nakama FIRST, then mint a NEW Supabase session
+// from that identity). Product owner confirmed removal directly: both
+// of Part 1's files were deleted outright, not left as dead code. See
+// Task 48-c's own handover.md entry for the full correction write-up.
 //
 // Deliberately a SEPARATE, small file from
 // src/services/nakama/nakama.service.ts, not a re-export of it — that

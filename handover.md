@@ -8261,6 +8261,23 @@ its own fresh verification pass.
 
 ### 48-c — Wire all real users authenticated through Nakama [x]
 
+**Follow-up, this session (2026-09-01): product owner directly
+confirmed the Supabase-primary direction and asked for Part 1's
+superseded reverse-bridge code to be deleted outright, not left as
+dead code.** Removed `src/lib/auth/nakamaBridge.ts` and
+`src/app/api/auth/nakama-bridge/route.ts` entirely. Checked first:
+neither was imported anywhere outside themselves —
+`nakamaClient.ts`'s own reference to them was comment-only, updated to
+reflect the deletion rather than describing files that no longer
+exist. `auth_user_id` (the column Part 1's code would have populated)
+has zero references anywhere in `src/` now — confirmed via grep — so
+it — confirmed via grep — so it's genuinely orphaned, not just
+unused-but-wired; left the column itself alone since removing it
+wasn't asked for and it's a schema change with its own blast radius
+(whether anything else, e.g. a future 48-c-adjacent feature, ever
+wants it is now fully open again, exactly as the original correction
+note already said). `npx tsc --noEmit` clean after the deletion.
+
 **CORRECTED, this session, before Part 2 was even finished being
 built — explicit product-owner correction, not a self-discovered
 change of mind:** the actual desired direction is the reverse of what
