@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { SiInstagram, SiX, SiTiktok, SiSpotify } from 'react-icons/si';
 import { PointsHistoryPanel } from '@/components/gamification/PointsHistoryPanel';
+import { TierStatusCard } from '@/components/gamification/TierStatusCard';
 
 // react-icons' IconType returns React.ReactNode, which React 18's stricter
 // function-component typing won't accept directly as a JSX tag — same cast
@@ -250,6 +251,14 @@ export default function SettingsPage() {
             )}
             {saved ? 'Saved!' : saving ? 'Saving...' : 'Save Changes'}
           </button>
+        </div>
+
+        {/* Task 48-d Part 5b — first UI surface for current tier
+            standing anywhere in this repo. 5a already makes promotion
+            happen + notifies on a real change; this is the "see your
+            standing at a glance" piece that was left open. */}
+        <div className="mt-6">
+          <TierStatusCard userId={user?.id} />
         </div>
 
         {/* Task 48-d Part 4a — first real UI surface for points_history

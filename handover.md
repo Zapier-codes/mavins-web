@@ -2,6 +2,25 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-09-01, latest of all) — Task 48-d Part 5b done:
+> a dedicated tier-status display, the first UI surface anywhere in
+> this repo for current tier standing.** New `useTierStatus` hook
+> (its own fetch, not sharing 5a's fire-and-forget `useTierCheckOnLogin`,
+> which discards its response) + `TierStatusCard`, mounted in
+> `/settings` above `PointsHistoryPanel`. Picked over Part 4b
+> (points/history's fuller experience) because that part's own note
+> flags itself as premature right now — no real history to design
+> pagination against yet — while `tier/check`'s response is real data
+> for every user regardless of activity. `npx tsc --noEmit` clean;
+> response-handling simulated against 5 cases, all correct. **48-d
+> status: Parts 1 and 5 fully done, Parts 2/3 still genuinely BLOCKED,
+> Part 4b correctly still open (not a gap — see its own note). Full
+> write-up in Task 48-d's own "Part 5b" section.** Also this session:
+> per direct product-owner confirmation, deleted Task 48-c Part 1's
+> superseded reverse Nakama-bridge code
+> (`src/lib/auth/nakamaBridge.ts`, `/api/auth/nakama-bridge`) outright
+> rather than leaving it as dead code — see 48-c's own entry.
+
 > **Newest note (2026-09-01, latest of all) — Task 59 Part 2b-b Round
 > 11: the genre-tile title now reaches the ViewModel end-to-end,
 > nothing consumes it yet.** Split the remaining 6-file chain along a
@@ -8380,8 +8399,8 @@ separable, not an arbitrary split for its own sake.
   flagged as such until this session (correction below).**
 - **Part 4 — `points/history`. [ ] Split into 4a/4b this session — 4a
   done (2026-08-31), 4b not started.**
-- **Part 5 — `tier/check`. [ ] Split into 5a/5b this session — 5a done
-  (2026-08-31), 5b not started.**
+- **Part 5 — `tier/check`. [x] Split into 5a/5b this session — 5a done
+  (2026-08-31), 5b done (2026-09-01).**
 
 #### Part 1 — wire `POST /api/gamification/streak/update` into the app
 
@@ -8615,6 +8634,59 @@ bundled in.
   promotion firing its notification/migration-card pair. Same standing
   limitation as every other live-data integration task in this file's
   history, including Part 1's own note above.
+
+#### Part 5b — dedicated tier-status display [x] Done (2026-09-01)
+
+Picked over Part 4b (points/history's own fuller experience) because
+Part 4b's own note explicitly flags itself as premature right now —
+the list is likely empty in practice today (Part 2/3 blocked, Part 1's
+`award_points` gap), so there's no real data to design pagination
+against yet. Part 5b has no such blocker: `tier/check`'s response
+(`tierDetails`, `nextTier`, `currentPoints`, `isMaxTier`) is real data
+regardless of activity history — every user has *some* points total
+and *some* current tier from the moment their row exists, points
+default to 0.
+
+**What was built:**
+- `src/hooks/gamification/useTierStatus.ts` — its own fetch, not a
+  shared value read out of `AuthProvider`'s internal `useTierCheckOnLogin`
+  (5a), which is fire-and-forget and discards the response entirely.
+  Calling `tier/check` again here is safe by 5a's own established
+  reasoning (idempotent, cheap) and guarantees this hook shows accurate
+  standing at the moment the user is actually looking at it, not
+  whatever was true at login time.
+- `src/components/gamification/TierStatusCard.tsx` — current tier
+  label/icon/multiplier, points total, and a progress bar toward the
+  next tier (or a "highest tier" message at the cap). Matches
+  `PointsHistoryPanel`'s own compact/self-contained bar exactly — same
+  `glass-card` shell, same loading/error/empty-state posture.
+- Mounted into `/settings`, directly above `PointsHistoryPanel` (current
+  standing at a glance, before the ledger of how they got there) — same
+  page Part 4a already established as this repo's only real
+  account-management surface.
+
+**Verified:**
+- `npx tsc --noEmit` — clean across the repo.
+- Response-handling logic simulated (throwaway script, written, run,
+  deleted — same convention as every prior part): 5 cases (normal
+  mid-tier response, max-tier response with `nextTier: null`, an
+  API-reported failure with a message, one without, and a malformed
+  non-numeric `currentPoints` value from the API) — **all 5 matched
+  expected behavior**, including the malformed-value case falling back
+  to `0` via the same `Number(...) || 0` defensive pattern
+  `usePointsHistory` already established.
+- **Not verified — no way to check this from a sandbox:** an actual
+  logged-in session seeing its real tier/points render, or the
+  progress-bar math against a live user genuinely close to a tier
+  boundary. Same standing limitation as every other live-data
+  integration task in this file's history.
+
+**48-d status after this session: Parts 1 and 5 fully done. Parts 2/3
+remain genuinely BLOCKED** (untracked `daily_tasks`/`user_tasks`
+tables, no task catalog, no live-DB access from this sandbox to
+resolve either). **Part 4b remains open but is correctly not-yet-worth-
+doing**, per its own note above — revisit once Parts 2/3 unblock and
+there's real history to design a fuller view against.
 
 ---
 
