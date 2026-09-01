@@ -2,6 +2,28 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-09-01, latest of all) — Task 48-e audited, all
+> three items resolved to the extent this sandbox can without live-DB
+> access.** Documentation only, no schema changed. (1) Of the three
+> `monthly_listeners*` columns, only the bare `monthly_listeners` is
+> referenced anywhere in this repo (one migration) — the other two
+> have zero references. (2) SeedEngine's artist-roster column
+> dependency is real and confirmed (`primary_genre`, `archetype`,
+> `cooldown_until`, `high_yield_multiplier`, `spotify_url`,
+> `youtube_url`) — but an important nuance for the rest of that
+> cluster: `chart_position`/`narrative_arc` have zero code references
+> yet are populated live for 170/151 of 171 real users (per Group 3's
+> already-answered query), proving "no code reference" ≠ "unused" on
+> this specific table — an external process populates some columns
+> code never reads. **Do not treat the rest of the unreferenced
+> cluster as safe to drop on that logic alone.** (3) The original
+> auth_user_id-bypassed-Nakama audit question is now superseded, not
+> answered — it assumed the pre-correction Nakama-primary model;
+> `auth_user_id` has zero references anywhere in `src/` now that Part
+> 1's reverse-bridge code is deleted, so the question has no forward
+> relevance under the corrected architecture. Full write-up in Task
+> 48's own "48-e" section.
+
 > **Newest note (2026-09-01, latest of all) — Task 48-d Part 5b done:
 > a dedicated tier-status display, the first UI surface anywhere in
 > this repo for current tier standing.** New `useTierStatus` hook
@@ -7923,7 +7945,10 @@ instruction — "do a only full implementation"):**
   roster column cluster's connection to `SeedEngine`
   (Task 46c/Task 48's own earlier note), and auditing whether any
   `auth_user_id`-set row bypassed real Nakama authentication (Group
-  3's own flagged follow-up query, never run). **Not started.**
+  3's own flagged follow-up query, never run). **[x] Audited this
+  session (2026-09-01) — see its own dedicated "48-e" section below
+  for the full write-up. Documentation only, no schema changes made —
+  none of the three findings justified one unilaterally.**
 
 ### 48-a — Admin any→any role reassignment [x]
 
@@ -8687,6 +8712,91 @@ tables, no task catalog, no live-DB access from this sandbox to
 resolve either). **Part 4b remains open but is correctly not-yet-worth-
 doing**, per its own note above — revisit once Parts 2/3 unblock and
 there's real history to design a fuller view against.
+
+---
+
+### 48-e — Lower-priority data-quality follow-ups [x]
+
+**Audited this session (2026-09-01). Documentation only — no schema
+changed, no columns dropped.** All three items are genuinely
+code-level-only findings this sandbox can produce without live-DB
+access; whether to act on any of them (drop a column, run a live
+query) is a product-owner call with real blast radius, not made
+unilaterally here. Verified via exhaustive repo-wide grep for each
+column name individually (`.ts`/`.tsx`/`.sql`, `node_modules`
+excluded), not assumed from any file's own declaration alone.
+
+**1. The three `monthly_listeners*` columns — resolved definitively
+for the code side.** Only `monthly_listeners` (the bare name, no
+suffix) is referenced anywhere in this repo:
+`supabase/migrations/20260831000024_seed_user_campaigns.sql` reads it
+directly to scale seeded stream counts
+(`COALESCE(seed_record.monthly_listeners, 5000000) * ...`).
+`monthly_listeners_est` and `monthly_listeners_current` have **zero**
+references anywhere in the codebase — not in any route, service,
+component, or migration. **Recommendation: `monthly_listeners` is the
+canonical column going forward** — anything new needing this data
+should read that one, not either of the other two. **Not dropping the
+other two here**: zero code references in this repo doesn't rule out
+an external process (an admin action outside this repo, a scheduled
+job, a Zapier flow) still writing to them — that needs a live check
+before either is safely removable, same standing limitation as every
+other schema question in this file.
+
+**2. The SeedEngine/artist-roster column cluster — real, confirmed
+connection, with an important nuance the original flagging note
+couldn't have known.** `src/services/seed/seedEngine.service.ts`
+genuinely reads `primary_genre`, `archetype`, `cooldown_until`, and
+`high_yield_multiplier` for real seed-selection logic (cooldown
+filtering, genre matching, persona/archetype bias) — this is a real,
+active dependency, not a stale guess.
+`supabase/migrations/20260831000024_seed_user_campaigns.sql` also
+reads `spotify_url`/`youtube_url` directly, to pick a source URL for a
+seeded campaign.
+
+For the rest of the originally-flagged cluster
+(`chart_position`, `track_count`, `strategic_rest_active`, `spotify_id`,
+`youtube_id`, `discography_count`, `latest_release`,
+`latest_release_year`, `narrative_arc`): **zero code references
+anywhere in this repo for any of them.** But — checked against Group
+3's own already-answered live-DB query (this task's earlier "ANSWERED,
+do not re-run" result, not a fresh live check this session) —
+`chart_position` is populated for 170 of 171 real users, and
+`narrative_arc` for 151 of 171. **This means "zero code references in
+this repo" does NOT mean "unused/dead data" for this table** — both
+are clearly being populated by something outside this repo's own code
+(an external ranking job, an admin action, or similar), exactly the
+same pattern Group 3's own note already flagged for `chart_position`
+specifically ("suggesting it's computed/assigned... via a ranking
+job"). **Do not treat an unreferenced column on this table as safe to
+drop without a live population check first** — this table has
+already demonstrated that pattern once; assuming the rest of the
+cluster is safe by the same "no code references" logic alone would be
+an unverified leap, not a conclusion this session's evidence actually
+supports.
+
+**3. Auditing whether any `auth_user_id`-set row bypassed real Nakama
+authentication — superseded by 48-c's own correction, not answered as
+originally framed.** The original question assumed the (since-
+corrected) Nakama-primary-auth direction, where `auth_user_id` was
+meant to be the bridge a Nakama-first login path would populate.
+Task 48-c was corrected this session to the opposite direction
+(Supabase Auth's `id` is the one source of truth; Nakama is synced
+downstream via `authenticateCustom(supabaseUserId)`), and this same
+session deleted the reverse-bridge code
+(`resolveOrLinkNakamaIdentity()`, `/api/auth/nakama-bridge`) that
+would have been the thing populating `auth_user_id` under the old
+model. **Confirmed via grep: `auth_user_id` now has zero references
+anywhere in `src/`** — nothing in this repo's current code reads it or
+writes it. The original question ("did some row get `auth_user_id`
+set via a path that bypassed Nakama") has no forward relevance under
+the corrected architecture, since no live code path sets that column
+going forward either way. Whether any pre-existing row has a stale or
+inconsistent `auth_user_id` value from before the correction is now a
+purely historical data-quality question with zero functional impact
+(nothing reads the column, confirmed above) — genuinely lower priority
+than Group 3's original framing, and not worth spending a live query
+on unless some future feature starts depending on that column again.
 
 ---
 
