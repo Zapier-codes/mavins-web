@@ -2,6 +2,26 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-08-31, latest of all) — Task 48-d Part 4a done:
+> `points/history` wired in, first real UI surface for it anywhere in
+> this repo.** New `usePointsHistory` hook + `PointsHistoryPanel`
+> component, mounted into `/settings` (the only existing account-
+> management page — confirmed via grep, no dedicated profile/rewards
+> page exists). **Also found and corrected a gap in the Part list
+> itself: Part 3 (`tasks/claim`) was never flagged as blocked, but
+> reading its actual code this session shows it shares Part 2's exact
+> blocker** (same untracked `daily_tasks`/`user_tasks` tables, same
+> missing task-catalog knowledge, same missing UI surface to select a
+> task from) — checked before assuming it was available, per the
+> mandatory task-splitting rule's own "pick the first genuinely
+> unblocked part" instruction. This is why Part 4, not Part 3, was
+> picked. Split into 4a (done) / 4b (pagination, filtering, a fuller
+> page — not started). `npx tsc --noEmit` clean; response-handling
+> logic simulated against 5 cases, all correct. Full write-up in
+> Task 48-d's own Part 4 section. **Next: 48-d Part 4b, Part 5b, or
+> revisit Parts 2/3 if a live-DB query ever becomes possible** — all
+> three remain independent and open.
+>
 > **Newest note (2026-08-31, latest of all) — Task 48-d Part 5a done:
 > `tier/check` wired into `AuthProvider.tsx`, same proven shape as
 > Part 1's streak hook.** Picked over the literal "next" part (Part 2,
@@ -8196,8 +8216,10 @@ separable, not an arbitrary split for its own sake.
 - **Part 1 — `streak/update`. [x] Done (2026-08-30).**
 - **Part 2 — `tasks/update`. [ ] BLOCKED, not started — see note below,
   don't force this without the missing information first.**
-- **Part 3 — `tasks/claim`. [ ] Not started.**
-- **Part 4 — `points/history`. [ ] Not started.**
+- **Part 3 — `tasks/claim`. [ ] BLOCKED — same reason as Part 2, not
+  flagged as such until this session (correction below).**
+- **Part 4 — `points/history`. [ ] Split into 4a/4b this session — 4a
+  done (2026-08-31), 4b not started.**
 - **Part 5 — `tier/check`. [ ] Split into 5a/5b this session — 5a done
   (2026-08-31), 5b not started.**
 
@@ -8302,6 +8324,88 @@ that case, not something to guess through:
   wiring pass — closer in shape to a small feature than a one-hook
   wire-up. Left fully open rather than guessing a plausible-sounding
   task catalog and building against a fiction.
+
+**Correction to Part 3's bullet, found this session while picking a
+part to build:** `tasks/claim/route.ts` was read in full before
+deciding what to build next (per the mandatory task-splitting rule's
+own instruction to check for a genuinely-unblocked part first) — it
+reads/writes the exact same `user_tasks`/`daily_tasks` tables Part 2
+is blocked on (`.from('user_tasks').select('*, task:daily_tasks(*)')`),
+and needs a specific `taskId` to claim plus a UI surface listing
+completed-but-unclaimed tasks to select from — neither of which can
+exist without the same missing task-catalog knowledge Part 2 is
+blocked on. The original part list didn't flag this — it should have.
+**Part 3 is BLOCKED, same reason as Part 2, not a separately-available
+part.** This is why Part 4 (`points/history`), not Part 3, was picked
+next this session: it was actually checked, not assumed available
+because its bullet didn't say "BLOCKED."
+
+---
+
+### 48-d Part 4 — `points/history`, split into 4a/4b this session
+
+#### Part 4a — wire `GET /api/gamification/points/history` into the app [x] Done (2026-08-31)
+
+Picked over Part 3 (`tasks/claim`, blocked — see correction above)
+because it's genuinely self-contained: a plain read with no task-
+catalog knowledge needed, matching Part 1/5a's own "real value,
+nothing unknown required" bar.
+
+**What was built:**
+- `src/hooks/gamification/usePointsHistory.ts` — fetches on mount and
+  whenever `userId` changes, no ref-guard needed (unlike Part 1's
+  streak hook) since a GET has no idempotency concern of its own —
+  refetching just reflects whatever's current. Cancellation-safe (a
+  `cancelled` flag, same pattern as Task 59/61's own fetch effects
+  elsewhere in this repo) so a stale response from a fast `userId`
+  change can't overwrite a newer one.
+- `src/components/gamification/PointsHistoryPanel.tsx` — compact list,
+  loading/error/empty states, relative timestamps. Deliberately
+  minimal, matching Part 1/5a's "self-contained, not over-built" bar —
+  pagination past the API's default `limit=20`, filtering by `type`,
+  and a dedicated full page are all explicitly Part 4b, not attempted
+  here.
+- Mounted into `/settings` — the only existing account-management
+  surface in this repo (confirmed via grep: no dedicated profile/
+  rewards/gamification-hub page exists anywhere; `notifications/page.tsx`
+  is a *different*, already-existing surface — a transient event feed,
+  not a structured points ledger — so this isn't a duplicate of
+  something already there).
+
+**Schema honesty, same as Parts 1/2/3 already established for their
+own tables:** `points_history` is itself untracked — no migration file
+or `supabase_schema.sql` entry defines it anywhere in this repo
+(confirmed via grep before writing any of this). The fields this hook
+reads (`user_id`, `amount`, `type`, `description`, `created_at`) are
+not guessed — they're exactly what `tasks/claim/route.ts` already
+inserts into this same table in real, live code, so nothing here
+references a column this repo hasn't already demonstrated exists.
+
+**Verified:**
+- `npx tsc --noEmit` — clean across the repo.
+- Response-handling logic simulated (throwaway script, written, run,
+  deleted — same convention as every prior part): 5 cases (successful
+  fetch with entries; success with a null/missing `history` field from
+  the API, testing the `Array.isArray` defensive guard; API-reported
+  failure with an error message; API-reported failure with none,
+  testing the fallback string; a thrown network error) — **all 5
+  matched expected behavior.**
+- **Not verified — no way to check from this sandbox:** an actual
+  logged-in session hitting a live Supabase instance and seeing real
+  history entries render (there likely aren't any yet in practice —
+  `tasks/claim` is blocked, per Part 3's correction above, and Part 1's
+  own flagged `award_points` gap means streak milestones don't insert
+  here either — so the empty-state path is probably what a real user
+  sees today, which is exactly why that state got real, deliberate
+  copy rather than being an afterthought).
+
+#### Part 4b — fuller experience (not started)
+
+Left open: pagination/infinite-scroll past the default 20 entries,
+filtering by `type`, and/or a dedicated page instead of a settings
+sub-section — worth revisiting once Parts 2/3's blocker is resolved
+and there's real data to design a fuller view against, rather than
+building pagination for a list that's likely empty today.
 
 ---
 
