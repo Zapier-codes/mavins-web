@@ -67,11 +67,56 @@ function useStreakUpdateOnLogin(userId: string | null | undefined) {
   }, [userId]);
 }
 
+// Task 48-d Part 5a (handover.md) — wires the previously-unwired
+// POST /api/gamification/tier/check into the app, same pattern as
+// Part 1's streak hook directly above. Picked over Part 2
+// (tasks/update) as this session's actual next part: Part 2 depends
+// on the `daily_tasks` catalog, a table that exists live but isn't in
+// any tracked migration/schema file in this repo (confirmed via grep,
+// same untracked-table pattern this project has hit before) and has
+// zero existing frontend surface of any kind to hang a trigger off
+// of — genuinely blocked on missing information, not something to
+// force a guess at. tier/check has neither problem: it's a pure
+// function of `users.points` (already known) with the exact same
+// "fires once per session, safe to no-op" shape Part 1 already
+// proved out.
+//
+// Split into 5a/5b per this session's own mandatory task-splitting
+// rule: 5a (this) is the mechanical wiring — call the endpoint, let
+// its own existing server-side effects (notification + migration_card
+// insert on a real tier change, both already built) do the
+// user-facing work. 5b (explicitly NOT started here) would be a
+// dedicated tier-status UI surface (current tier, points to next
+// tier, multiplier) — nothing in the app displays that today even
+// though `tier/check`'s response already returns all of it; that's a
+// real, separate piece of work, not bundled into this wiring pass.
+function useTierCheckOnLogin(userId: string | null | undefined) {
+  const firedForUserId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!userId || firedForUserId.current === userId) return;
+    firedForUserId.current = userId;
+
+    fetch('/api/gamification/tier/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    }).catch((err) => {
+      // Same non-fatal, reset-and-allow-retry posture as the streak
+      // hook above — a failed tier check should never block or
+      // visibly disrupt anything else in the app.
+      console.error('Tier check failed:', err);
+      firedForUserId.current = null;
+    });
+  }, [userId]);
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useStreakUpdateOnLogin(user?.id);
+  useTierCheckOnLogin(user?.id);
 
   useEffect(() => {
     const getSession = async () => {

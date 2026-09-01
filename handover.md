@@ -2,6 +2,29 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-08-31, latest of all) — Task 48-d Part 5a done:
+> `tier/check` wired into `AuthProvider.tsx`, same proven shape as
+> Part 1's streak hook.** Picked over the literal "next" part (Part 2,
+> `tasks/update`) because Part 2 is genuinely blocked — its
+> `daily_tasks`/`user_tasks` tables are untracked (no migration/schema
+> file anywhere in this repo) and have zero existing frontend surface,
+> so wiring it would mean guessing at an unknown task catalog rather
+> than connecting a real trigger to a real endpoint. Flagged as
+> BLOCKED, not forced — full reasoning in Task 48-d's own Part 2 note.
+> Split Part 5 into 5a/5b per this session's mandatory rule: 5a (done)
+> is the mechanical wiring, relying on `tier/check`'s own pre-existing
+> notification/migration-card inserts for user-facing feedback on a
+> real tier change; 5b (a dedicated tier-status display UI, not built
+> anywhere today) is explicitly left open. `npx tsc --noEmit` clean;
+> guard-logic simulated against 8 scenarios (same convention Part 1
+> used), all correct. Full write-up in Task 48-d's own Part 5 section.
+> **Also this session: flagged an urgent, unrelated security finding
+> in B-Pay-backend** (not fixed, that repo's own handover has full
+> detail) — a newly-added `/payout` endpoint there has no
+> authentication of any kind, and its amount-unit convention for
+> Korapay's payout API was never independently verified against the
+> collection endpoint's already-confirmed convention.
+>
 > **Newest note (2026-08-30, latest of all) — Task 62: audited Velune
 > for admin functionality to remove, per direct instruction. Found
 > none to remove.** Thorough search (every file matching "admin"
@@ -8170,11 +8193,13 @@ in has a different trigger condition and a different UI surface, so
 they don't share much beyond "call a fetch somewhere" — genuinely
 separable, not an arbitrary split for its own sake.
 
-- **Part 1 — `streak/update`. [x] Done this session (2026-08-30).**
-- **Part 2 — `tasks/update`. [ ] Not started.**
+- **Part 1 — `streak/update`. [x] Done (2026-08-30).**
+- **Part 2 — `tasks/update`. [ ] BLOCKED, not started — see note below,
+  don't force this without the missing information first.**
 - **Part 3 — `tasks/claim`. [ ] Not started.**
 - **Part 4 — `points/history`. [ ] Not started.**
-- **Part 5 — `tier/check`. [ ] Not started.**
+- **Part 5 — `tier/check`. [ ] Split into 5a/5b this session — 5a done
+  (2026-08-31), 5b not started.**
 
 #### Part 1 — wire `POST /api/gamification/streak/update` into the app
 
@@ -8246,6 +8271,86 @@ a future session touching 48-c/48-d's auth-identity assumptions
 should re-read that commit directly rather than trust anything about
 identity primacy summarized earlier in this same file, since it was
 apparently revised at least once already).
+
+#### Part 2 — `tasks/update` — BLOCKED, not started, don't force it
+
+Checked before picking a "next part" this session, per this project's
+own "a task genuinely blocked on a real open question stays blocked"
+standard (see the Build-focus section's own wording) — this is exactly
+that case, not something to guess through:
+
+- **`daily_tasks`/`user_tasks` (the two tables `tasks/update/route.ts`
+  reads/writes) appear in NO tracked migration file and NOT in
+  `supabase_schema.sql`** — confirmed via grep across every `.sql`
+  file in this repo. Same untracked-live-table pattern this project
+  has hit before (`payments`, `admin_role`/`admin_permissions` before
+  their own migrations existed) — the table is real and live, but
+  nothing in this repo says what task *types* exist, what
+  `target_count` values they use, or what `increment` amounts a real
+  action should send.
+- **Zero existing frontend surface of any kind** — confirmed via grep,
+  same check Part 1's own opening paragraph already ran for all five
+  routes: nothing anywhere in `src/` reads from `daily_tasks`/
+  `user_tasks`, not even a read-only "here are your daily tasks" list.
+  Unlike Part 1 (streak) or Part 5 (tier, see below), there is no
+  existing UI moment to hang an "increment progress" call onto without
+  first knowing what the tasks actually ask a user to do.
+- **What unblocks this:** a live-DB query (`select * from daily_tasks`)
+  run by someone with actual Supabase access — this sandbox has none.
+  Once the task catalog is known, this part likely also needs an
+  actual UI surface built (a "daily tasks" list/widget), not just a
+  wiring pass — closer in shape to a small feature than a one-hook
+  wire-up. Left fully open rather than guessing a plausible-sounding
+  task catalog and building against a fiction.
+
+---
+
+### 48-d Part 5 — `tier/check`, split into 5a/5b this session
+
+#### Part 5a — wire `POST /api/gamification/tier/check` into the app [x] Done (2026-08-31)
+
+Picked as this session's actual next part over Part 2 (see that part's
+own "BLOCKED" note above) — `tier/check` has neither of Part 2's
+blockers: it's a pure function of `users.points` (already known, no
+missing catalog) and its natural "check on session start" trigger is
+exactly Part 1's own proven shape, not a new pattern.
+
+**What changed:** `src/components/providers/AuthProvider.tsx` — new
+`useTierCheckOnLogin(userId)` hook, same `useRef`-guarded
+once-per-user-id-transition shape as Part 1's `useStreakUpdateOnLogin`
+(literally copied the pattern, not reinvented), called alongside it
+from `AuthProvider` itself. On a real tier change, `tier/check/
+route.ts` already inserts a `notifications` row (`type:
+'tier_upgrade'`) and a `migration_cards` row — both pre-existing,
+untouched by this session — so the user-facing feedback for an actual
+tier change already exists once this hook fires; no new UI needed for
+5a specifically.
+
+**Deliberately NOT built here — this is 5b, a separate, real piece of
+work:** a dedicated tier-status display (current tier, points to next
+tier, multiplier) — `tier/check`'s own response already returns all of
+this (`tierDetails`, `nextTier`, `currentPoints`), but nothing in the
+app shows it anywhere today. Fire-and-forget wiring (5a) makes tier
+promotion actually *happen* and notifies the user when it does; 5b
+would be what lets a user see their current standing at a glance
+without waiting for the next promotion. Left explicitly open, not
+bundled in.
+
+**Verified:**
+- `npx tsc --noEmit` — clean across the repo.
+- **Guard-logic simulation** (throwaway script, deleted after, same
+  convention Part 1 used): 8 scenarios (null/undefined userId,
+  first-fire, repeated re-renders same user, a different user signing
+  in, sign-out, same user signing back in within one session) — **all
+  8 matched expected behavior exactly**, same "same-user-resigning-in-
+  doesn't-refire" result Part 1 already established as intentional
+  (harmless here too — `tier/check` is idempotent, a no-op re-check
+  costs nothing even if it did refire).
+- **Not verified — no way to check this from a sandbox:** an actual
+  logged-in browser session against live Supabase, or a real tier
+  promotion firing its notification/migration-card pair. Same standing
+  limitation as every other live-data integration task in this file's
+  history, including Part 1's own note above.
 
 ---
 
