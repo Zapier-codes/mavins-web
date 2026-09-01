@@ -2,6 +2,27 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-09-01, latest of all) — Task 59 Part 2b-b Round
+> 11: the genre-tile title now reaches the ViewModel end-to-end,
+> nothing consumes it yet.** Split the remaining 6-file chain along a
+> real boundary, confirmed via grep: the shared `youtube_browse` route
+> has exactly 3 callers, only `MoodAndGenresScreen.kt` has a genre
+> signal to send. Threaded a new, `URLEncoder`-encoded/`URLDecoder`-
+> decoded nullable `genreTile` query arg through
+> `MoodAndGenresScreen.kt` → `NavigationBuilder.kt` →
+> `YouTubeBrowseViewModel.kt` — the other two callers need zero changes
+> (Jetpack Navigation's own default-null handling for an omitted
+> nullable arg already matches Round 3's fail-closed rule). Verified
+> via brace/paren balance check (all 3 files) + a throwaway Python
+> simulation of the encode/decode round trip for 4 real titles
+> including an `&`-containing one — not compile-verified, no Android
+> SDK in this sandbox, same limitation as every prior Velune part.
+> **Still open: actually consuming this value** (a real
+> `campaignSlotProvider` calling Part A's `fetchGenreTileMapping()`,
+> threaded into `PlayerConnection.kt`/`MusicService.kt`), plus every
+> other item Round 10 already left open. Full write-up in Task 59's
+> own "Round 11" section.
+
 > **Newest note (2026-09-01, latest of all) — Task 59 Part 3
 > (banner), mavins-web half done; Velune half still not started.**
 > New `supabase_migration_025_live_campaigns_banner.sql`,
@@ -12382,7 +12403,7 @@ Supabase-touching task in this file has noted.
 
 ---
 
-### Round 9 — Part 2b-b split into A/B per direct instruction; Part A built (Velune, `CampaignRepository.kt` only) [Part A: x, Part B: first job x, rest not started]
+### Round 9 — Part 2b-b split into A/B per direct instruction; Part A built (Velune, `CampaignRepository.kt` only) [Part A: x, Part B: first job x, first sub-part of the rest x, remainder not started]
 
 **Split per direct instruction to split the next task into two and
 build only the first half.** Cloned Velune, re-read
@@ -12536,6 +12557,66 @@ SDK/Gradle in either sandbox, same structural limitation every prior
 Velune code change in this project has flagged; verified via a
 brace/paren balance check on both changed files plus the payload
 simulation described above.
+
+### Round 11 — Part B's remaining 6-file chain split further; first sub-part done (Velune): the genre-tile title now reaches the ViewModel, nothing consumes it yet [x]
+
+**Split per this project's own mandatory task-splitting rule, same as
+every prior round of this task.** Cloned Velune fresh, traced the
+actual navigation graph before deciding where the split falls (not an
+arbitrary file-count split) — confirmed via grep that
+`youtube_browse` (the shared route `MoodAndGenresScreen.kt` navigates
+to) has exactly **three** callers total: `MoodAndGenresScreen.kt`
+(genre-tile-originated), `ExploreScreen.kt`, and
+`HomeScreenComponents.kt` (neither of the latter two has any
+equivalent genre/mood signal to send). This is the real technical
+boundary the split follows: **thread a new, nullable `genreTile` query
+argument through the navigation layer only** — the two non-genre
+callers need zero changes, since Jetpack Navigation's own default-null
+handling for an omitted nullable String argument already produces
+exactly the fail-closed behavior Round 3 decided (no title = no
+genre-lock, not an error case). Consuming the value (a real
+`campaignSlotProvider`, `PlayerConnection.kt`, `MusicService.kt`) is
+explicitly **not** this sub-part — that's the next one.
+
+**Three files changed:**
+1. **`MoodAndGenresScreen.kt`** — the tile's own `title` (e.g.
+   "Afrobeats") is now sent as a new, `URLEncoder`-encoded query param
+   on the existing navigation call, matching Task 59 Part 2b-a's own
+   established encode convention exactly (same reason: a real genre
+   title containing `&`, e.g. a "Lo-Fi & Chill" mood tile, would
+   otherwise corrupt the query string).
+2. **`NavigationBuilder.kt`** — the shared `youtube_browse` route's
+   pattern grows a new `&genreTile={genreTile}` segment with a
+   matching nullable `navArgument`. Confirmed this doesn't require any
+   change at the other two call sites: this codebase's own existing
+   `params` argument is already declared and used exactly this way
+   (nullable, sometimes omitted by callers) — the same supported
+   Navigation Compose pattern, not something new being introduced.
+3. **`YouTubeBrowseViewModel.kt`** — new `genreTileTitle: String?`
+   field, read via `SavedStateHandle` and `URLDecoder`-decoded the same
+   way `browseId`/`params` already are. `null` for the two non-genre
+   callers, populated correctly for the genre-tile case. Deliberately
+   not consumed by anything else in this file yet.
+
+**Verified — no Android SDK/Gradle in this sandbox, same structural
+limitation as every prior Velune part:** brace/paren balance check on
+all three changed files (all balanced), plus a throwaway Python
+simulation of the actual encode → build-route-string → extract →
+decode round trip for four representative titles (`Afrobeats`, `R&B`,
+`Hip-Hop`, `Lo-Fi & Chill`) — all four round-tripped correctly,
+including confirming the `&`-containing cases don't corrupt the query
+string the way the pre-Round-9 bug did. Not compile-verified.
+
+**Still fully open, unchanged from before this round:** the actual
+consumption half (a real `campaignSlotProvider` calling Part A's
+`fetchGenreTileMapping()`, threaded into `PlayerConnection.kt`/
+`MusicService.kt`), the `ingestGenreTile()`-triggering question of
+*when* a newly-seen tile title should actually get reported (not
+decided in any round so far — worth resolving before or during the
+consumption sub-part, not assumed), `MusicService.kt`'s own
+initial-batch-from-the-wrong-queue bug, and confirming the
+`campaign_genre_tile_mapping` table is actually seeded with this app's
+real live tile catalog.
 
 ---
 
