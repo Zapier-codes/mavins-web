@@ -2,6 +2,17 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-09-01, latest of all) — Task 48-d Part 1's own
+> flagged gap closed: the missing `award_points` RPC now exists.**
+> `streak/update/route.ts` has called this RPC since Part 1 shipped;
+> it never existed, so streak-milestone bonus points silently never
+> got awarded. New migration 026 (atomic, `service_role`-only, same
+> posture as every other points/wallet RPC here) plus a found-and-fixed
+> client mismatch in the same route (it was calling this
+> `service_role`-locked RPC from an anon-key client — now uses
+> `createAdminClient()` for just that one call). Full write-up
+> appended directly under Part 1's own section.
+>
 > **Newest note (2026-09-01, latest of all) — Task 48-e audited, all
 > three items resolved to the extent this sandbox can without live-DB
 > access.** Documentation only, no schema changed. (1) Of the three
@@ -8462,6 +8473,26 @@ be awarded until this RPC is created**. Left for a future part (could
 be its own small migration-only part, or folded into whichever future
 part ends up touching points more broadly — e.g. Part 4's
 `points/history` work) rather than scope-creeping it into Part 1.
+
+**Closed — commit `518c0d5`, same session, immediately after picking
+this as the actual next unblocked piece of work rather than starting a
+new part.** New migration 026: `award_points(p_user_id, p_points,
+p_reason, p_type default 'streak_milestone')`, matching this route's
+own already-written call signature exactly, atomic (unlike
+`tasks/claim/route.ts`'s own read-then-write pattern for the same
+`users.points` column — a different route, not touched here), locked
+to `service_role` only, same posture as every other points/wallet-
+mutating RPC in this project. **Found and fixed the same real mismatch
+this lockdown would otherwise have hit:** this route's own client
+above is anon-key, not service-role — `createAdminClient()` is now
+used for only the RPC call itself, not swapped in for this route's
+other already-working anon-key reads/writes. Known, flagged,
+unverifiable-from-this-sandbox risk: `points_history.type`'s exact
+constraints (if any) are unknown, since that table is untracked in any
+migration file (Part 4a's own prior finding) — noted directly in
+migration 026's own comment. Verified via `npx tsc --noEmit` — clean.
+Not independently verified against a live Supabase instance or a real
+streak reaching a milestone.
 
 **Verified:**
 - `npx tsc --noEmit` — clean across the repo.
