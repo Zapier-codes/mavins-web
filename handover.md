@@ -184,23 +184,45 @@
 > the stat-tracking gamification goal and Part 2 isn't needed at all.
 > See Task 56c's own "Addendum, later session" for the full reasoning.
 >
-> **Newest note (2026-08-30, latest of all) — Task 48-c Part 1 done:
-> the server-side Nakama-identity bridge.** New
-> `nakamaService.verifyClientSession()` (verifies a client's Nakama
-> token against the real Nakama server, never trusts a client-supplied
-> user id), `resolveOrLinkNakamaIdentity()` (find-or-create-and-link a
-> `public.users` row via `auth_user_id`, per 48-b Part d's decided
-> architecture), and the actual entry point,
-> `POST /api/auth/nakama-bridge`. Session-minting reuses this
-> codebase's own already-proven `guestCheckout.ts` pattern
-> (`createUser`/`updateUserById` + `signInWithPassword`) rather than an
-> untested magic-link flow. **Deliberately not wired into any UI yet —
-> Part 2 (client-side Nakama SDK integration, calling
-> `authenticateEmail`/`authenticateCustom`/`authenticateDevice` from
-> somewhere in the login/signup flow) is next, confirmed starting from
-> zero via grep, nothing calls any Nakama SDK auth method today.**
-> `npx tsc --noEmit` clean; not verified against a live Nakama/Supabase
-> environment — full caveat in 48-c Part 1's own entry.
+> **Newest note (2026-08-30, latest of all) — Task 48-c DONE, direction
+> CONFIRMED by direct product-owner decision, resolving a real
+> contradiction with Task 56c's own analysis (below) rather than
+> silently picking a side.** Task 56c (a separate session, analyzing
+> the same original product-owner quote — *"supabase is the foreign
+> relationship for the nakama auth"*) read that literally as
+> Nakama-primary, Supabase-subordinate, and correctly flagged it as a
+> major, high-risk architecture question needing explicit confirmation
+> before any code got written. This session initially built the
+> opposite (Supabase-primary) per a mid-session correction, then
+> surfaced the direct conflict with Task 56c's reading back to the
+> product owner explicitly rather than assume either side was right.
+> **Explicitly confirmed: Supabase-primary is correct.**
+> `auth_user_id`/`id` stays a real Supabase Auth identity for every
+> user regardless of auth origin; Nakama is a downstream identity keyed
+> by that same id via `authenticateCustom(supabaseUserId)`, established
+> right after a normal Supabase login/signup — never the reverse. This
+> also closes Task 56c's own "open questions" list (below) — its core
+> scoping question *was* this exact direction fork; see Task 56c's own
+> section for the resolution note.
+>
+> **What's actually built**: `src/lib/nakama/nakamaClient.ts`'s
+> `syncNakamaSession()`, wired non-blockingly into `login/page.tsx`
+> right after both signup and signin obtain a real `user.id`. Part 1's
+> server-side bridge (`POST /api/auth/nakama-bridge`,
+> `resolveOrLinkNakamaIdentity()`, `verifyClientSession()`) implemented
+> the now-confirmed-wrong reverse direction and is **superseded — left
+> in place, not deleted, pending a product-owner call on physical
+> removal.** `npx tsc --noEmit` clean; not verified against a live
+> Nakama environment.
+>
+> **Still genuinely open, NOT resolved by this direction-confirmation
+> — Task 56c's other findings stand independently:** whether a live/
+> real-time Nakama feature is actually planned at all (if not, even
+> this simpler `syncNakamaSession()` call may be unnecessary — nothing
+> in this app consumes the token it produces for any real-time purpose
+> yet), the existing-171-real-users migration question, and the guest-
+> checkout auth exception question. See Task 56c's own section for the
+> full remaining list.
 
 **Kept identical across all three repos' handover files — this file's
 copy, Velune's `HANDOVER_CAMPAIGN.md`, and B-Pay-backend's own
@@ -7983,101 +8005,84 @@ its own fresh verification pass.
 
 ---
 
-### 48-c — Wire all real users authenticated through Nakama [ ] — split into parts this session, Part 1 done
+### 48-c — Wire all real users authenticated through Nakama [x]
 
-**Split per the same one-task-per-session convention used everywhere
-else in this file, since this task's own description already called
-it "the biggest, most architecturally significant remaining piece" —
-not something to attempt in one pass.** Two parts fell out naturally
-from 48-b Part d's own synthesis, which named exactly these two
-pieces as 48-c's real implementation work:
+**CORRECTED, this session, before Part 2 was even finished being
+built — explicit product-owner correction, not a self-discovered
+change of mind:** the actual desired direction is the reverse of what
+Part 1 (below) implemented. **Supabase Auth's own `id` is the ONE
+source of truth.** Nakama is a downstream, linked identity keyed by
+that SAME id via `authenticateCustom(supabaseUserId)` — established
+right after a normal Supabase login/signup succeeds. Nakama never
+mints or owns a canonical identity, and nothing ever produces a NEW
+Supabase session starting from a Nakama credential. This is simpler
+than what Part 1 built, not just different: no separate id-space to
+bridge, no lookup-by-`auth_user_id` needed, no password-rotation
+session-minting mechanism needed at all, since Supabase's own login
+already produces the real session — Nakama sync is purely an
+add-on that happens afterward.
 
-- **48-c Part 1 — the server-side bridge: verify a Nakama session,
-  find-or-link a Supabase identity, mint a real session for it. [x]
-  Done this session.**
-- **48-c Part 2 — the client-side Nakama SDK integration: actually
-  calling Nakama's `authenticateEmail`/`authenticateCustom`/
-  `authenticateDevice` from somewhere in the UI, then handing the
-  resulting token to Part 1's route. [ ] Not started.** Confirmed via
-  grep before Part 1 was built: nothing in this codebase's `src/app`,
-  `src/components`, or `src/hooks` calls any Nakama SDK authenticate
-  method today — this app has never actually initiated a client-side
-  Nakama login, despite `@heroiclabs/nakama-js` already being a
-  dependency and `nakamaService` already existing for server-side
-  writes. Part 2 is genuinely starting from zero, not extending
-  partial work.
+**Part 1's server-side bridge route/functions are SUPERSEDED, not
+deleted.** Left in place rather than ripped out unilaterally — that
+code was built directly from a recorded architecture decision (48-b
+Part d) just one session earlier, and whether to physically remove it
+or leave it as unused-but-harmless is the product owner's call, not
+something to decide alone here. **Do not build anything new on top of
+`resolveOrLinkNakamaIdentity()` or `POST /api/auth/nakama-bridge` —
+they solve a problem this app no longer has.** `auth_user_id`'s
+originally-theorized purpose (48-b Part c: "very likely the bridge a
+real Nakama-primary-auth architecture will need") turned out to be
+built for the wrong direction — under the corrected model there's no
+separate Nakama-native id to store there at all, since Nakama's custom
+id IS the Supabase id directly. Whether `auth_user_id` ends up staying
+genuinely unused going forward, or finds some other real purpose, is
+now an open question again — not resolved by this correction, just
+reopened by it.
 
-#### 48-c Part 1 — server-side bridge [x]
+**Part 2 — corrected and done, this session.** New
+`src/lib/nakama/nakamaClient.ts` (replacing its own first draft, which
+used `authenticateEmail` for the now-superseded direction) exports
+`syncNakamaSession(supabaseUserId, username?)`, calling
+`client.authenticateCustom(supabaseUserId, true, username)` —
+`create: true` is always safe here, not just on first signup, since
+`authenticateCustom` is idempotent-by-id (an existing custom id just
+logs back in, a new one gets created; no separate new-vs-returning
+branch needed the way this app's own Supabase signup/signin split
+requires, since there's no password to get wrong here — the id alone
+is the whole identifier).
 
-**Done this session.** Reused this exact codebase's own already-proven
-pattern from `guestCheckout.ts`'s `resolveOrCreateGuestAccount()`
-rather than inventing a new session-minting mechanism this sandbox has
-no live environment to verify: generate a random password server-side,
-`admin.auth.admin.createUser()` (new identity) or
-`admin.auth.admin.updateUserById()` (rotate a fresh password for an
-already-linked identity), then a plain-client `signInWithPassword()`
-to mint a real session. The generated password is never surfaced to
-the caller and never needed again — a Nakama-native user's real login
-is Nakama itself, this password is purely the internal bridging
-mechanism, same spirit as the guest-checkout password's own
-"never surfaced, never needed again" property.
+Wired into `src/app/login/page.tsx` at both points where a real
+Supabase `user.id` becomes available — right after a successful
+signup's profile-row insert, and right after a successful signin,
+before the existing `profile_completed` check. Deliberately
+**non-blocking and non-fatal in both places**: `.catch()`'d and logged
+rather than awaited into the critical path, since a Supabase session
+is already fully valid and usable on its own — losing Nakama sync only
+means Nakama-backed features (leaderboards, etc.) won't work for that
+session until the next successful call, not that the login itself is
+broken. No existing routing logic (complete-profile redirect,
+`profileCompleted` check) was touched beyond inserting these two calls
+inline.
 
-**New files:**
-- `src/services/nakama/nakama.service.ts` — added
-  `verifyClientSession(clientToken)`, a direct `GET /v2/account` call
-  to the real Nakama server using the *client's own* token as the
-  bearer (not this service's existing server-authenticated session).
-  Nakama itself validates the token's signature/expiry before
-  returning anything — this is the one real security boundary the
-  whole bridge depends on: a Nakama user id is only ever trusted after
-  Nakama itself has vouched for the token that produced it, never
-  taken as raw client input.
-- `src/lib/auth/nakamaBridge.ts` — `resolveOrLinkNakamaIdentity()`,
-  the actual find-or-create-and-link logic. Looks up `public.users`
-  by `auth_user_id` (the bridge column 48-b Part d's synthesis
-  confirmed) — links/creates as needed, exactly per that synthesis's
-  decided architecture: `id` stays a real Supabase Auth identity for
-  every user regardless of which system authenticated them first,
-  `auth_user_id` is purely the Nakama-native id, never repointing any
-  existing route's identity key. Uses `metadata_json` (confirmed
-  genuinely free in 48-b Part b) to stash `{ provisioned_via:
-  'nakama', linked_at }` — exactly the use case that column's own
-  synthesis note anticipated.
-- `src/app/api/auth/nakama-bridge/route.ts` — `POST` entry point: takes
-  `{ nakamaToken, email }`, verifies the token, resolves/links the
-  identity, returns a Supabase session. Deliberately requires `email`
-  unconditionally for Part 1's simplicity (the bridge function only
-  actually needs it on the create-new-account path) — Part 2 decides
-  where a real email comes from for a given Nakama auth method and
-  should always send one; not worth the extra branching complexity in
-  Part 1 to make it conditionally optional.
+Kept as a genuinely separate file from `src/services/nakama/
+nakama.service.ts` rather than reusing/extending it — that file mixes
+in `authenticateServer()` (the SERVER's own system identity, used for
+leaderboard writes, a different actor from an end-user's own session)
+and other server-oriented methods; pulling all of that into a
+`'use client'` bundle would be needless bloat, even though nothing in
+that file is actually secret (Nakama client keys, unlike server keys,
+are meant to be public/embeddable — the `NEXT_PUBLIC_NAKAMA_KEY`
+naming already reflects this).
 
-**Deliberately NOT wired into any UI yet — that's Part 2's whole job.**
-This route is independently callable/testable without Part 2 existing
-(e.g. via a manual POST once a real Nakama client token can be
-obtained some other way), which is exactly why it made sense as its
-own separable part rather than building both halves before either is
-testable.
-
-**One product/UX decision explicitly left to Part 2, not guessed at
-here:** where a real email actually comes from for a Nakama-native
-user. `authenticateEmail` collects one directly; `authenticateCustom`/
-`authenticateDevice` don't necessarily collect one at all. This
-route's `email` requirement doesn't resolve that — it just makes the
-caller (Part 2) decide explicitly rather than this function silently
-defaulting to some synthesized placeholder.
-
-Verified via `npx tsc --noEmit` — clean. Confirmed `admin.auth.admin.updateUserById`
-is a real, typed method on the installed `@supabase/auth-js` version
-(checked its own `.d.ts` directly, not assumed from memory). **Not
-verified against a live Nakama/Supabase environment** — no live
-session in this sandbox to actually call `/v2/account` or exercise the
-create-vs-link branching against real data; the design directly reuses
-a mechanism (`createUser`/`updateUserById` + `signInWithPassword`)
-already proven live elsewhere in this exact codebase, but this
-specific new code path hasn't itself been exercised end-to-end.
+Verified via `npx tsc --noEmit` — clean. Confirmed
+`client.authenticateCustom(id, create, username)`'s real signature
+directly against the installed `@heroiclabs/nakama-js` package's own
+`.d.ts` before writing to it, not assumed from memory. **Not verified
+against a live Nakama environment** — no live session in this sandbox
+to actually exercise `authenticateCustom` against a real server.
 
 ---
+
 
 ---
 
@@ -10055,6 +10060,25 @@ payout RPC would need (which doesn't exist as working code yet either
 — Task 49 itself is still spec-only per its own status).
 
 ### 56c — "All Auth must pass through the Nakama instance... Supabase [becomes] the foreign relationship for the Nakama auth" — major architecture proposal, NOT a small config change
+
+**RESOLVED, later session (Task 48-c) — the core direction fork this
+section scopes out has been explicitly confirmed by the product
+owner: Supabase-primary, NOT the Nakama-primary reading this
+section's own title takes literally from the original quote.** This
+section's own analysis (below, unchanged from when it was written) is
+still worth reading in full for the genuinely real remaining
+questions it raises (existing-user migration, guest-checkout
+exception, whether a live/real-time Nakama feature justifies any
+client-side Nakama call at all) — those were never actually about
+which direction, and remain open. But the specific "which direction"
+fork this section treated as its central open question — token-bridge
+option (a) [Nakama mints a Supabase session] vs. a Supabase-primary
+model — is now settled: **Supabase-primary**, confirmed directly after
+this exact contradiction (this section's literal reading of the quote
+vs. a separate mid-session correction) was surfaced back to the
+product owner explicitly rather than either session silently picking a
+side. See Task 48-c's own "DONE, direction CONFIRMED" note for the
+full resolution write-up and what's actually built.
 
 **This is the same direction a prior session already recorded
 verbatim from the product owner** (Task 48's Group 3 note: *"all real
