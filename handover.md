@@ -391,6 +391,32 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-01, latest of all) — Task 59 Part 2b-b split
+> into A/B; Part A built (Velune, `CampaignRepository.kt` only).**
+> Added `fetchGenreTileMapping()` (direct Supabase REST read of
+> `campaign_genre_tile_mapping`, uses only existing `SUPABASE_URL`
+> config) and fixed Round 7's flagged-but-deferred URL-encoding bug in
+> `fetchActiveCampaigns()` (real bug — broke for "R&B," one of this
+> app's own genres — via `URLEncoder.encode`, matching this codebase's
+> own established convention). **Deliberately did NOT build
+> `ingestGenreTile()`** — that needs a Mavins-web API host config that
+> doesn't exist in Velune's `build.gradle.kts` yet, and guessing at a
+> production URL or blind-editing a Gradle file with zero compile
+> verification available here was judged too risky for this part; left
+> as Part B's first job instead. Full reasoning for exactly where the
+> split landed, plus the 4-case Python simulation used to verify the
+> unverifiable Kotlin, in Task 59's own "Round 9" entry.
+>
+> **Next: Part B** — the 6-file nav/UI genre-threading chain (
+> `MoodAndGenresScreen.kt` → `NavigationBuilder.kt` →
+> `YouTubeBrowseViewModel`/`YouTubeBrowseScreen.kt` →
+> `PlayerConnection.kt` → `MusicService.kt`), resolving the Mavins-web
+> API host question first, wiring a real `campaignSlotProvider`,
+> building `ingestGenreTile()`, and fixing the two still-open bugs the
+> box below already named (`MusicService.kt` line ~1588's initial-batch
+> bug, and confirming the tile-mapping table gets seeded with this
+> app's real catalog).
+>
 > **Newest note (2026-08-31, latest of all) — Task 59 Part 2a built:
 > `CampaignInjectedQueue.kt` + `CampaignRepository.kt` refactored to
 > per-slot fair-rotation calls, exactly per Round 5's own 2a/2b split.
@@ -12248,6 +12274,97 @@ matching the migration's own RLS lockdown.
 **Not independently confirmed against a live Supabase instance** — no
 live credentials in this sandbox, same limitation every prior
 Supabase-touching task in this file has noted.
+
+---
+
+### Round 9 — Part 2b-b split into A/B per direct instruction; Part A built (Velune, `CampaignRepository.kt` only) [Part A: x, Part B: not started]
+
+**Split per direct instruction to split the next task into two and
+build only the first half.** Cloned Velune, re-read
+`CampaignRepository.kt` (post-Round 7's per-slot refactor) and the two
+new mavins-web routes (Round 8) before splitting, so the split follows
+a real technical boundary rather than an arbitrary line — see below
+for what that boundary turned out to be.
+
+**Part A (this round): two new/fixed things, `CampaignRepository.kt`
+only, no other file touched.**
+1. **`fetchGenreTileMapping(): Map<String, String?>`** — direct
+   Supabase REST read of `campaign_genre_tile_mapping`
+   (`?is_reviewed=eq.true&select=tile_title,mapped_genre_id`), matching
+   migration 024's own documented intended consumption pattern
+   ("Velune's own client-side cache... reads this table directly," the
+   same posture as Task 46a's other reference-data tables). Filters to
+   `is_reviewed = true` server-side, not client-side — an unreviewed
+   row's `suggested_genre_id` is a machine guess, per Round 6's own
+   core invariant that it must never become live targeting data, and
+   this function doesn't even fetch that column. Distinguishes a
+   confirmed-mood tile's real JSON `null` `mapped_genre_id` from a
+   malformed/blank one via `JSONObject.isNull()`, not just
+   `optString()`'s own default-on-missing behavior (would have
+   collapsed both cases to the same thing, losing the "confirmed
+   non-genre, not merely unmapped" distinction Round 6's schema is
+   built around).
+2. **Fixed the URL-encoding bug Round 7 flagged but deliberately left
+   outside Part 2a's own scope** — `fetchActiveCampaigns()`'s
+   `genre`/`countryCode` params were string-interpolated directly into
+   a URL with no encoding (`"&p_genre=$it"`), corrupting the request
+   for any value containing a URL-special character — "R&B," one of
+   this app's own real genres, was a live, confirmed instance, not a
+   theoretical one. Fixed via `URLEncoder.encode(it, "UTF-8")`,
+   matching this codebase's own already-established convention in
+   `MainActivity.kt`/`DiscordOAuthRepository.kt` rather than
+   introducing a new one. Updated `fetchNextCampaignForQueueSlot`'s own
+   doc comment, which referenced this bug as unfixed, since it no
+   longer is.
+
+**Why the split lands exactly here, not somewhere else — a real
+technical boundary, not an arbitrary one:** `fetchGenreTileMapping()`
+needs nothing beyond `BuildConfig.SUPABASE_URL`/`SUPABASE_ANON_KEY`,
+already configured and working for every other call in this file.
+Round 8's *other* new route — the ingestion endpoint
+(`POST /api/campaigns/genre-tile-mapping/ingest`) — is a Next.js route
+on Mavins-web's own app server, **not** Supabase PostgREST, and this
+app's `build.gradle.kts` has no existing config field for "Mavins-web's
+own API host" (confirmed via grep — only `SUPABASE_URL` exists, no
+sibling for a second host). Adding one means either guessing at a
+production URL (this session doesn't have one confirmed — a real risk
+if guessed wrong and silently shipped) or a `build.gradle.kts` change
+requiring a new secret provisioned in `local.properties`/CI, which is
+both an operational step beyond just code and, worse, completely
+unverifiable in this sandbox (no Android SDK — a Gradle DSL mistake
+wouldn't even surface as a readable error here the way a Kotlin syntax
+mistake at least sometimes would). **`ingestGenreTile()` is therefore
+Part B's job, not Part A's** — and resolving the host question (new
+BuildConfig field vs. a confirmed hardcoded URL from the product
+owner) is Part B's own first order of business, not something to guess
+at here.
+
+**Verified — no Android SDK/Gradle in this sandbox, same structural
+limitation every prior Velune task has hit:** careful manual review,
+brace/paren balance check, and a throwaway Python simulation (run,
+result inspected, not committed) of both the row-parsing logic (4
+cases: normal mapped tile, confirmed-mood tile with real JSON `null`,
+a genre containing `&` round-tripped through the map correctly, a
+malformed blank-title row correctly skipped — all 4 passed) and the
+URL-encoding fix itself (confirmed `R&B` no longer produces a raw
+unescaped `&` in the resulting query string). Not compile-verified —
+flagged consistently with every other Velune code change in this
+project.
+
+**Still fully open — Part B:** the 6-file nav/UI genre-threading chain
+Round 5 originally traced (`MoodAndGenresScreen.kt` →
+`NavigationBuilder.kt` → `YouTubeBrowseViewModel`/`YouTubeBrowseScreen.kt`
+→ `PlayerConnection.kt` → `MusicService.kt`), wiring a real
+`campaignSlotProvider` that calls this round's `fetchGenreTileMapping()`
+(cached, per the migration's own intended pattern — refresh cadence not
+decided here) plus a new `ingestGenreTile()` this round deliberately
+did not build, the Mavins-web-API-host question above, and the two
+still-outstanding bugs the orientation box already flags: `MusicService.kt`
+line ~1588's initial-batch-from-the-wrong-queue bug (squarely Part B's
+own file territory) and confirming the `campaign_genre_tile_mapping`
+table actually gets seeded with this app's real live tile list (not
+guessed at from any sandbox — needs the real `MoodAndGenresScreen`
+catalog read against a running app).
 
 ---
 
