@@ -57,11 +57,18 @@
 > guard-logic simulated against 8 scenarios (same convention Part 1
 > used), all correct. Full write-up in Task 48-d's own Part 5 section.
 > **Also this session: flagged an urgent, unrelated security finding
-> in B-Pay-backend** (not fixed, that repo's own handover has full
-> detail) — a newly-added `/payout` endpoint there has no
-> authentication of any kind, and its amount-unit convention for
-> Korapay's payout API was never independently verified against the
-> collection endpoint's already-confirmed convention.
+> in B-Pay-backend — since resolved, partially.** A `/payout` endpoint
+> there had no authentication of any kind; that's fixed (that repo's
+> own Task 42 Part A). Its amount-unit convention for Korapay's payout
+> API has also since been independently verified — confirmed correct
+> (base currency units, matching the collection side). **But that same
+> verification pass found a bigger, still-open problem**: the payout
+> request's entire payload shape doesn't match Korapay's real API —
+> everything needs to nest under a `destination` object with a
+> required `destination.type` field this code never sets, so real
+> payout calls likely fail outright regardless of the amount being
+> correct. Not fixed yet — full detail in B-Pay-backend's own
+> `handover.md`, Task 42 Part B's "Part a" entry.
 >
 > **Newest note (2026-08-30, latest of all) — Task 62: audited Velune
 > for admin functionality to remove, per direct instruction. Found
