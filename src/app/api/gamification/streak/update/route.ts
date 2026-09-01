@@ -2,6 +2,7 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 export async function POST(request: Request) {
   try {
@@ -86,8 +87,19 @@ export async function POST(request: Request) {
     };
 
     if (streakMilestones.includes(newStreak)) {
-      // Award bonus points using RPC
-      const { error: rpcError } = await supabase.rpc('award_points', {
+      // Migration 026 (handover.md, Task 48-d Part 1's flagged gap):
+      // award_points is locked to service_role only, same posture as
+      // every other points/wallet-mutating RPC in this project
+      // (credit_wallet_deposit, debit_wallet_balance,
+      // credit_wallet_refund) — this route's own `supabase` client
+      // above is anon-key, which that lockdown would reject outright.
+      // Admin client used for ONLY this one call, not swapped in for
+      // the rest of this route's already-working anon-key reads/
+      // writes above (streak read/update, the notification insert
+      // below) — narrowest fix for the actual mismatch, not a reason
+      // to revisit this route's other RLS-governed behavior.
+      const admin = createAdminClient();
+      const { error: rpcError } = await admin.rpc('award_points', {
         p_user_id: userId,
         p_points: bonusPoints[newStreak],
         p_reason: `${newStreak} day streak milestone!`,
