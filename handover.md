@@ -75,6 +75,32 @@
 > other item Round 10 already left open. Full write-up in Task 59's
 > own "Round 11" section.
 
+> **Newest note (2026-09-01, latest of all) — Task 59 Part 2b-b Round
+> 12: the genre string now reaches an actual `Queue` object — Round
+> 5's original `Queue` interface recommendation, built for the first
+> time.** Pulled latest first, found Round 11's own successor
+> (`fetchGenreTileMapping()`/`fetchNextCampaignForQueueSlot()`) already
+> landed independently in `CampaignRepository.kt` — confirmed by
+> reading the real file before building on top of it, not assumed.
+> `Queue.kt` gets a new `genre: String? get() = null` default property;
+> `YouTubeQueue`'s constructor + `radio()` factory both grow a matching
+> optional `genre` parameter (confirmed via grep: all 13 existing call
+> sites across the app pass exactly one positional arg, so all keep
+> compiling unchanged, correctly defaulting to `null`); the one already-
+> traced flat-song-list call site in `YouTubeBrowseScreen.kt` now
+> passes `viewModel.genreTileTitle` through. **Deliberately still only
+> that one call site** — the grid/album/playlist play-path Round 2
+> flagged as untraced is still not covered, restated explicitly rather
+> than left to be silently assumed closed. Verified via brace/paren
+> balance check on all 3 files + a grep confirming every other
+> `radio()` call site is unaffected. **Next, and now the single
+> remaining real piece of Part 2b-b: the actual consumption logic in
+> `MusicService.kt`** — read `queue.genre`, look it up against a
+> cached `fetchGenreTileMapping()` result, call `ingestGenreTile()` on
+> a cache miss (the *when* question resolved here: at lookup-miss time,
+> not at tap time), call `fetchNextCampaignForQueueSlot()` for a
+> confirmed mapping. Full write-up in Task 59's own "Round 12" section.
+
 > **Newest note (2026-09-01, latest of all) — Task 59 Part 3
 > (banner), mavins-web half done; Velune half still not started.**
 > New `supabase_migration_025_live_campaigns_banner.sql`,
@@ -12847,6 +12873,80 @@ consumption sub-part, not assumed), `MusicService.kt`'s own
 initial-batch-from-the-wrong-queue bug, and confirming the
 `campaign_genre_tile_mapping` table is actually seeded with this app's
 real live tile catalog.
+
+---
+
+### Round 12 — the genre string now reaches an actual `Queue` object; consumption (`campaignSlotProvider`, `MusicService.kt`) still the next, and only remaining, unbuilt link [x]
+
+**Pulled latest first — found Round 11's own successor work already
+landed independently** (`fetchGenreTileMapping()`/
+`fetchNextCampaignForQueueSlot()` in `CampaignRepository.kt`, both
+confirmed by reading the real file, not assumed from this round's own
+notes alone) — built directly on top of that, not a re-derivation.
+Round 11 got the genre-tile title as far as
+`YouTubeBrowseViewModel.kt`'s own `genreTileTitle` field; **nothing
+downstream of the ViewModel actually carried it onto a real `Queue`
+object until this round.** Traced the exact remaining gap before
+writing anything: `Queue.kt` had no `genre` concept at all, and
+`YouTubeQueue`'s constructor/`radio()` factory had no way to receive
+one — Round 5's own original architecture recommendation
+(`genre: String? get() = null` as a `Queue` interface default
+property, so every existing implementer inherits it for free) had
+never actually been built, only proposed.
+
+**Three files, this sub-part:**
+1. **`Queue.kt`** — `val genre: String? get() = null` added to the
+   interface, exactly Round 5's own recommendation, built for the
+   first time here.
+2. **`YouTubeQueue.kt`** — new `genre: String? = null` constructor
+   parameter (`override val genre`), and `radio()`'s own factory grew
+   a matching `genre: String? = null` parameter. **Confirmed via grep
+   that all 13 existing call sites of `YouTubeQueue.radio(...)` across
+   the app pass exactly one positional argument (the song)** — the new
+   parameter is trailing and defaulted, so every one of them keeps
+   compiling unchanged, correctly defaulting to `null` (no genre lock,
+   same as before this round).
+3. **`YouTubeBrowseScreen.kt`** — the one call site Round 2/5 already
+   fully traced (the flat-song-list tap handler) now passes
+   `genre = viewModel.genreTileTitle` into `YouTubeQueue.radio(...)`.
+   **Deliberately still only this one call site** — the grid/album/
+   playlist path Round 2 flagged as untraced (tapping a genre-browse
+   result that lands on an album/artist/playlist screen instead of a
+   flat song list) is still not covered; that screen's own play
+   button constructs its queue independently and hasn't been touched.
+   Not silently forgotten — restated explicitly so a future session
+   doesn't assume this round closed that gap.
+
+**Verified — no Android SDK/Gradle in this sandbox, same structural
+limitation as every prior Velune part in this task:** brace/paren
+balance check on all three changed files (all balanced); confirmed via
+grep, not assumed, that every other `YouTubeQueue.radio(` call site in
+the app is unaffected by the new parameter.
+
+**Still fully open — the real remaining work, now narrower than
+before this round:**
+1. **The actual consumption logic** — `MusicService.kt`'s wrapping
+   site (still hardcoded `campaignSlotProvider = { null }`) needs to:
+   read `queue.genre` (now finally a real, populated value for the one
+   traced call site); look it up against a cached
+   `fetchGenreTileMapping()` result (that function's own KDoc already
+   says callers should cache and periodically refresh, not call fresh
+   per slot); call `ingestGenreTile()` for a cache miss (the *when*
+   question Round 11 flagged — resolved here as "at lookup-miss time,
+   not at tap time," so a tile only gets reported when actually needed
+   for injection, not on every browse regardless of whether a campaign
+   slot is ever reached); and finally call `fetchNextCampaignForQueueSlot(genre)`
+   for a confirmed mapping. This is genuinely the next sub-part — a
+   cache lifecycle plus the actual provider construction, not a small
+   follow-up.
+2. `MusicService.kt`'s own separate, still-unrelated initial-batch bug
+   (Round 7's finding — the wrapped queue's first batch comes from the
+   original unwrapped queue).
+3. The grid/album/playlist play-path gap noted above.
+4. Confirming `campaign_genre_tile_mapping` is seeded with real tile
+   titles (still zero rows until real production traffic or a manual
+   seed populates it — expected, not a bug, per Round 6's own
+   "starts empty, fails closed until curated" design).
 
 ---
 
