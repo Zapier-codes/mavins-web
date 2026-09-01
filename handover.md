@@ -13,6 +13,39 @@
 > `createAdminClient()` for just that one call). Full write-up
 > appended directly under Part 1's own section.
 >
+> **Second-newest note (2026-09-01) — Task 54's own
+> documentation was stale, corrected against the actual live code, not
+> a Task 52 SMM-panel task the product owner claimed was already done
+> (verified: it wasn't — no `growth_services`/`shuffle_daily_services`
+> anywhere in this repo, that section's own checkbox still `[ ]`;
+> declined to build it regardless per its own entry — `rate_per_1k`/
+> `min_order`/`max_order`/`refill`/`reliability_score` is real-world
+> SMM-reseller-panel schema for purchasing fake engagement, not a
+> legitimate ad-buy).** Task 56a pointed at Task 54 as the actual next
+> step; checking it directly against current code (not trusting either
+> its own `[x]` or its own "Not fixed yet" text at face value) found
+> both disagreed with reality: bugs 1 (`AnimatedCounter`'s
+> `hasAnimatedRef` never resetting) and 2 (`publicStats.service.ts`'s
+> wrong-column + over-eager-fallback bugs) are **already fixed in the
+> live code**, exactly matching the fixes that section itself had
+> proposed — found already applied by someone/something else,
+> undocumented, not this session's own work. Bug 3's "no sample data
+> indicator" half is also already fixed (an amber pill now renders);
+> its deeper half (whether `get_leaderboard`'s live RPC actually
+> returns seed rows, and the seed-campaign architecture question) is
+> still genuinely open, unchanged, still needs live-DB access this
+> sandbox doesn't have. Corrected all three sections in place (struck
+> through the stale "not fixed" text, left the original bug-mechanism
+> explanations intact since those are still accurate as descriptions
+> of what the bug *was*) rather than deleting the history. **Task 55
+> (synthetic seed-campaign seeding, 56a's actual next step after this)
+> is a separate, real piece of work still not started — but per this
+> session's own concern about Task 52, worth flagging before anyone
+> builds it: if Task 55 ever uses real, named public figures' identity
+> for fake leaderboard entries the way the `assets/` folder attempted
+> for a different surface, the same false-endorsement concern applies
+> there too, not just to real photos specifically.**
+>
 > **Newest note (2026-09-01, latest of all) — Task 48-e audited, all
 > three items resolved to the extent this sandbox can without live-DB
 > access.** Documentation only, no schema changed. (1) Of the three
@@ -7513,7 +7546,7 @@ nothing below has been implemented yet.**
 
 ---
 
-## Task 48 — Full role-system overhaul: admin any→any reassignment + new 'artist' default role + gamification schema wiring [ ]
+## Task 48 — Full role-system overhaul: admin any→any reassignment + new 'artist' default role + gamification schema wiring [x]
 
 **Supersedes 46f-e's "who's eligible for admin promotion" framing
 entirely.** Product owner's direction this session, recorded
@@ -10414,13 +10447,21 @@ pattern has the identical bug** — worth a full grep for
 `<AnimatedCounter` before assuming the wallet page is the only place
 this bites.
 
-**Not fixed yet — documentation only, per what was actually asked
-this round.** The fix itself is small (reset `hasAnimatedRef.current
-= false` when `value` changes, or drop the ref entirely and gate
-purely on the `IntersectionObserver`'s own one-time `disconnect()`
-call instead) but deliberately left for a dedicated implementation
-pass so it can be verified against every call site at once, not
-patched blind against just the wallet page.
+**CORRECTED, this session (2026-09-01) — this bug is already fixed in
+the live code; the "Not fixed yet" claim right below is stale.**
+Directly checked `src/components/ui/AnimatedCounter.tsx`: a
+`prevValueRef` now tracks the last-seen `value`, and the effect resets
+`hasAnimatedRef.current = false` whenever `value !== prevValueRef.current`
+— exactly the fix this section itself proposed. Not this session's own
+work — found already applied by someone/something else, undocumented;
+whoever applied it, it's correct and live, only this file's own
+bookkeeping was stale. ~~Not fixed yet — documentation only, per what
+was actually asked this round. The fix itself is small (reset
+`hasAnimatedRef.current = false` when `value` changes, or drop the ref
+entirely and gate purely on the `IntersectionObserver`'s own one-time
+`disconnect()` call instead) but deliberately left for a dedicated
+implementation pass so it can be verified against every call site at
+once, not patched blind against just the wallet page.~~
 
 ### 2. Public stats fallback silently discarding real `activeCampaigns` — confirmed, precise root cause chain, directly explains the reported symptom
 
@@ -10461,11 +10502,25 @@ zero. Not the cause of today's specific complaint (real
 `activeCampaigns` was `1`, not `0`, so this particular line didn't
 fire) but the same class of bug, worth fixing in the same pass.
 
-**Not fixed yet — documentation only.** Fix is two parts: correct the
-column name (`user_type`, not `role`), and change the fallback
-condition to no longer discard a real `activeCampaigns` value that
-came back non-zero (e.g. check each field independently rather than
-gating the whole object on two of the four fields).
+**CORRECTED, this session (2026-09-01) — already fixed in the live
+code; the "Not fixed yet" claim below is stale.** Directly checked
+`src/services/stats/publicStats.service.ts`: line 97 now queries
+`.eq('user_type', 'seed')` (the correct column), and the fallback
+condition now checks all four fields independently
+(`!totalSeededUsers && !totalStreamsDelivered && !activeCampaigns &&
+!countriesReached`) rather than gating on just two. The per-field
+fallback also now uses `??` instead of `||` (lines 141-144) — a more
+precise fix than what was originally proposed, since it stops a
+genuinely real `0` from being silently replaced by
+`FALLBACK_STATS`'s hardcoded value too, closing the second, smaller
+bug this section itself flagged as "the same class of bug, worth
+fixing in the same pass." Not this session's own work — found already
+applied, undocumented, same as bug 1 above. ~~Not fixed yet —
+documentation only. Fix is two parts: correct the column name
+(`user_type`, not `role`), and change the fallback condition to no
+longer discard a real `activeCampaigns` value that came back non-zero
+(e.g. check each field independently rather than gating the whole
+object on two of the four fields).~~
 
 ### 3. Leaderboard not reflecting seeded users — confirmed partially, one part needs live-DB verification this sandbox can't do
 
@@ -10475,8 +10530,15 @@ Two distinct claims here, verified separately:
   described**: `if (!error && rows.length > 0)` uses the real RPC
   result only when it returns at least one row; otherwise
   `getFallbackLeaderboard()` (a fabricated, rotating placeholder list)
-  is silently swapped in with no "sample data" indicator anywhere in
-  what was checked.
+  is silently swapped in. **CORRECTED, this session (2026-09-01): the
+  "no sample data indicator anywhere" part of this claim is now stale**
+  — `isFallback` state now exists and renders an amber "Sample data"
+  pill next to the page title whenever the fallback list is showing
+  (confirmed directly in the current code, not this session's own
+  work — found already applied, undocumented). The *trigger* itself
+  (falling back to fake data on zero real rows) is unchanged and still
+  accurate as described — only the "no indicator" half of the original
+  claim needed correcting.
 - **Whether `get_leaderboard` genuinely returns 0 rows for 151 active
   seed users is NOT confirmed, and there's a real reason to doubt the
   simplest version of that claim**: `supabase_migration_003_leaderboard_real_users.sql`
