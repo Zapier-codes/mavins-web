@@ -373,6 +373,40 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-08-31, latest of all) — Task 59 Part 2a built:
+> `CampaignInjectedQueue.kt` + `CampaignRepository.kt` refactored to
+> per-slot fair-rotation calls, exactly per Round 5's own 2a/2b split.
+> Not compile-verified (no Android SDK in this sandbox, same
+> structural limitation every prior Velune task has hit) — verified by
+> careful manual review + a 4-case Python simulation of the index-
+> tracking logic instead.** Picked up exactly what Round 5 called
+> "safe to build in isolation," per the new mandatory task-splitting
+> rule. **Two more real, pre-existing bugs found while in these files
+> closely, flagged not fixed (both outside Part 2a's own file scope):**
+> (1) `MusicService.kt` line 1588 — the campaign-wrapped queue is built
+> but the *initial* batch of songs is populated from the original,
+> unwrapped queue instead, meaning injection (once Part 2b provides a
+> real provider) won't show up until a queue auto-paginates, which
+> many sessions never reach; (2) `CampaignRepository.kt`'s existing
+> `fetchActiveCampaigns()` builds its genre query-string param without
+> URL-encoding it — breaks specifically for "R&B," one of this app's
+> own real genres. **See Task 59's own "Round 7" entry (near the
+> bottom of this file) for full detail on all of this**, including the
+> exact index-tracking bug found and fixed during this part (not
+> present in Round 5's own plan text) and the verified simulation
+> cases.
+>
+> **Next: Part 2b** (the 6-file nav/UI genre-threading chain + the new
+> `campaign_genre_tile_mapping` table Round 6 already designed) **or
+> Part 3** (the banner carousel rebuild, independent of Part 2) —
+> whichever the next session judges more valuable, per Round 5's own
+> framing; this session didn't rank them. **Fixing the two bugs above
+> is worth folding into whichever part touches their files next**
+> (bug 1 is squarely in Part 2b's own `MusicService.kt` territory;
+> bug 2 has no natural home in either remaining part, worth a
+> deliberate small fix on its own rather than waiting for one to touch
+> that function incidentally).
+>
 > **Newest note (2026-08-30, latest of all) — new mandatory rule for
 > every session, all three repos: focus on building code now, and
 > split whatever task you pick into parts, building only one part per
@@ -11977,6 +12011,154 @@ is both the more correct mechanism (matches how real platforms actually
 gate monetization-adjacent classification) and strictly safer (a bad
 automated match can never reach live targeting without a human
 confirming it first).
+
+---
+
+### Round 7 — Part 2a built: `CampaignRepository.kt` + `CampaignInjectedQueue.kt` refactored to per-slot calls, exactly per Round 5's plan. Two more real, pre-existing bugs found and flagged, not fixed — outside this part's own file scope.
+
+**Built this session, per the new mandatory build-focus/task-splitting
+rule** (this file's own "Build-focus + mandatory task-splitting"
+section) **and Round 5's own already-drawn 2a/2b split** — this session
+picked up exactly Part 2a, the part Round 5 itself called "safe to
+build and reason about in isolation."
+
+**`CampaignInjectedQueue.kt` — refactored from a one-time batch fetch
+to a fresh per-slot call, exactly as Round 5 specified:**
+- `campaignProvider: suspend () -> List<MediaItem>` →
+  `campaignSlotProvider: suspend () -> MediaItem?`, called once per
+  4-song boundary (not once per queue, then locally rotated).
+- Default value `{ null }` — every slot is skipped when no real
+  provider is supplied, which is exactly the fail-closed behavior this
+  whole task's design depends on.
+- **A real correctness issue found and fixed during this part, not
+  present in Round 5's plan text — flagging clearly since it wasn't
+  called out there:** the old `adjustIndex(originalIndex)` used a
+  formula (`originalIndex + originalIndex/4`) to compute where the
+  user's actually-tapped song lands after injection. That formula
+  silently breaks once individual slots can each independently return
+  `null` (skip) instead of always succeeding — which is exactly what
+  moving to per-slot calls introduces, since a null return is now a
+  normal, expected outcome per-call rather than an all-or-nothing
+  property of the whole queue. **Verified by simulation** (no Android
+  SDK/Google Maven access in this sandbox, same limitation every
+  Velune task in this project has hit — this project's established
+  substitute, same as verifying SQL without a live Postgres
+  connection): base items 0-9, target original index 5, first
+  injection slot (after index 3) returns null — the old formula
+  computes adjusted index 6 (wrong, points at song6), while tracking
+  the real splice position during the same pass correctly gives 5
+  (song5, right). Fixed by having `inject()` track and return the real
+  adjusted index directly during its own splice pass (a new
+  `InjectionResult(items, adjustedTargetIndex)` return type) instead of
+  computing it via a separate formula afterward — 4 simulated cases
+  checked (all-slots-succeed baseline; the skip-causes-drift case
+  above; target at index 0; the `nextPage()` no-tracking-needed
+  sentinel case), all 4 matched expectation.
+
+**`CampaignRepository.kt` — new `fetchNextCampaignForQueueSlot(genre:
+String): MediaItem?`:**
+- Calls `get_next_campaign_for_queue_slot` (migration 023) via a JSON
+  POST body — see the next finding below for why this deliberately
+  does NOT match `fetchActiveCampaigns`' existing query-string pattern.
+- Resolves the returned row into a playable `MediaItem` using the same
+  `CampaignUrlResolver.extractVideoId()` → `YouTube.queue()` →
+  `toMediaMetadata()` → `toMediaItem()` chain `fetchActiveCampaignMediaItems()`
+  and `CampaignUrlResolver.resolve()` already establish — confirmed
+  `extractVideoId()` is a public function on that same-package object
+  before calling it directly, not assumed.
+- An empty RPC result (no eligible campaign for that genre right now)
+  returns `null`, not an error — documented explicitly as the normal,
+  expected outcome for a thin genre or one where everything eligible
+  was very recently served, not a failure state.
+
+**`MusicService.kt` — one line changed, compile-compatibility only, per
+Round 5's own anticipated design, not a feature change:** the existing
+`CampaignInjectedQueue` construction (the only one in the app) now
+passes `campaignSlotProvider = { null }` instead of the old
+`campaignProvider = { campaignRepo.fetchActiveCampaignMediaItems() }`
+— preserves exactly zero behavior change (no campaign injection
+anywhere, same as the app's actual behavior immediately
+post-genre-locking, Round 3) while compiling against the new
+signature. The now-unused local `campaignRepo` val was removed from
+this call site; **`fetchActiveCampaignMediaItems()` itself was left in
+place in `CampaignRepository.kt`, not deleted**, even though this was
+its only caller — deleting a whole function felt like a bigger, less
+reversible decision than this part's own narrow scope called for;
+flagged here as a candidate for cleanup once Part 2b lands and it's
+clear nothing else needs it.
+
+**Two more real, pre-existing bugs found while reading these files
+closely this session — confirmed by direct inspection, not fixed,
+both outside Part 2a's own stated file scope (`CampaignRepository.kt` +
+`CampaignInjectedQueue.kt` only):**
+
+1. **`MusicService.kt` line 1588 — the wrapped/injected queue is
+   constructed but never actually used for the *initial* batch of
+   songs.** `playQueue()` builds `wrappedQueue` (line 1566) and sets
+   `currentQueue = wrappedQueue` (line 1570) — but the `scope.launch`
+   block that actually populates the player's first batch (line
+   1585-1600ish) calls `queue.getInitialStatus()` at line 1588, using
+   the **original, unwrapped** `queue` parameter, not `wrappedQueue`/
+   `currentQueue`. Confirmed this is NOT a case of `queue` being
+   reassigned somewhere in between (checked every line from the
+   `wrappedQueue` construction through this call — no shadowing, no
+   reassignment). **Practical effect, once Part 2b provides a real
+   genre-aware provider:** campaign injection will not appear in a
+   queue's very first batch of songs at all — only once the queue
+   auto-paginates via `nextPage()`, which a separate, later code path
+   (confirmed correctly `currentQueue`-aware, includes explicit
+   `CampaignInjectedQueue`-specific duplicate-detection logic) does
+   handle correctly. Many listening sessions plausibly never reach a
+   `nextPage()` call at all (a queue shorter than one page, or
+   abandoned before then) — meaning this bug, left unfixed, would make
+   Part 2b's whole feature look broken or absent in a lot of ordinary
+   use, even though the underlying mechanism is correct. **This is
+   pre-existing — predates this session and Task 59 entirely** (this
+   exact code shape, just with the old `campaignProvider` name, was
+   already there before this session's edit) — not introduced by
+   today's refactor. **Recommended fix, not applied this session
+   (outside Part 2a's file scope):** line 1588 should read
+   `wrappedQueue.getInitialStatus()` (or `currentQueue.getInitialStatus()`,
+   equivalent at that point in the function), not `queue.getInitialStatus()`.
+   The two `queue.preloadItem` reads (lines 1580, 1594) do **not** need
+   the same fix — `CampaignInjectedQueue.preloadItem` is defined as a
+   direct passthrough of `baseQueue.preloadItem` (confirmed in the
+   class itself), so both expressions already evaluate to the identical
+   value either way.
+2. **`CampaignRepository.kt`'s existing `fetchActiveCampaigns()`, line
+   53 (pre-existing, unchanged by this session): unencoded genre
+   string interpolated directly into a URL.**
+   `(genre?.let { "&p_genre=$it" } ?: "")` — for a genre containing a
+   URL-special character, this corrupts the request. **This app's own
+   real genre list includes exactly such a case: "R&B."** Calling this
+   function with `genre = "R&B"` produces
+   `...&p_genre=R&B`, where the embedded `&` is parsed as a second,
+   malformed query parameter — silently breaking genre-filtered
+   fetches specifically for R&B, every time. This function's own new
+   sibling (`fetchNextCampaignForQueueSlot`, built this session) uses a
+   JSON POST body specifically to avoid this exact class of bug, not
+   by accident. **Not fixed here** — `fetchActiveCampaigns()` isn't
+   part of Part 2a's file-and-function scope even though it lives in
+   the same file; flagged clearly rather than fixed opportunistically,
+   per this session's own read of the mandatory task-splitting rule
+   (stay inside the part you picked).
+
+**Verification, this session:** careful manual re-read of both edited
+files end-to-end after writing them (no Android SDK/Google Maven
+access in this sandbox — confirmed again, same as every prior Velune
+task), plus the 4-case Python simulation of the index-tracking logic
+described above (written, run, discarded — not committed, this
+project's own established convention for logic that can't be verified
+via a live run). **Not compile-verified** — flagged plainly, not
+implied otherwise.
+
+**Not done, still open:** Part 2b (the 6-file nav/UI genre-threading
+chain, plus the new `campaign_genre_tile_mapping` table Round 6
+designed), Part 3 (the banner carousel rebuild, independent of Part
+2), and both bugs found above. Per this session's own reading of the
+mandatory task-splitting rule, none of those are this session's job —
+named here so the next session picks up from a concrete list, not a
+re-derivation.
 
 ---
 play, one call site silently fails outright; listener identity is
