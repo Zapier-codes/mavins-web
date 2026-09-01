@@ -400,31 +400,37 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-09-01, latest of all) — Task 59 Part 2b-b split
+> **Newest note (2026-09-01, later still) — Task 59 Part B's first job
+> done: `MAVINS_API_URL` confirmed by the product owner
+> (`https://mavins.vercel.app`) + Velune's `ingestGenreTile()` built.**
+> Triggered by a user-uploaded patch that tried to do the *entire* rest
+> of Part B in one 9-file shot, hardcoding a never-confirmed production
+> URL — not applied as-is; see Task 59's own "Round 10" entry for the
+> full reasoning on why, and what was asked/confirmed instead before
+> building anything. Also flags (does not fix) a real, pre-existing
+> bug across all six HTTP-status log lines in Velune's
+> `CampaignRepository.kt` — worth its own small later part.
+>
+> **Next: the rest of Part B** — the 6-file UI/nav genre-threading
+> chain itself (`MoodAndGenresScreen.kt` → `NavigationBuilder.kt` →
+> `YouTubeBrowseViewModel`/`YouTubeBrowseScreen.kt` →
+> `PlayerConnection.kt` → `MusicService.kt`), wiring a real
+> `campaignSlotProvider`, and the two still-open bugs named below
+> (`MusicService.kt` line ~1588's initial-batch bug, confirming the
+> tile-mapping table gets seeded with Velune's real catalog) — per the
+> mandatory task-splitting rule, still needs its own further split,
+> not one more single giant patch.
+>
+> **Before this — newest note (2026-09-01) — Task 59 Part 2b-b split
 > into A/B; Part A built (Velune, `CampaignRepository.kt` only).**
 > Added `fetchGenreTileMapping()` (direct Supabase REST read of
 > `campaign_genre_tile_mapping`, uses only existing `SUPABASE_URL`
 > config) and fixed Round 7's flagged-but-deferred URL-encoding bug in
 > `fetchActiveCampaigns()` (real bug — broke for "R&B," one of this
 > app's own genres — via `URLEncoder.encode`, matching this codebase's
-> own established convention). **Deliberately did NOT build
-> `ingestGenreTile()`** — that needs a Mavins-web API host config that
-> doesn't exist in Velune's `build.gradle.kts` yet, and guessing at a
-> production URL or blind-editing a Gradle file with zero compile
-> verification available here was judged too risky for this part; left
-> as Part B's first job instead. Full reasoning for exactly where the
+> own established convention). Full reasoning for exactly where the
 > split landed, plus the 4-case Python simulation used to verify the
 > unverifiable Kotlin, in Task 59's own "Round 9" entry.
->
-> **Next: Part B** — the 6-file nav/UI genre-threading chain (
-> `MoodAndGenresScreen.kt` → `NavigationBuilder.kt` →
-> `YouTubeBrowseViewModel`/`YouTubeBrowseScreen.kt` →
-> `PlayerConnection.kt` → `MusicService.kt`), resolving the Mavins-web
-> API host question first, wiring a real `campaignSlotProvider`,
-> building `ingestGenreTile()`, and fixing the two still-open bugs the
-> box below already named (`MusicService.kt` line ~1588's initial-batch
-> bug, and confirming the tile-mapping table gets seeded with this
-> app's real catalog).
 >
 > **Newest note (2026-08-31, latest of all) — Task 59 Part 2a built:
 > `CampaignInjectedQueue.kt` + `CampaignRepository.kt` refactored to
@@ -12286,7 +12292,7 @@ Supabase-touching task in this file has noted.
 
 ---
 
-### Round 9 — Part 2b-b split into A/B per direct instruction; Part A built (Velune, `CampaignRepository.kt` only) [Part A: x, Part B: not started]
+### Round 9 — Part 2b-b split into A/B per direct instruction; Part A built (Velune, `CampaignRepository.kt` only) [Part A: x, Part B: first job x, rest not started]
 
 **Split per direct instruction to split the next task into two and
 build only the first half.** Cloned Velune, re-read
@@ -12374,6 +12380,72 @@ own file territory) and confirming the `campaign_genre_tile_mapping`
 table actually gets seeded with this app's real live tile list (not
 guessed at from any sandbox — needs the real `MoodAndGenresScreen`
 catalog read against a running app).
+
+### Round 10 — Part B's first job done (Velune): `MAVINS_API_URL` confirmed + `ingestGenreTile()` built [x]
+
+**Prompted by a user-uploaded patch attempting the entire rest of Part
+B in one 9-file shot.** That patch was not applied as-is — three real
+problems, checked against this file's own records before deciding, not
+just a syntax complaint: (1) it hardcoded `MAVINS_API_URL` to
+`https://mavins.vercel.app` with no confirmation anywhere in this file
+that value was ever settled — directly contradicting Round 9's own
+explicit reasoning for leaving it unbuilt; (2) it bundled the entire
+rest of Part B into one patch, against this project's own mandatory
+one-part-per-session task-splitting rule (see that section near the
+top of this file) that this exact task's own A/B split established;
+(3) it silently diverged from the documented file chain — no
+`PlayerConnection.kt` touch, extra unexplained changes to `Queue.kt`/
+`YouTubeQueue.kt` instead. (The literal "corrupt patch" git error
+itself: every file's diff header was missing its `index <hash>..<hash>`
+line, consistent with the patch being hand-assembled text rather than
+real `git format-patch` output — a smaller, secondary reason not to
+trust it, not the main one.)
+
+Asked the user directly rather than guessing between "fix the syntax
+and ship it anyway" vs. "get the real URL and build this properly" —
+**they chose the latter and confirmed `MAVINS_API_URL` directly:
+`https://mavins.vercel.app`**, no custom domain, matches this repo's
+own `package.json` project name (`"mavins"`), no name collision. With
+a real confirmation in hand (not a guess), built exactly Part B's own
+documented "first job" — nothing more:
+
+1. Velune's `app/build.gradle.kts` — `MAVINS_API_URL` BuildConfig
+   field, same `localProperties → env → default` fallback pattern
+   every other host value in that file already uses.
+2. Velune's `CampaignRepository.kt` — `ingestGenreTile(tileTitle)`, a
+   fire-and-forget POST to this repo's own already-live
+   `/api/campaigns/genre-tile-mapping/ingest` route (built Task 59
+   Part 2b-a, `c8879b6`). Verified the request shape against that
+   route's own body-parsing/validation logic directly — read the route
+   file, then ran a throwaway Python simulation of the exact JSON
+   payload (`{"tileTitle": "Afrobeats"}`) against its own validation
+   rules (non-empty string, ≤200 chars) — not just assumed from memory
+   of what such a route probably expects.
+
+**Found, NOT fixed — a real, pre-existing bug across the entirety of
+Velune's `CampaignRepository.kt`, flagged for its own later part, not
+drive-by-fixed here:** all six of that file's HTTP-status warning log
+lines write `${'$'}{response.code}` (Kotlin's literal-dollar-sign
+escape — only meaningful inside a KDoc comment) inside real string
+literals, where it instead prints the literal text `${response.code}`
+to the log rather than the actual value. Caught only because copying
+that file's own established style for this session's one new log line
+would have carried the same bug forward a seventh time — fixed that
+one new line, left the five pre-existing instances alone (outside this
+part's own scope) and flagged in both this file and Velune's own
+`HANDOVER_CAMPAIGN.md` (§11) instead. Purely cosmetic (broken debug
+logging only, nothing functional) — a good small standalone next part
+whenever someone wants it, not urgent.
+
+**Still deliberately not touched — same as before this round:** the
+6-file UI/nav genre-threading chain itself, `MusicService.kt`'s
+initial-batch bug, and confirming the tile-mapping table is seeded
+with this app's real catalog. Full write-up, same content, in Velune's
+own `HANDOVER_CAMPAIGN.md` §11. Not compile-verified — no Android
+SDK/Gradle in either sandbox, same structural limitation every prior
+Velune code change in this project has flagged; verified via a
+brace/paren balance check on both changed files plus the payload
+simulation described above.
 
 ---
 
