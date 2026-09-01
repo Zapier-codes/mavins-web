@@ -2,6 +2,24 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-09-01, latest of all) — Task 59 Part 2b-a built:
+> `campaign_genre_tile_mapping` schema, ingestion route, admin review
+> route — the mavins-web half of Part 2b.** Split Part 2b into 2b-a
+> (this session, mavins-web: schema + 2 server routes) / 2b-b (Velune's
+> own 6-file nav/UI genre-threading chain, not started), per direct
+> instruction. Implements Round 6's design exactly, writing two pieces
+> that round only ever specified conceptually: Round 3's normalize+
+> alias matching logic (`lib/campaign/genreTileMatching.ts`, verified
+> against 15 cases including three real mood titles correctly matching
+> nothing) and the ingestion/admin-review routes themselves. Also fixed
+> a real, pre-existing markdown corruption found while editing this
+> file — Task 60's own section header had lost its `## Task 60 — ...`
+> prefix somewhere along the way. `npx tsc --noEmit` clean; grepped to
+> confirm only the two new routes write to the new table, matching its
+> own RLS lockdown. Full write-up in Task 59's own "Round 8" section.
+> **Next: Part 2b-b** (Velune) is now unblocked — the table and both
+> routes it needs exist.
+>
 > **Newest note (2026-08-31, latest of all) — Task 48-d Part 4a done:
 > `points/history` wired in, first real UI surface for it anywhere in
 > this repo.** New `usePointsHistory` hook + `PointsHistoryPanel`
@@ -12152,15 +12170,88 @@ project's own established convention for logic that can't be verified
 via a live run). **Not compile-verified** — flagged plainly, not
 implied otherwise.
 
-**Not done, still open:** Part 2b (the 6-file nav/UI genre-threading
-chain, plus the new `campaign_genre_tile_mapping` table Round 6
-designed), Part 3 (the banner carousel rebuild, independent of Part
-2), and both bugs found above. Per this session's own reading of the
-mandatory task-splitting rule, none of those are this session's job —
-named here so the next session picks up from a concrete list, not a
-re-derivation.
+**Not done, still open:** Part 2b-b (the 6-file nav/UI genre-threading
+chain, Velune-side), Part 3 (the banner carousel rebuild, independent
+of Part 2), and both bugs found above. Part 2b-a (mavins-web's own
+half of Part 2b — schema, ingestion route, admin review route) is done
+— see "Round 8" immediately below. Per this session's own reading of
+the mandatory task-splitting rule, none of the rest are this session's
+job — named here so the next session picks up from a concrete list,
+not a re-derivation.
+
+### Round 8 — Part 2b-a built: `campaign_genre_tile_mapping` schema, ingestion route, admin review route — the mavins-web half of Part 2b
+
+**Split this session per direct instruction, mirroring the same
+mavins-web/Velune repo-boundary split this whole task has used
+throughout: 2b-a is everything buildable in this sandbox (schema,
+server routes), 2b-b is the Velune-side nav/UI chain that reads what
+2b-a builds. Only 2b-a done this session.**
+
+Implements Round 6's own already-designed schema and wiring exactly,
+with two pieces Round 6 specified conceptually but never wrote as real
+code — both written this session:
+
+1. **`supabase_migration_024_campaign_genre_tile_mapping.sql`** — the
+   table verbatim per Round 6's own design (`tile_title` PK,
+   `mapped_genre_id`/`suggested_genre_id` kept separate per that
+   round's core invariant, `is_reviewed`/`seen_count`/`reviewed_by`),
+   plus a partial index on `(is_reviewed, seen_count DESC) WHERE
+   is_reviewed = false` matching the admin route's own triage query
+   exactly. RLS: public `SELECT` (Velune's own client-side cache reads
+   this directly — Part 2b-b, not this session), no `anon`/
+   `authenticated` write grant at all — the two new routes below are
+   the only writers, both confirmed by grep after building.
+2. **`lib/campaign/genreTileMatching.ts`** — Round 3's normalize+alias
+   matching logic, designed in that round's own text but never
+   actually written as code until now. A pure function
+   (`suggestGenreForTile`), no DB access of its own, so it's testable
+   without a live connection — verified via a throwaway Node script
+   (written, run, deleted, not committed) against 15 cases: canonical
+   exact match, the suffix-strip pass, every seeded alias, and —the
+   one that actually matters most for Round 6's core safety property—
+   three real mood tile titles ("Chill", "Feel Good", "Workout") all
+   correctly return `null`, never a false match. All 15 passed.
+3. **`api/campaigns/genre-tile-mapping/ingest/route.ts`** — the public
+   (no auth — Velune has no login, Task 60's confirmed design),
+   upsert-on-miss route Round 6's step 1 specified. New tile → insert
+   with `is_reviewed = false` and a computed `suggested_genre_id`
+   (possibly `null`); already-seen tile → bump `last_seen_at`/
+   `seen_count` only, never touching `mapped_genre_id`/`is_reviewed`
+   on an existing row (re-ingesting a confirmed row must never
+   un-confirm it — verified by reading the update path only ever
+   touches those two columns). Flagged, not built: real rate-limiting
+   against abuse — a junk row here can never reach live targeting
+   without a human confirming it (Round 6's own invariant), so this is
+   a lower-priority hardening item, not a correctness gap.
+4. **`api/admin/genre-tile-mapping/route.ts`** — `GET` (unreviewed
+   rows, highest-traffic first, the one genuine reason this table gets
+   a `GET` route unlike every Task 46a table) and `PATCH` (confirm a
+   mapping — `mappedGenreId: null` is a valid, deliberate "confirmed
+   non-genre" value, distinct from the field being omitted entirely).
+   Two new capability keys added to `ADMIN_CAPABILITIES`
+   (`GENRE_TILE_MAPPING_VIEW`/`_EDIT`, matching the existing
+   `FEES_VIEW`/`FEES_EDIT` split), audit-logged via `logAdminAction()`
+   same as every other 46a/46b write.
+
+**No admin UI tab built this session** — the two routes above are the
+complete backend; a `campaign_genre_tile_mapping` tab in
+`admin/page.tsx` (or reusing `AdminCrudTable`'s own pattern) is real,
+small, buildable follow-up work, not folded in here to keep this
+part's own scope matched to what "2b-a" actually needs to unblock
+2b-b (Velune only needs the table + the ingestion route to exist; the
+admin review UI can land any time after).
+
+Verified: `npx tsc --noEmit` clean. Grepped to confirm exactly two
+files write to `campaign_genre_tile_mapping` (the two routes above),
+matching the migration's own RLS lockdown.
+
+**Not independently confirmed against a live Supabase instance** — no
+live credentials in this sandbox, same limitation every prior
+Supabase-touching task in this file has noted.
 
 ---
+
+## Task 60 — Cross-repo diagnosis: Velune double-records every campaign
 play, one call site silently fails outright; listener identity is
 device-based by design, not a missing-auth bug [ ]
 
