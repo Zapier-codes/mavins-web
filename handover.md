@@ -117,7 +117,28 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-09-02, latest of all) — Task 59 Round 16, B-ii
+> **Newest note (2026-09-02, latest of all) — Task 59 fully done, all
+> 16 rounds. Part b-b-b-b (the final piece): `OnlinePlaylistScreen.kt`'s
+> 4 `YouTubeQueue(...)` call sites now carry `genre =
+> viewModel.genreTileTitle`, matching the pattern already applied
+> across `YouTubeBrowseScreen.kt`/`AlbumScreen.kt`/`ArtistScreen.kt`.**
+> Genre now survives the entire path end to end — from a genre-tile tap
+> on the home screen, through every song-tap-to-queue construction site
+> in the app, into `MusicService.kt`'s own `campaignSlotProvider`. No
+> known remaining gap in this chain. Verified via grep (exactly 4 call
+> sites, all 4 fixed) and brace/paren balance (176/176, 433/433) — not
+> compile-verified, no Android SDK/Gradle in this sandbox, same
+> standing limitation every round of this 16-round chain has flagged.
+> Full write-up in Task 59's own "Round 16" section, Part b-b-b-b's own
+> paragraph. **Two small, separate, explicitly-flagged follow-ups
+> remain open (not part of this closure)**: the grid-tap-to-album/
+> artist/playlist navigation gap (loses genre context on a *second* nav
+> hop — B-ii Part b's own write-up), and a pre-existing HTTP-status
+> log-escaping bug in `CampaignRepository.kt` (Round 11's own note).
+> **Next: pick either of those two follow-ups, or re-check the queue
+> fresh — nothing else is currently known-blocked.**
+>
+> **Newest note (2026-09-02, previous) — Task 59 Round 16, B-ii
 > Part b-b-b split a/b per explicit instruction (hadn't been split at
 > all yet); Part b-b-b-a done, Velune commit `e2ba9ef`.** Split by
 > whole file again: `AlbumScreen.kt` alone (3 sites) done this round;
@@ -11986,7 +12007,7 @@ that side.
 
 ---
 
-## Task 59 — Correction: campaign discovery is genre-locked periodic queue interleaving + a separate shuffled banner carousel, NOT a competitive trending-score ranking [ ]
+## Task 59 — Correction: campaign discovery is genre-locked periodic queue interleaving + a separate shuffled banner carousel, NOT a competitive trending-score ranking [x]
 
 **Product owner correction, this session: "You spoilt it completely
 without reading."** Task 57's own captured design note ("multiple
@@ -14082,12 +14103,44 @@ arg. Verified via brace/paren balance check (163/163 `{}`, 394/394
 `()`) — not compile-verified, no Android SDK/Gradle in this sandbox,
 same standing limitation every round of this chain has flagged.
 
-**Part b-b-b-b — not started.** `OnlinePlaylistScreen.kt`'s 4 sites
-(all `YouTubeQueue(...)`, already genre-capable since Round 12 — named
-arg only, no class change needed), precisely bounded by Part a's own
-trace, no further investigation needed first. Once this lands, Round
-16 — and with it, the entire genre-tile-threading chain this task has
-built across 16 rounds — is fully done.
+**Part b-b-b-b — done, this session.** `OnlinePlaylistScreen.kt`'s 4
+sites (all `YouTubeQueue(...)`, already genre-capable since Round 12 —
+named arg only, no class change needed), exactly matching Part a's own
+trace (lines 740/760/818/900 in that earlier snapshot; confirmed
+against the real current file rather than trusting those line numbers,
+which had shifted slightly — actual sites at 741/761/819/901 by the
+time this round ran):
+- Line 741: `YouTubeQueue(shuffleEndpoint)` → `genre =
+  viewModel.genreTileTitle` added as a named arg.
+- Line 761: `YouTubeQueue(radioEndpoint)` → same.
+- Line 819: `YouTubeQueue(shuffleEndpoint)` (a second, separate
+  shuffle button further down the same screen — not a duplicate of the
+  first) → same.
+- Line 901 (a 3-line positional call — `endpoint ?: WatchEndpoint(...)`,
+  `toMediaMetadata()`) → `genre = viewModel.genreTileTitle` added as a
+  trailing named arg after the two positional ones.
+
+Confirmed `OnlinePlaylistViewModel.kt` already exposes `genreTileTitle`
+(from the earlier ViewModel-layer threading rounds) before assuming it,
+same discipline as every prior part of this chain. Verified via grep —
+exactly 4 `YouTubeQueue(...)` sites exist in this file, all 4 now carry
+the genre arg — and brace/paren balance (176/176 `{}`, 433/433 `()`).
+Not compile-verified — no Android SDK/Gradle in this sandbox, same
+standing limitation every round of this entire chain has flagged.
+
+**This closes Round 16, and with it, the entire genre-tile-threading
+chain this task has built across 16 rounds — Task 59 is now fully
+done.** From a genre tile tap on the home screen, all the way through
+every song-tap-to-queue construction site across
+`YouTubeBrowseScreen.kt`, `AlbumScreen.kt`, `ArtistScreen.kt`, and
+`OnlinePlaylistScreen.kt`, into `MusicService.kt`'s own
+`campaignSlotProvider` — genre now survives the entire path, end to
+end, with no remaining known gap. The two smaller adjacent findings
+flagged along the way (the grid-tap-to-album/artist/playlist
+navigation gap noted in B-ii Part b's own write-up above, and the
+pre-existing HTTP-status log-escaping bug in `CampaignRepository.kt`
+noted back in Round 11) remain open as their own small, separate,
+explicitly-flagged follow-ups — not part of this chain's own closure.
 
 ---
 
