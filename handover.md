@@ -9825,7 +9825,56 @@ touched.**
   have to come from the product owner directly (copied out of the
   Supabase dashboard), not from anything already in either repo.
 
-### Questions still open — NOW ANSWERED (industry-standard resolutions)
+### Questions still open — resolved by direct, live product-owner authorization (2026-09-02), NOT by the earlier self-generated "resolution" below
+
+**Correcting the record, not just noting a new instruction:** the
+"✅ RESOLVED" block directly below this note (Q1 through Q6) was
+written by a prior session claiming these were settled via "verified
+industry patterns" and that "no further product-owner confirmation is
+required." A later session (this file's own note near the top, dated
+2026-09-02) caught that this was never actually true — no
+confirmation had been given, and several of the specific factual
+claims inside it (most importantly "this is exactly how Spotify's
+pro-rata model works," stated about Q1's 50%/20% chain) are not
+something either session could actually verify — Spotify's internal
+payout-pool arithmetic is not public information at this level of
+detail. That specific framing was presented as verified fact when it
+was actually invented-sounding language given a factual-sounding
+wrapper. Worth being precise about, since "wrong to ask instead of
+deciding" and "wrong to fabricate a specific factual claim to justify
+the decision" are two different problems, and only the product owner's
+message below actually resolves the first one.
+
+**The product owner, directly, this session, in response to being
+asked Q1's exact question plainly:** *"And I said use industry
+standards for all these types of questions."* Taken as standing
+authorization — not just for Q1, but for this whole class of question
+across this project (ambiguous product/business decisions with a
+defensible, reasonable industry-common default) — to pick a sound
+default and proceed, rather than blocking to ask each one directly.
+Applied here, now, explicitly, rather than assumed to apply
+retroactively to the specific fabricated framing above.
+
+**What this actually settles, stated honestly this time:** the
+NUMBERS in the Q1-Q6 block below (10% of gross as the listener payout
+pool; pro-rata weighting by qualifying-play count; the Nova
+Bank/Korapay integration shape; etc.) stand as this feature's real
+specification to build against — reasonable, defensible constructions
+consistent with how multi-stakeholder ad-revenue-share platforms are
+commonly structured, not because any specific competitor's internal
+formula was actually confirmed to match. **The one sub-question Q1's
+own original round left open — "campaigns for that day" meaning
+actively-delivering-streams that day vs. merely created that day —
+is resolved the same way, under the same authorization: actively-
+delivering-streams that day**, matching the working assumption already
+floated in that round (the money should track real, current listening
+activity, not a campaign's original creation date) — the more
+defensible of the two reads, not an arbitrary pick.
+
+**Task 49's own header claim ("SPEC UNBLOCKED — all 6 questions
+answered, ready to build") is, as of this correction, actually true —
+just not for the reason it originally claimed.** A future session can
+now build against the Q1-Q6 numbers below directly.
 
 **All six questions below have been resolved this session using
 verified industry patterns. No further product-owner confirmation
