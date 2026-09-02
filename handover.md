@@ -2,6 +2,28 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-09-01, latest of all) — Task 48-d Part 5c done:
+> the tier multiplier is finally applied somewhere.** It existed,
+> computed and displayed (Part 5b's `TierStatusCard`), but was inert —
+> nothing in the app actually scaled anything by it. Wired into
+> `tasks/claim/route.ts` (Part 3's own endpoint — that route's
+> *frontend wiring* is still BLOCKED, this only fixes its internal math
+> for whenever it unblocks) and `streak/update/route.ts` (Part 1,
+> already live) — both now multiply the base points award by the
+> claiming/streaking user's current tier multiplier before persisting.
+> New `src/lib/gamification/tiers.ts` is the single shared source for
+> tier boundaries (`tier/check/route.ts` now imports from it instead of
+> keeping its own copy). **A real bug in this session's own first
+> draft was caught and fixed before commit** — a points value above
+> T1's own ceiling (999999, genuinely reachable) matched no tier band
+> and silently fell back to the LOWEST multiplier instead of the
+> highest; `tier/check/route.ts`'s pre-existing loop had the identical
+> latent bug, fixed for free by switching it to the same corrected
+> shared helper. `npx tsc --noEmit` clean; tier-lookup logic verified
+> against 10 cases (the pre-fix version failed the one that caught the
+> bug), multiplier arithmetic against 3. Full write-up in Task 48-d's
+> own "Part 5c" section.
+>
 > **Newest note (2026-09-01, latest of all) — Task 59 Part 3, Velune
 > half split into 3a/3b, 3a done.** New
 > `CampaignRepository.fetchLiveCampaignsForBanner()` — calls migration
@@ -8939,6 +8961,82 @@ tables, no task catalog, no live-DB access from this sandbox to
 resolve either). **Part 4b remains open but is correctly not-yet-worth-
 doing**, per its own note above — revisit once Parts 2/3 unblock and
 there's real history to design a fuller view against.
+
+---
+
+#### Part 5c — apply the tier multiplier to real points-awarding paths [x] Done (2026-09-01)
+
+**Prompted directly by a product-owner question ("what does tier do
+here") that this session answered honestly: tier's multiplier
+(1.0x/1.5x/2.0x/3.0x by tier, `src/lib/gamification/tiers.ts`) was
+computed, returned by `tier/check`, and even displayed by Part 5b's
+own `TierStatusCard` — but applied nowhere. It was inert data.**
+Given explicit "use your judgment, industry standard" direction rather
+than a specific spec: loyalty/rewards tiers universally scale points
+or rewards *earned from qualifying activity* (airline miles,
+credit-card rewards programs, etc. all work this way) — never
+something applied retroactively to a stored balance. Wired into the
+two real points-awarding code paths that exist today:
+
+- **Extracted `TIERS` out of `tier/check/route.ts`'s own local
+  constant into `src/lib/gamification/tiers.ts`**, exported alongside
+  a new `getTierForPoints(points)` helper — single source of truth,
+  same "one place, not N copies that can drift" principle this project
+  already applies to pricing (Task 44/45) and platform fees (Task 40).
+  `tier/check/route.ts` itself now imports from there instead of
+  keeping its own copy.
+- **`tasks/claim/route.ts`** (Part 3's own endpoint — note Part 3
+  itself, the *frontend wiring* for this route, is still BLOCKED per
+  the note above; this change only fixes the endpoint's own internal
+  math, for whenever Part 3 does unblock) — `rewardPoints` is now
+  multiplied by the claiming user's current tier before being added to
+  `users.points`, written to `points_history`, and shown in the
+  earned-points notification. Tier is computed from the user's points
+  *before* this award (their standing at the moment of the action, not
+  whatever tier this specific award might newly push them into).
+- **`streak/update/route.ts`** (Part 1, already fully wired/live) —
+  same treatment for streak-milestone bonus points
+  (`bonusPoints[newStreak]`, the values `award_points` — migration
+  026 — actually persists). Needed adding `points` to that route's own
+  `users` select (previously only fetched `streak, last_active`) — no
+  new query, same round trip.
+- Both call sites use `Math.round(base * multiplier)` — `users.points`/
+  `award_points`'s own signature are both integers (migration 026's
+  `p_points INTEGER`), and an odd base value times a 1.5x/3.0x
+  multiplier can produce a fraction otherwise.
+
+**A real, self-caught bug in this session's own first draft, fixed
+before commit, not left in:** the first version of `getTierForPoints`
+used a direct `min<=x<=max` band match, identical in shape to
+`tier/check/route.ts`'s pre-existing loop. A standalone verification
+script (this session's own required step, not skipped) caught that a
+points value ABOVE T1's own `maxPoints` (999999 — reachable, nothing
+caps `users.points`) matched no band at all and silently fell back to
+T4/1.0x — exactly backwards, since that's the HIGHEST-standing case,
+not the lowest. Rewritten to pick the highest-`minPoints` tier the
+value still qualifies for, rather than requiring an exact range match.
+**`tier/check/route.ts`'s own pre-existing loop had the identical
+latent bug** (a match failure there left `newTierData` `null` and
+`newTier` stuck, rather than downgrading, so less severe, but still a
+real bug for any very-high-points user) — fixed for free by having
+that route call the same corrected shared helper instead of keeping
+its own separate copy.
+
+**Verified:**
+- `npx tsc --noEmit` — clean across the repo.
+- **Tier-lookup logic**, standalone (throwaway script, deleted after):
+  10 cases spanning every band boundary, a negative input, `NaN`, and
+  the bug-triggering above-ceiling case — **all 10 correct** after the
+  fix (the pre-fix version failed exactly 1 of these 10, the one that
+  caught the bug).
+- **Multiplier arithmetic**: 3 cases including a deliberately odd base
+  value (15 × 1.5 → 23, confirming rounding happens after the
+  multiply) — all correct.
+- **Not verified — no way to check this from a sandbox:** an actual
+  live claim/streak-milestone firing against real Supabase, or that
+  `points_history`'s own live schema accepts the (unchanged in shape,
+  only the `amount`/`description` values differ) inserts this session
+  already produces.
 
 ---
 

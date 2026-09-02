@@ -2,13 +2,7 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-
-const TIERS = [
-  { name: 'T4', minPoints: 0, maxPoints: 499, multiplier: 1.0, label: 'Listener', icon: '🟢' },
-  { name: 'T3', minPoints: 500, maxPoints: 1999, multiplier: 1.5, label: 'Contributor', icon: '🟡' },
-  { name: 'T2', minPoints: 2000, maxPoints: 9999, multiplier: 2.0, label: 'Creator', icon: '🟠' },
-  { name: 'T1', minPoints: 10000, maxPoints: 999999, multiplier: 3.0, label: 'Curator', icon: '🔴' },
-];
+import { TIERS, getTierForPoints } from '@/lib/gamification/tiers';
 
 export async function POST(request: Request) {
   try {
@@ -60,14 +54,16 @@ export async function POST(request: Request) {
     let newTier = currentTier;
     let newTierData = null;
 
-    // Determine new tier based on points
-    for (const tier of TIERS) {
-      if (currentPoints >= tier.minPoints && currentPoints <= tier.maxPoints) {
-        newTier = tier.name;
-        newTierData = tier;
-        break;
-      }
-    }
+    // Was a manual min<=x<=max loop over TIERS directly — same edge
+    // case getTierForPoints's own header comment documents (a points
+    // value above T1's own maxPoints matched no band at all,
+    // leaving newTierData null and newTier stuck at whatever
+    // currentTier already was). Genuinely reachable here too, same
+    // reasoning as tasks/claim/route.ts's use of this helper — fixed
+    // by using the shared, already-tested helper instead of a second
+    // copy of the same loop.
+    newTierData = getTierForPoints(currentPoints);
+    newTier = newTierData.name;
 
     // If tier changed, update database
     if (newTier !== currentTier) {

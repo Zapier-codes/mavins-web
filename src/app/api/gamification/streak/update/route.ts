@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { getTierForPoints } from '@/lib/gamification/tiers';
 
 export async function POST(request: Request) {
   try {
@@ -33,7 +34,7 @@ export async function POST(request: Request) {
     
     const { data: user, error: userError } = await supabase
       .from('users')
-      .select('streak, last_active')
+      .select('streak, last_active, points')
       .eq('id', userId)
       .single();
 
@@ -86,7 +87,25 @@ export async function POST(request: Request) {
       100: 2500 
     };
 
+    // Hoisted out of the `if` block below so the final response can
+    // reference the actual awarded amount without recomputing it a
+    // second time — `null` when this streak length isn't a milestone.
+    let awardedMilestonePoints: number | null = null;
+
     if (streakMilestones.includes(newStreak)) {
+      // Same tier-multiplier treatment as tasks/claim/route.ts — see
+      // src/lib/gamification/tiers.ts's own header comment. Computed
+      // from points fetched above (already had it in hand for the
+      // now-unrelated read-then-write streak logic above, no extra
+      // query needed) — i.e. the user's standing BEFORE this
+      // milestone's own bonus is added, consistent with tasks/claim's
+      // same "current standing determines the rate for this award"
+      // reasoning. Math.round for the same INTEGER-column reason.
+      const tierMultiplier = getTierForPoints(user?.points || 0).multiplier;
+      const basePoints = bonusPoints[newStreak];
+      const finalPoints = Math.round(basePoints * tierMultiplier);
+      awardedMilestonePoints = finalPoints;
+
       // Migration 026 (handover.md, Task 48-d Part 1's flagged gap):
       // award_points is locked to service_role only, same posture as
       // every other points/wallet-mutating RPC in this project
@@ -101,8 +120,10 @@ export async function POST(request: Request) {
       const admin = createAdminClient();
       const { error: rpcError } = await admin.rpc('award_points', {
         p_user_id: userId,
-        p_points: bonusPoints[newStreak],
-        p_reason: `${newStreak} day streak milestone!`,
+        p_points: finalPoints,
+        p_reason: tierMultiplier !== 1.0
+          ? `${newStreak} day streak milestone! (${tierMultiplier}x tier bonus)`
+          : `${newStreak} day streak milestone!`,
       });
 
       if (rpcError) {
@@ -113,7 +134,7 @@ export async function POST(request: Request) {
           user_id: userId,
           type: 'milestone',
           content: { 
-            text: `🔥 ${newStreak} day streak! You earned ${bonusPoints[newStreak]} bonus points!` 
+            text: `🔥 ${newStreak} day streak! You earned ${finalPoints} bonus points!` 
           },
           created_at: new Date().toISOString(),
         });
@@ -123,7 +144,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ 
       success: true, 
       streak: newStreak,
-      milestone: streakMilestones.includes(newStreak) ? bonusPoints[newStreak] : null
+      milestone: awardedMilestonePoints
     });
   } catch (error) {
     console.error('Streak update error:', error);

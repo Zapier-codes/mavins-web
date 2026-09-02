@@ -2,6 +2,7 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { getTierForPoints } from '@/lib/gamification/tiers';
 
 export async function POST(request: Request) {
   try {
@@ -90,7 +91,21 @@ export async function POST(request: Request) {
     }
 
     const rewardPoints = task.task.reward_points || 0;
-    const newPoints = (user?.points || 0) + rewardPoints;
+    // Tier multiplier, wired in for the first time — see
+    // src/lib/gamification/tiers.ts's own header comment for why this
+    // is the industry-standard place for it (loyalty tiers scale
+    // points *earned from qualifying activity*, not a stored
+    // balance). Computed from points BEFORE this award, matching "your
+    // current standing determines your rate for this action" — the
+    // same tier that would show in tier/check right now, not
+    // whatever tier this specific award might push the user into.
+    // Math.round because points_history.amount and users.points are
+    // both whole numbers (award_points' own INTEGER signature,
+    // migration 026) — a 1.5x/2.0x/3.0x multiplier on an odd
+    // rewardPoints value can produce a fraction otherwise.
+    const tierMultiplier = getTierForPoints(user?.points || 0).multiplier;
+    const finalPoints = Math.round(rewardPoints * tierMultiplier);
+    const newPoints = (user?.points || 0) + finalPoints;
 
     // Update user's points
     const { error: pointsUpdateError } = await supabase
@@ -111,9 +126,11 @@ export async function POST(request: Request) {
       .from('points_history')
       .insert({
         user_id: userId,
-        amount: rewardPoints,
+        amount: finalPoints,
         type: 'task',
-        description: `Completed: ${task.task.title}`,
+        description: tierMultiplier !== 1.0
+          ? `Completed: ${task.task.title} (${tierMultiplier}x tier bonus)`
+          : `Completed: ${task.task.title}`,
         created_at: new Date().toISOString(),
       });
 
@@ -128,7 +145,7 @@ export async function POST(request: Request) {
         user_id: userId,
         type: 'points_earned',
         content: { 
-          text: `💰 You earned ${rewardPoints} points for completing "${task.task.title}"!` 
+          text: `💰 You earned ${finalPoints} points for completing "${task.task.title}"!` 
         },
         created_at: new Date().toISOString(),
       });
@@ -140,8 +157,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ 
       success: true, 
       newPoints,
-      pointsEarned: rewardPoints,
-      message: `Successfully claimed ${rewardPoints} points!`
+      pointsEarned: finalPoints,
+      basePoints: rewardPoints,
+      tierMultiplier,
+      message: `Successfully claimed ${finalPoints} points!`
     });
     
   } catch (error) {
