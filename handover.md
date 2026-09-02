@@ -118,16 +118,37 @@ looking like a part was skipped.
 > anything, especially the box below it.**
 >
 > **Newest note (2026-09-02, latest of all) — Task 59 Round 16, B-ii
+> Part b-b split a/b per explicit instruction (hadn't been split at
+> all yet); Part b-b-a done, Velune commit `51df723`.** Split by whole
+> file (not edit count) to keep each part independently committable:
+> `ArtistScreen.kt` alone (6 call sites, two different queue types —
+> the most complex single file) done this round; `AlbumScreen.kt` (3)
+> + `OnlinePlaylistScreen.kt` (4) = 7 sites, both simpler
+> single-queue-type files, left for **Part b-b-b, next**. All 6 sites
+> re-verified against the real current file before editing, not
+> trusted from the trace note alone. Brace-balanced (189/189, 413/413),
+> not compile-verified — same standing limitation this whole chain has
+> had. Full write-up in Task 59's own "Round 16" section.
+>
+> **Also this session — fixed a real structural corruption in this
+> file, twice.** A ~585-line block of "newest note" bullets had landed
+> directly under the "Unified hand-off command format" heading instead
+> of in this START HERE box — the same corruption pattern as an
+> earlier, never-published fix; another session had kept appending to
+> the same wrong spot in the meantime, and the earlier fix's own
+> boundary turned out to be wrong too, caught and corrected this time.
+> Relocated back into this box, verified no content was duplicated
+> first. Worth watching for a third recurrence — see that commit's own
+> message for a guess at why this keeps happening.
+>
+> **Older note (2026-09-02, previous) — Task 59 Round 16, B-ii
 > Part b further split into a/b per explicit instruction; Part b-a
 > done, Velune commit `583b14c`.** `LocalAlbumRadio.kt` and
 > `ListQueue.kt` both gained the same trailing `genre: String? = null`
 > constructor param `YouTubeQueue` got in Round 12 — confirmed no
 > existing caller of either class is affected (grepped every call
 > site first). Brace-balanced, not compile-verified (no Android SDK
-> here, same standing limitation this whole chain has had). **Next:
-> B-ii Part b-b** — the 13 actual call-site edits this trace already
-> precisely bounded (3 `AlbumScreen.kt`, 6 `ArtistScreen.kt`, 4
-> `OnlinePlaylistScreen.kt`), no further investigation needed first.
+> here, same standing limitation this whole chain has had).
 >
 > **Older note (2026-09-02) — Task 59 Round 16, B-ii
 > sub-split into a/b per explicit instruction; B-ii Part a (trace)
@@ -13835,7 +13856,7 @@ passed, discarded, not committed. **Not compile-verified** — no
 Android SDK in this sandbox, same standing limitation as every prior
 part of this task.
 
-### Round 16 — Part B sub-split into i/ii; B-i done: `genreTile` now reaches all three ViewModels (Velune); B-ii further split into a/b, B-ii Part a (trace) done, B-ii Part b further split into a/b, Part b-a done [B-i: x, B-ii Part a: x, B-ii Part b-a: x, B-ii Part b-b: not started]
+### Round 16 — Part B sub-split into i/ii; B-i done: `genreTile` now reaches all three ViewModels (Velune); B-ii further split into a/b, B-ii Part a (trace) done, B-ii Part b further split into a/b, Part b-a done, Part b-b further split into a/b, Part b-b-a done [B-i: x, B-ii Part a: x, B-ii Part b-a: x, B-ii Part b-b-a: x, B-ii Part b-b-b: not started]
 
 **Sub-split per explicit instruction — Part B (Round 15's own scope:
 consumption in `AlbumScreen`/`ArtistScreen`/`OnlinePlaylistScreen`) is
@@ -13974,6 +13995,54 @@ the now-genre-capable `ListQueue`), 4 in `OnlinePlaylistScreen.kt`
 (already-genre-capable `YouTubeQueue`, named arg only). Precisely
 bounded by Part a's own trace above — no further investigation needed
 before writing these 13 edits, just the mechanical addition itself.
+
+**Part b-b split a/b, per explicit instruction (hadn't been split at
+all yet). Part b-b-a done, Velune commit `51df723`; Part b-b-b not
+started.** Split by whole file, not by edit count, to keep each part a
+clean, independently-committable unit (no file left half-edited
+between parts): **Part b-b-a = `ArtistScreen.kt` alone** (6 sites — the
+single most complex file, two different queue types within it,
+deliberately isolated rather than left for last); **Part b-b-b =
+`AlbumScreen.kt` (3) + `OnlinePlaylistScreen.kt` (4)** = 7 sites, both
+single-queue-type files, genuinely simpler — left for next.
+
+All 6 of Part b-b-a's sites verified against `ArtistScreen.kt`'s real
+current code directly before editing (not assumed from this trace note
+alone, even though the trace itself was already precise) — exact line
+numbers shifted slightly as earlier edits in the same file pushed later
+ones down, re-grepped each time rather than trusting stale line numbers:
+- Line 665: `YouTubeQueue(shuffleEndpoint)` → `genre =
+  viewModel.genreTileTitle` added.
+- Line 669–674: `ListQueue(title = ..., items = ...)` → genre added.
+- Line 701: `YouTubeQueue(radioEndpoint)` → genre added.
+- Line 778: `ListQueue(..., startIndex = index)` → genre added (as a
+  trailing named arg after `startIndex`, matching every other site's
+  convention of appending `genre` last).
+- Line 935: `YouTubeQueue(WatchEndpoint(videoId = song.id),
+  song.toMediaMetadata())` → genre added as a third, named arg (confirmed
+  `YouTubeQueue`'s actual constructor by reading `YouTubeQueue.kt`
+  directly — `preloadItem` is positional, `genre` is named/defaulted,
+  from Round 12 — rather than assuming the param order from memory).
+- Line 991: `YouTubeQueue(WatchEndpoint(videoId = item.id),
+  item.toMediaMetadata())` (the grid section's `is SongItem ->` branch)
+  → genre added, same shape as the line-935 site.
+
+Confirmed via grep, not assumed: exactly 6 `playQueue(...)` call sites
+exist in `ArtistScreen.kt` total, and all 6 now carry the genre arg —
+none missed, none outside this part's own scope (the `is AlbumItem ->`/
+`ArtistItem`/`PlaylistItem` navigation branches immediately below the
+last site are Part a's own already-flagged separate nav-forwarding gap,
+correctly left untouched here). Verified via brace/paren balance check
+(189/189 `{}`, 413/413 `()`) — not compile-verified, no Android
+SDK/Gradle in this sandbox, same standing limitation every round of
+this chain has flagged.
+
+**Part b-b-b — not started.** `AlbumScreen.kt`'s 3 sites (all
+`LocalAlbumRadio(albumWithSongs, ...)`) and `OnlinePlaylistScreen.kt`'s
+4 sites (all `YouTubeQueue(...)`) — both single-queue-type files,
+same mechanical named-arg addition as every site in Part b-b-a above,
+precisely bounded by Part a's own trace, no further investigation
+needed first.
 
 ---
 
