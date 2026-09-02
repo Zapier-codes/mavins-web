@@ -1,0 +1,104 @@
+From 23ef4aa4d9659cdb4dd2fd30479d7c1e3f881c80 Mon Sep 17 00:00:00 2001
+From: Mavins Dev <dev@mavins.io>
+Date: Mon, 31 Aug 2026 18:12:42 +0800
+Subject: [PATCH] Fix partners marquee: use real platform images from
+ public/images/platforms/ with name below logo
+
+---
+ src/components/landing/PartnersMarquee.tsx | 18 ++++++++--------
+ src/lib/partners/partners.config.ts        | 24 ++++++++++++----------
+ 2 files changed, 22 insertions(+), 20 deletions(-)
+
+diff --git a/src/components/landing/PartnersMarquee.tsx b/src/components/landing/PartnersMarquee.tsx
+index 0204d1b..5e527c3 100644
+--- a/src/components/landing/PartnersMarquee.tsx
++++ b/src/components/landing/PartnersMarquee.tsx
+@@ -4,35 +4,35 @@ import Image from 'next/image';
+ import { PARTNER_SLOTS } from '@/lib/partners/partners.config';
+ 
+ /**
+- * Supporting partners marquee — real assets from public/icons/partners/.
+- * Continuously scrolls partner logos for social proof on the landing page.
++ * Supporting partners marquee — real company logos from public/images/platforms/.
++ * Displays each partner's logo as the primary visual with the name below.
+  */
+ export function PartnersMarquee() {
+   const looped = [...PARTNER_SLOTS, ...PARTNER_SLOTS];
+ 
+   return (
+     <div
+-      className="relative overflow-hidden py-1"
++      className="relative overflow-hidden py-3"
+       style={{
+         maskImage: 'linear-gradient(90deg, transparent, black 8%, black 92%, transparent)',
+         WebkitMaskImage: 'linear-gradient(90deg, transparent, black 8%, black 92%, transparent)',
+       }}
+     >
+-      <div className="marquee-track marquee-track--reverse flex items-center gap-8 w-max">
++      <div className="marquee-track marquee-track--reverse flex items-center gap-10 w-max">
+         {looped.map((partner, i) => (
+           <div
+             key={`${partner.id}-${i}`}
+-            className="flex items-center gap-2 flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity"
++            className="flex flex-col items-center gap-1.5 flex-shrink-0 opacity-70 hover:opacity-100 transition-opacity"
+             title={partner.name}
+           >
+             <Image
+               src={partner.logo}
+               alt={partner.name}
+-              width={28}
+-              height={28}
+-              className="w-7 h-7"
++              width={48}
++              height={48}
++              className="w-12 h-12 object-contain rounded-lg"
+             />
+-            <span className="text-xs font-medium text-[var(--muted-foreground)] whitespace-nowrap">
++            <span className="text-[10px] font-medium text-[var(--muted-foreground)] whitespace-nowrap">
+               {partner.name}
+             </span>
+           </div>
+diff --git a/src/lib/partners/partners.config.ts b/src/lib/partners/partners.config.ts
+index de69229..d0b4b3e 100644
+--- a/src/lib/partners/partners.config.ts
++++ b/src/lib/partners/partners.config.ts
+@@ -2,8 +2,8 @@
+ /**
+  * Partner roster for the "As seen with" / supporting-partners marquee.
+  *
+- * Uses real partner assets from public/icons/partners/.
+- * These are the actual creative assets shipped with the repo.
++ * Uses real partner assets from public/images/platforms/.
++ * These are the actual company logos shipped with the repo.
+  */
+ 
+ export interface PartnerSlot {
+@@ -13,14 +13,16 @@ export interface PartnerSlot {
+   href?: string;
+ }
+ 
+-/** Real partner assets from the repo's icons/partners directory. */
++/** Real partner assets from the repo's images/platforms directory. */
+ export const PARTNER_SLOTS: PartnerSlot[] = [
+-  { id: 'partner-01', name: 'Spotify', logo: '/icons/partners/partner-01.svg' },
+-  { id: 'partner-02', name: 'Apple Music', logo: '/icons/partners/partner-02.svg' },
+-  { id: 'partner-03', name: 'SoundCloud', logo: '/icons/partners/partner-03.svg' },
+-  { id: 'partner-04', name: 'BandLab', logo: '/icons/partners/partner-04.svg' },
+-  { id: 'partner-05', name: 'TuneCore', logo: '/icons/partners/partner-05.svg' },
+-  { id: 'partner-06', name: 'UMG', logo: '/icons/partners/partner-06.svg' },
+-  { id: 'partner-07', name: 'NME', logo: '/icons/partners/partner-07.svg' },
+-  { id: 'partner-08', name: 'Playlist Push', logo: '/icons/partners/partner-08.svg' },
++  { id: 'spotify', name: 'Spotify', logo: '/images/platforms/Spotify.png' },
++  { id: 'apple', name: 'Apple Music', logo: '/images/platforms/Apple.png' },
++  { id: 'soundcloud', name: 'SoundCloud', logo: '/images/platforms/Soundcloud.png' },
++  { id: 'bandlab', name: 'BandLab', logo: '/images/platforms/bandlab.png' },
++  { id: 'tunecore', name: 'TuneCore', logo: '/images/platforms/tunecore.png' },
++  { id: 'umg', name: 'UMG', logo: '/images/platforms/UMG.jpeg' },
++  { id: 'nme', name: 'NME', logo: '/images/platforms/NME.png' },
++  { id: 'playlist-push', name: 'Playlist Push', logo: '/images/platforms/PlaylistPush.png' },
++  { id: 'mj', name: 'MJ', logo: '/images/platforms/MJ.png' },
++  { id: 'olamide', name: 'Olamide', logo: '/images/platforms/Olamide.jpg' },
+ ];
+-- 
+2.39.5
+

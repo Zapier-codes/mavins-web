@@ -114,6 +114,8 @@ export const ADMIN_CAPABILITIES = {
   USERS_WALLET_ADJUST: 'users:wallet_adjust', // PATCH /api/admin/users/[id], action=adjust_wallet
   USERS_GRANT_STARTING_CAPITAL: 'users:grant_starting_capital', // PATCH /api/admin/users/[id], action=grant_starting_capital
   USERS_MANAGE_ROLE: 'users:manage_role', // PATCH /api/admin/users/[id], action=set_role — root-only regardless (isRootAdmin() gate), kept as a key for completeness/consistency
+  GENRE_TILE_MAPPING_VIEW: 'genre_tile_mapping:view', // GET /api/admin/genre-tile-mapping
+  GENRE_TILE_MAPPING_EDIT: 'genre_tile_mapping:edit', // PATCH /api/admin/genre-tile-mapping
 } as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[keyof typeof ADMIN_CAPABILITIES];

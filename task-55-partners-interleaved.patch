@@ -1,0 +1,62 @@
+From a565d05b0a958aa71ae5e271969ad11fb0b02712 Mon Sep 17 00:00:00 2001
+From: Mavins Dev <dev@mavins.io>
+Date: Mon, 31 Aug 2026 18:15:52 +0800
+Subject: [PATCH] Fix partners marquee: interleave platform logos and artist
+ photos so one platform then one artist alternates, no clustering
+
+---
+ src/lib/partners/partners.config.ts | 22 +++++++++++++++++++---
+ 1 file changed, 19 insertions(+), 3 deletions(-)
+
+diff --git a/src/lib/partners/partners.config.ts b/src/lib/partners/partners.config.ts
+index d0b4b3e..d997a31 100644
+--- a/src/lib/partners/partners.config.ts
++++ b/src/lib/partners/partners.config.ts
+@@ -2,8 +2,9 @@
+ /**
+  * Partner roster for the "As seen with" / supporting-partners marquee.
+  *
+- * Uses real partner assets from public/images/platforms/.
+- * These are the actual company logos shipped with the repo.
++ * Uses real assets from both public/images/platforms/ (companies) and
++ * public/images/artists/ (people). The list is interleaved so one platform
++ * and one artist alternate — no clustering, natural variety across the strip.
+  */
+ 
+ export interface PartnerSlot {
+@@ -13,16 +14,31 @@ export interface PartnerSlot {
+   href?: string;
+ }
+ 
+-/** Real partner assets from the repo's images/platforms directory. */
++/** Interleaved partner + artist assets — platform, artist, platform, artist... */
+ export const PARTNER_SLOTS: PartnerSlot[] = [
+   { id: 'spotify', name: 'Spotify', logo: '/images/platforms/Spotify.png' },
++  { id: 'blord', name: 'Blord', logo: '/images/artists/Blord.jpg' },
+   { id: 'apple', name: 'Apple Music', logo: '/images/platforms/Apple.png' },
++  { id: 'bossblingzs', name: 'Boss Blingzs', logo: '/images/artists/Bossblingzs.jpg' },
+   { id: 'soundcloud', name: 'SoundCloud', logo: '/images/platforms/Soundcloud.png' },
++  { id: 'chino-dollaz', name: 'Chino Dollaz', logo: '/images/artists/Chino_Dollaz.jpeg' },
+   { id: 'bandlab', name: 'BandLab', logo: '/images/platforms/bandlab.png' },
++  { id: 'cito-boi', name: 'Cito Boi', logo: '/images/artists/Cito_Boi.jpg' },
+   { id: 'tunecore', name: 'TuneCore', logo: '/images/platforms/tunecore.png' },
++  { id: 'don-jazzy', name: 'Don Jazzy', logo: '/images/artists/Don_Jazzy.jpeg' },
+   { id: 'umg', name: 'UMG', logo: '/images/platforms/UMG.jpeg' },
++  { id: 'dr-dre', name: 'Dr. Dre', logo: '/images/artists/Dr.Dre.jpg' },
+   { id: 'nme', name: 'NME', logo: '/images/platforms/NME.png' },
++  { id: 'earn', name: 'Earn', logo: '/images/artists/Earn.jpeg' },
+   { id: 'playlist-push', name: 'Playlist Push', logo: '/images/platforms/PlaylistPush.png' },
++  { id: 'famous-pluto', name: 'Famous Pluto', logo: '/images/artists/Famous_Pluto.jpg' },
+   { id: 'mj', name: 'MJ', logo: '/images/platforms/MJ.png' },
++  { id: 'golden-bank', name: 'Golden Bank', logo: '/images/artists/Golden_Bank.jpeg' },
+   { id: 'olamide', name: 'Olamide', logo: '/images/platforms/Olamide.jpg' },
++  { id: 'katt-williams', name: 'Katt Williams', logo: '/images/artists/Katt_Williams.jpeg' },
++  { id: 'olivia-dean', name: 'Olivia Dean', logo: '/images/artists/Olivia_Dean.jpeg' },
++  { id: 'pharrell', name: 'Pharrell Williams', logo: '/images/artists/Pharrell_Williams.jpg' },
++  { id: 'snow-tha-product', name: 'Snow Tha Product', logo: '/images/artists/Snow_Tha_Product.jpeg' },
++  { id: 'tom-macdonald', name: 'Tom MacDonald', logo: '/images/artists/Tom_Macdonalds.jpeg' },
++  { id: 'lil-nas', name: 'Lil Nas X', logo: '/images/artists/lil-nas.jpg' },
+ ];
+-- 
+2.39.5
+

@@ -3,6 +3,7 @@
 import React, { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
+import { syncNakamaSession } from '@/lib/nakama/nakamaClient';
 import { cn } from '@/lib/utils/cn';
 import { Mail, Lock, ArrowRight, Zap, Eye, EyeOff } from 'lucide-react';
 
@@ -62,6 +63,17 @@ function LoginForm() {
             email,
             artist_name: email.split('@')[0],
           });
+          // Task 48-c Part 2: establish this user's Nakama identity
+          // now that a real Supabase id exists — Supabase's id is the
+          // source of truth (per the corrected direction), Nakama is
+          // purely downstream. Deliberately not awaited into the
+          // critical path with a try/catch around navigation — a
+          // failure here must never block signup, it only means
+          // Nakama-backed features won't work until the next
+          // successful sync (see syncNakamaSession's own doc comment).
+          syncNakamaSession(user.id, email.split('@')[0]).catch((err) =>
+            console.warn('Nakama sync failed after signup (non-fatal):', err)
+          );
           // Brand-new row -> profile_completed defaults to false ->
           // always send a fresh signup through complete-profile.
           router.push(`/complete-profile?redirect=${encodeURIComponent(redirectTo)}`);
@@ -83,6 +95,15 @@ function LoginForm() {
         const { data: { user } } = await supabase.auth.getUser();
         let profileCompleted = true;
         if (user) {
+          // Task 48-c Part 2: same non-blocking sync as the signup
+          // branch above — every successful sign-in re-establishes
+          // the Nakama link too, not just the first one, since
+          // authenticateCustom is idempotent-by-id (see
+          // syncNakamaSession's own doc comment for why this is safe
+          // to call unconditionally on every login, not just once).
+          syncNakamaSession(user.id).catch((err) =>
+            console.warn('Nakama sync failed after signin (non-fatal):', err)
+          );
           const { data: profile } = await supabase
             .from('users')
             .select('profile_completed')
