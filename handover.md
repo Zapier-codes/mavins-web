@@ -2,6 +2,25 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-09-01, latest of all) — Task 59 Part 2b-b Round
+> 14: the full genre-locked queue-injection chain is now wired end to
+> end.** `MusicService.kt`'s `campaignSlotProvider = { null }`
+> placeholder (Part 2a's own deliberate no-op) is now a real lambda:
+> `queue.genre` → `GenreTileMappingCache.resolveGenreId()` (Round 13)
+> → `CampaignRepository().fetchNextCampaignForQueueSlot()` (Part 2a) —
+> everything this needed was already built across Rounds 11-13, this
+> round is exactly that closing lambda. Verified via a 5-scenario
+> Python simulation of the branching logic (no genre; resolved genre
+> with a campaign; explicitly-non-genre tile; unknown tile;
+> resolved genre with no matching campaign) — all 5 passed. Not
+> compile-verified, no Android SDK in this sandbox, same limitation as
+> every prior round. **Task 59's core mechanic (Parts 1, 2a, 2b-a,
+> 2b-b) is now fully wired tap-to-injection.** Still open: Round 7's
+> unrelated initial-batch bug, the grid/album/playlist play-path gap,
+> confirming the mapping table is actually seeded, and Task 59 Part 3
+> (banner rebuild — mavins-web half done, Velune half not started).
+> Full write-up in Task 59's own "Round 14" section.
+
 > **Newest note (2026-09-01, latest of all) — Task 56 fully closed,
 > all three sub-parts.** 56a was already answerable by synthesis
 > (marked, no new work). 56c was already resolved by Task 48-c
@@ -12830,7 +12849,7 @@ Supabase-touching task in this file has noted.
 
 ---
 
-### Round 9 — Part 2b-b split into A/B per direct instruction; Part A built (Velune, `CampaignRepository.kt` only) [Part A: x, Part B: first job x, first sub-part of the rest x, remainder not started]
+### Round 9 — Part 2b-b split into A/B per direct instruction; Part A built (Velune, `CampaignRepository.kt` only) [Part A: x, Part B: x — completed across Rounds 10-14, see each round's own entry]
 
 **Split per direct instruction to split the next task into two and
 build only the first half.** Cloned Velune, re-read
@@ -13212,6 +13231,76 @@ list except item 1, now half-done:**
 3. The grid/album/playlist play-path gap (Round 12's own note).
 4. Confirming `campaign_genre_tile_mapping` is seeded with real tile
    titles (still expected-empty, not a bug).
+
+### Round 14 — `MusicService.kt`'s `campaignSlotProvider` wiring done: the full genre-tile-to-injected-campaign chain is now real, end to end [x]
+
+**Pulled latest first** (mavins-web and Velune both) — Round 13 was
+still the newest state on both repos; built directly on top of it, no
+successor work to reconcile against.
+
+Round 13 left exactly one item as the genuinely next sub-part —
+replacing `campaignSlotProvider = { null }` at `MusicService.kt`'s
+`playQueue()` call site with a real lambda — and named precisely what
+it needed to call, in order, already built across Rounds 11-13:
+`queue.genre` (Round 12) → `GenreTileMappingCache.resolveGenreId()`
+(Round 13) → `CampaignRepository().fetchNextCampaignForQueueSlot()`
+(Part 2a). This round is exactly that lambda, nothing more — the
+smallest closing piece of the chain, not a new design decision.
+
+**One file changed:** `MusicService.kt` — `queue.genre` is read once
+(`queue: Queue` at this call site, confirmed via the containing
+`playQueue()` function's own signature, so the interface's default
+`genre` property is directly accessible, not requiring a cast).
+`null` short-circuits to `null` immediately — the same fail-closed
+default `CampaignInjectedQueue`'s own constructor already provides,
+now made explicit at the call site instead of left implicit. A real
+genre string resolves through the cache; an unresolved id (unknown or
+explicitly non-genre tile) still returns `null` for that slot rather
+than guessing. Only a fully-resolved genre id ever reaches
+`fetchNextCampaignForQueueSlot()`.
+
+**Verified — no Android SDK/Gradle in this sandbox, same structural
+limitation as every round of this task:**
+- Brace balance check on the modified file (a large, pre-existing
+  4,928-line file — this confirms the edit didn't break overall
+  structure, a weaker signal than the isolated small-new-file checks
+  earlier rounds could do, stated plainly rather than overclaiming the
+  same confidence level).
+- **5-scenario Python simulation** of the exact branching logic just
+  written (no queue genre; known genre with a real campaign to inject;
+  known tile explicitly reviewed as non-genre; unknown/unreviewed
+  tile; known genre with no matching campaign) — **all 5 passed**,
+  confirming only the fully-resolved case ever reaches a non-null
+  injection result.
+- Confirmed `queue: Queue` (not a subtype needing a cast) directly
+  against `playQueue()`'s own function signature, not assumed.
+- **Not verified — no way to check this from a sandbox:** an actual
+  Kotlin compile (in particular, whether the nested nullable nested-if
+  structure type-checks cleanly against `MediaItem?`, and whether
+  capturing `queueGenre` in the lambda's closure behaves as expected
+  across repeated slot calls) — same limitation as every prior round.
+
+**Task 59's core genre-locked queue-injection mechanic (Parts 1, 2a,
+2b-a, 2b-b) is now fully wired end to end, tap to injection** — a
+genre-tile tap in `MoodAndGenresScreen.kt` carries its title through
+navigation to a real `Queue` object, gets cached/resolved to a genre
+id (ingesting unknown tiles for admin review along the way), and a
+resolved id now actually reaches campaign injection. **Still open,
+unchanged from Round 13's own list (items 2-4 there), plus the same
+list Round 12/13 already carried forward** — none of those are closed
+by this round, which was scoped to the wiring only:
+1. `MusicService.kt`'s own separate, unrelated initial-batch bug
+   (Round 7's finding) — still open.
+2. The grid/album/playlist play-path gap (Round 12's own note) — still
+   open; this round's wiring only fires for queues that actually have
+   a non-null `genre`, which today is only the genre-tile browse path.
+3. Confirming `campaign_genre_tile_mapping` is seeded with real tile
+   titles — still expected-empty, not a bug, but worth a real check
+   before assuming this mechanic does anything visible in production
+   yet.
+4. Task 59 Part 3 (the banner carousel rebuild, independent of all of
+   this) — mavins-web half done, Velune half still not started (see
+   Task 59's own Part 3 entry above).
 
 ---
 
