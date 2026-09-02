@@ -2,6 +2,23 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-09-02, latest of all) — Task 59 Round 15: the
+> grid/album/playlist play-path gap (Round 2's own flag, still open
+> through every subsequent round) finally picked up, split A/B, Part A
+> only.** Part A (Velune, navigation-layer threading): all three
+> destination routes (`album/{id}`, `artist/{id}`,
+> `online_playlist/{id}`) gained an optional `genreTile` query param,
+> and `YouTubeBrowseScreen.kt`'s three grid-tap navigate calls now pass
+> it through when present. Confirmed via grep (not assumed) that ~50
+> existing callers across ~20 other files stay completely unaffected —
+> relies on standard AndroidX Navigation behavior (a nullable
+> `navArgument` doesn't need to appear in the URI at all to match).
+> **Part B — not started:** read the new arg in
+> `AlbumScreen.kt`/`ArtistScreen.kt`/`OnlinePlaylistScreen.kt`'s own
+> ViewModels and thread it to each screen's own song-tap queue
+> construction — not yet traced which exact call sites those are. Full
+> write-up in Task 59's own "Round 15" section.
+>
 > **Newest note (2026-09-01, latest of all) — Task 48-d Part 5c done:
 > the tier multiplier is finally applied somewhere.** It existed,
 > computed and displayed (Part 5b's `TierStatusCard`), but was inert —
@@ -13678,6 +13695,114 @@ by this round, which was scoped to the wiring only:
 4. Task 59 Part 3 (the banner carousel rebuild, independent of all of
    this) — mavins-web half done, Velune half still not started (see
    Task 59's own Part 3 entry above).
+
+---
+
+### Round 15 — grid/album/playlist play-path gap: Part A (navigation-layer threading only) built; Part B (consumption in AlbumScreen/ArtistScreen/OnlinePlaylistScreen) still open [Part A: x, Part B: not started]
+
+**Task 59 was marked fully closed for its main deliverables (Parts 1,
+2/2b-b, 3/3a/3b-a/3b-b), but this specific item — Round 2's own
+"grid/album/playlist play-path" flag, restated as still-open in every
+subsequent round's own "still open" list through Round 14 — was never
+actually picked up. This round picks it up, split into 2 parts per
+this file's own mandatory task-splitting rule, Part A only.**
+
+**The gap, traced precisely before writing anything:** Round 12
+threaded `genre` through the ONE call site `YouTubeBrowseScreen.kt`
+itself directly constructs a queue from (a flat song-only grid). But
+that same screen's browse results can ALSO contain a MIXED grid — some
+combination of `AlbumItem`/`ArtistItem`/`PlaylistItem` (confirmed by
+reading the file directly: `if (it.items.all { item -> item is
+SongItem })` branches to the flat-song grid Round 12 already fixed;
+the `else` branch, for anything mixed, renders a `LazyRow` of
+`YouTubeGridItem`s instead). Tapping one of those navigates to a
+**separate screen entirely** — `album/{id}`, `artist/{id}`, or
+`online_playlist/{id}` — with **zero genre context carried across
+that navigation boundary**, confirmed by reading the exact `onClick`
+block before this round touched it: three bare
+`navController.navigate("album/${item.id}")`-style calls, no query
+string at all. Whatever song a user taps once inside one of those
+three destination screens plays with no genre lock, regardless of how
+they arrived there.
+
+**Part A (navigation-layer threading) — done, this round, mirrors
+Round 11's own precedent exactly (that round's own split was
+"navigation threading first, consumption second" for the exact same
+kind of gap, one level up the chain):**
+
+- **`NavigationBuilder.kt`** — all three destination routes
+  (`album/{albumId}`, `artist/{artistId}`, `online_playlist/{playlistId}`)
+  gained an optional `&genreTile={genreTile}` query suffix + a matching
+  `navArgument("genreTile") { type = NavType.StringType; nullable =
+  true }`, same shape Round 11 already established for
+  `youtube_browse`'s own route. **Deliberately NOT touched:** the
+  three artist *sub*-routes (`artist/{artistId}/songs`,
+  `/albums`, `/items?browseId=...`) — those are reached from
+  *within* the artist screen itself, a separate concern from this
+  specific gap (a user browsing an artist's own song list isn't the
+  "arrived via a genre-tile browse" case this round is closing).
+- **`YouTubeBrowseScreen.kt`** — the three `onClick` branches for
+  `AlbumItem`/`ArtistItem`/`PlaylistItem` now append
+  `?genreTile=<url-encoded title>` when
+  `viewModel.genreTileTitle` is non-null (nothing appended otherwise —
+  every non-genre-tile-originated browse keeps navigating exactly as
+  before). Re-encodes the value for this next navigation hop, matching
+  Round 9's own established convention for exactly this class of value
+  — a tile title can contain `&`/`?` (confirmed real, not
+  theoretical, e.g. "R&B") and would otherwise corrupt the route
+  string.
+- **Confirmed safe for every OTHER existing caller of these three
+  routes** (grepped first, not assumed): ~50 call sites across ~20
+  files — `Library.kt`, `YouTubeSongMenu.kt`, `SongMenu.kt`,
+  `QueueMenu.kt`, `AlbumMenu.kt`, `YouTubeAlbumMenu.kt`,
+  `PlayerMenu.kt`, `PlayerComponents.kt`, `AlbumScreen.kt`,
+  `BrowseScreen.kt`, `LibraryMixScreen.kt`, `ExploreScreen.kt`,
+  `OnlineSearchScreen.kt`, `OnlineSearchResult.kt`,
+  `LocalSearchScreen.kt`, `ArtistScreen.kt`, `ArtistItemsScreen.kt`,
+  `HomeScreenComponents.kt`, `StatsScreen.kt`, `NewReleaseScreen.kt`,
+  `AccountScreen.kt`, `MainActivity.kt` — every one of them navigates
+  with a bare path, no query string at all (e.g.
+  `"album/${album.id}"`). None of them were touched. This relies on
+  standard, documented AndroidX Navigation Compose behavior: a
+  `navArgument` declared `nullable = true` does not need to be present
+  in the actual URI at all for the route to match — the route pattern
+  `"album/{albumId}?genreTile={genreTile}"` still matches a plain
+  `"album/123"` URI, resolving `genreTile` to its declared `null`
+  default. This is a framework guarantee, not something this round
+  needed to newly prove the way Round 11 had to work through for its
+  own first use of this pattern — but flagged here plainly since it's
+  still not compile-verified in this sandbox, same standing limitation
+  as everything else in this task.
+
+**Part B — NOT started, precisely scoped for whoever picks this up
+next:** read the new `genreTile` nav arg in each of
+`AlbumScreen.kt`/`ArtistScreen.kt`/`OnlinePlaylistScreen.kt`'s own
+ViewModel (same `savedStateHandle.get<String>("genreTile")?.let {
+URLDecoder.decode(it, "UTF-8") }` pattern
+`YouTubeBrowseViewModel.kt` already uses — confirmed that exact
+pattern this round, not assumed, when checking how to decode on the
+receiving end), then thread it through to whatever song-tap-to-queue
+construction call site(s) exist within each of those three screens
+(each likely has at least one `playerConnection.playQueue(...)` call
+of its own that needs the same `genre = ...` parameter Round 12 added
+to `YouTubeQueue.radio()`'s signature). **Not traced yet, this
+round** — the next session's first job is finding those exact call
+sites in each of the three files, the same way Round 2 first traced
+`YouTubeBrowseScreen.kt`'s own call site before Round 12 could thread
+it.
+
+**Verified, this round:** brace/paren balance on both touched files
+(105/105, 49/49) — a mislabeling caught and fixed before commit: an
+early draft of these code comments said "Task 60" (the unrelated
+double-recording bug) instead of "Task 59" (this gap was actually
+Round 2's own flag, within Task 59's own investigation) — corrected
+via a targeted `sed` across both files, re-verified balanced
+afterward. A throwaway Python simulation of the route-building logic
+(4 cases: no genre/plain path, a simple genre title, a title
+containing `&` needing real encoding, another plain-path case) — all
+passed, discarded, not committed. **Not compile-verified** — no
+Android SDK in this sandbox, same standing limitation as every prior
+part of this task.
 
 ---
 
