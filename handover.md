@@ -2,6 +2,21 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-09-02, latest of all) — Task 59 Round 16: Round
+> 15's Part B sub-split into i/ii per explicit instruction; B-i
+> done.** Traced all three ViewModels first (not assumed identical):
+> `AlbumViewModel`, `ArtistViewModel`, `OnlinePlaylistViewModel` all
+> already use the same `SavedStateHandle` pattern Round 11 established.
+> Added the identical `genreTileTitle: String?` field to all three,
+> same `URLDecoder` convention as every prior round. Confirmed via
+> direct grep of `NavigationBuilder.kt` that all three routes already
+> declare the matching `navArgument` from Round 15 Part A, so there's a
+> real value to receive. Brace balance verified on all three files. Not
+> compile-verified, no Android SDK in this sandbox. **B-ii — not
+> started: thread this value into each screen's own song-tap-to-queue
+> call site(s), not yet traced which exact call sites those are.**
+> Full write-up in Task 59's own "Round 16" section.
+
 > **Newest note (2026-09-02, latest of all) — Task 59 Round 15: the
 > grid/album/playlist play-path gap (Round 2's own flag, still open
 > through every subsequent round) finally picked up, split A/B, Part A
@@ -13698,7 +13713,7 @@ by this round, which was scoped to the wiring only:
 
 ---
 
-### Round 15 — grid/album/playlist play-path gap: Part A (navigation-layer threading only) built; Part B (consumption in AlbumScreen/ArtistScreen/OnlinePlaylistScreen) still open [Part A: x, Part B: not started]
+### Round 15 — grid/album/playlist play-path gap: Part A (navigation-layer threading only) built; Part B (consumption in AlbumScreen/ArtistScreen/OnlinePlaylistScreen) sub-split in Round 16 [Part A: x, Part B: see Round 16 — B-i: x, B-ii: not started]
 
 **Task 59 was marked fully closed for its main deliverables (Parts 1,
 2/2b-b, 3/3a/3b-a/3b-b), but this specific item — Round 2's own
@@ -13803,6 +13818,59 @@ containing `&` needing real encoding, another plain-path case) — all
 passed, discarded, not committed. **Not compile-verified** — no
 Android SDK in this sandbox, same standing limitation as every prior
 part of this task.
+
+### Round 16 — Part B sub-split into i/ii; B-i done: `genreTile` now reaches all three ViewModels (Velune) [B-i: x, B-ii: not started]
+
+**Sub-split per explicit instruction — Part B (Round 15's own scope:
+consumption in `AlbumScreen`/`ArtistScreen`/`OnlinePlaylistScreen`) is
+itself two distinct steps, mirroring the exact same "reach the
+ViewModel first, thread into queue construction second" shape Round
+11 → Round 12 already used for the browse-screen chain one level up.
+B-i is the first of those two steps, done this round; B-ii (the actual
+queue-construction threading) is explicitly not started.**
+
+Traced all three ViewModels before writing anything (not assumed
+structurally identical): `AlbumViewModel`, `ArtistViewModel`, and
+`OnlinePlaylistViewModel` all already use the same
+`SavedStateHandle`-backed pattern `YouTubeBrowseViewModel.kt`
+established in Round 11 (`savedStateHandle.get<String>("someId")!!`)
+— confirmed via direct read of each file's constructor, not inferred
+from one and assumed for the other two. Added the identical
+`genreTileTitle: String?` field (`savedStateHandle.get<String>("genreTile")?.let
+{ URLDecoder.decode(it, "UTF-8") }`) to all three, same decode
+convention as every prior round in this chain.
+
+**One deliberate visibility difference, worth noting:** `OnlinePlaylistViewModel`'s
+own existing `playlistId` field is `private val`, unlike the other two
+ViewModels' public `val`. `genreTileTitle` was still made `val`
+(public) there regardless — `OnlinePlaylistScreen.kt` will need to
+read it directly once Part B-ii threads it into queue construction,
+so matching `playlistId`'s own narrower visibility would have blocked
+that with no benefit.
+
+**Confirmed, not assumed, that the receiving end actually has a value
+to decode:** grepped `NavigationBuilder.kt` directly to confirm all
+three routes (`album/{albumId}?genreTile={genreTile}`,
+`artist/{artistId}?genreTile={genreTile}`,
+`online_playlist/{playlistId}?genreTile={genreTile}`) already declare
+the matching `navArgument` from Round 15 Part A — this round's
+ViewModel changes have a real value to receive, not reaching into an
+undeclared argument.
+
+**Verified — no Android SDK/Gradle in this sandbox, same standing
+limitation as every round of this task:** brace balance check on all
+three edited files (all balanced). Not compile-verified.
+
+**Part B-ii — not started, precisely scoped:** thread each
+ViewModel's new `genreTileTitle` into that same screen's own
+song-tap-to-queue-construction call site(s) — not yet traced which
+exact call site(s) exist in `AlbumScreen.kt`/`ArtistScreen.kt`/
+`OnlinePlaylistScreen.kt` (each likely has at least one
+`playerConnection.playQueue(...)` call needing the same `genre = ...`
+parameter Round 12 added to `YouTubeQueue.radio()`'s signature, but
+this has not been confirmed by reading those three files yet — that's
+B-ii's own first job, the same way Round 15's own text flagged it
+before this round narrowed the scope further).
 
 ---
 
