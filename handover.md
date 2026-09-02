@@ -2,20 +2,24 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
-> **Newest note (2026-09-02, latest of all) — Task 59 Round 16: Round
-> 15's Part B sub-split into i/ii per explicit instruction; B-i
-> done.** Traced all three ViewModels first (not assumed identical):
-> `AlbumViewModel`, `ArtistViewModel`, `OnlinePlaylistViewModel` all
-> already use the same `SavedStateHandle` pattern Round 11 established.
-> Added the identical `genreTileTitle: String?` field to all three,
-> same `URLDecoder` convention as every prior round. Confirmed via
-> direct grep of `NavigationBuilder.kt` that all three routes already
-> declare the matching `navArgument` from Round 15 Part A, so there's a
-> real value to receive. Brace balance verified on all three files. Not
-> compile-verified, no Android SDK in this sandbox. **B-ii — not
-> started: thread this value into each screen's own song-tap-to-queue
-> call site(s), not yet traced which exact call sites those are.**
-> Full write-up in Task 59's own "Round 16" section.
+> **Newest note (2026-09-02, latest of all) — Task 59 Round 16, B-ii
+> sub-split into a/b per explicit instruction; B-ii Part a (trace)
+> done.** Every song-tap-to-queue call site in `AlbumScreen.kt` (3),
+> `ArtistScreen.kt` (6), `OnlinePlaylistScreen.kt` (4) traced by direct
+> read — 13 total. Two queue classes (`LocalAlbumRadio.kt`,
+> `ListQueue.kt`) don't support genre yet and need the same
+> constructor-param treatment Round 12 gave `YouTubeQueue`; the rest
+> are already genre-capable and just need `genre =
+> viewModel.genreTileTitle` added as a named arg. No changes needed in
+> `MusicService.kt`/`CampaignInjectedQueue.kt` — the injection
+> mechanism already reads `queue.genre` generically (Round 14).
+> **Adjacent finding, flagged not fixed:** `ArtistScreen.kt`'s own
+> grid-tap navigation to another album/artist/playlist screen doesn't
+> carry `genreTile` forward the way `YouTubeBrowseScreen.kt`'s
+> equivalent already does (Round 15) — a real, deeper gap, but outside
+> B-ii's own song-tap-to-queue scope. Full write-up in Task 59's own
+> "Round 16" section. **Next: B-ii Part b** — the actual
+> implementation, precisely bounded by this trace.
 
 > **Newest note (2026-09-02, latest of all) — Task 59 Round 15: the
 > grid/album/playlist play-path gap (Round 2's own flag, still open
@@ -13819,7 +13823,7 @@ passed, discarded, not committed. **Not compile-verified** — no
 Android SDK in this sandbox, same standing limitation as every prior
 part of this task.
 
-### Round 16 — Part B sub-split into i/ii; B-i done: `genreTile` now reaches all three ViewModels (Velune) [B-i: x, B-ii: not started]
+### Round 16 — Part B sub-split into i/ii; B-i done: `genreTile` now reaches all three ViewModels (Velune); B-ii further split into a/b, B-ii Part a (trace) done [B-i: x, B-ii Part a: x, B-ii Part b: not started]
 
 **Sub-split per explicit instruction — Part B (Round 15's own scope:
 consumption in `AlbumScreen`/`ArtistScreen`/`OnlinePlaylistScreen`) is
@@ -13861,16 +13865,72 @@ undeclared argument.
 limitation as every round of this task:** brace balance check on all
 three edited files (all balanced). Not compile-verified.
 
-**Part B-ii — not started, precisely scoped:** thread each
-ViewModel's new `genreTileTitle` into that same screen's own
-song-tap-to-queue-construction call site(s) — not yet traced which
-exact call site(s) exist in `AlbumScreen.kt`/`ArtistScreen.kt`/
-`OnlinePlaylistScreen.kt` (each likely has at least one
-`playerConnection.playQueue(...)` call needing the same `genre = ...`
-parameter Round 12 added to `YouTubeQueue.radio()`'s signature, but
-this has not been confirmed by reading those three files yet — that's
-B-ii's own first job, the same way Round 15's own text flagged it
-before this round narrowed the scope further).
+---
+
+**B-ii sub-split into a/b (this session, per explicit instruction —
+same "trace first, implement second" shape as B-i above and Round 5's
+own precedent for the very first version of this chain). Part a
+(trace) done below; Part b (implementation) not started.**
+
+**B-ii Part a — every song-tap-to-queue call site in all three
+screens, traced by direct read, not assumed uniform across screens:**
+
+- **`AlbumScreen.kt` — 3 call sites (lines 548, 568, 741), all
+  `LocalAlbumRadio(albumWithSongs, ...)`.** This queue type does
+  **not** currently support genre at all — checked
+  `LocalAlbumRadio.kt` directly: it implements `Queue` but never
+  overrides `genre`, so it silently inherits the interface's own
+  `null` default. Needs the same treatment Round 12 gave
+  `YouTubeQueue` (a new `genre: String? = null` constructor param +
+  `override val genre`) before any of these three call sites can pass
+  one through.
+- **`ArtistScreen.kt` — 6 call sites (lines 665, 669, 701, 778, 935,
+  991), three different queue shapes:**
+  - Lines 665, 701, 935, 991 (4 sites) — `YouTubeQueue(endpoint)` /
+    `YouTubeQueue(endpoint, metadata)`. Already genre-capable —
+    `YouTubeQueue`'s `genre` is a defaulted, named constructor param
+    (Round 12), so these need only `genre = viewModel.genreTileTitle`
+    added as a named arg, no class change.
+  - Lines 669, 778 (2 sites) — `ListQueue(title = ..., items = ...)`.
+    **Not genre-capable**, same gap as `LocalAlbumRadio` — checked
+    `ListQueue.kt` directly: no `genre` param, no override, inherits
+    the interface default. Needs the identical fix.
+  - **Adjacent finding, explicitly NOT part of B-ii's own scope
+    (song-tap-to-queue only) — flagged, not fixed here:** the grid
+    section further down this same file (~line 991) has a `when
+    (item)` branch where `is AlbumItem -> navController.navigate("album/${item.id}")`
+    (and the matching `ArtistItem`/`PlaylistItem` branches) navigate
+    to *another* album/artist/playlist screen without appending
+    `&genreTile=...` — unlike `YouTubeBrowseScreen.kt`'s own equivalent
+    grid-tap navigation, which Round 15 Part A already fixed. This is
+    a real, deeper gap in the same feature (a genre-tile tap that
+    lands on an artist page, then taps into one of *that* artist's
+    albums, currently loses genre context at that second hop) — but
+    it's nav-forwarding, not song-tap-to-queue construction, so it's a
+    distinct fix from what B-ii itself was scoped to do. Worth its own
+    follow-up once B-ii Part b lands.
+- **`OnlinePlaylistScreen.kt` — 4 call sites (lines 740, 760, 818,
+  900), all `YouTubeQueue(...)`.** Already genre-capable, same as
+  `ArtistScreen.kt`'s `YouTubeQueue` sites above — named-arg only, no
+  class change needed.
+
+**Net scope for B-ii Part b, precisely bounded by this trace:** two
+queue classes need a new constructor param (`LocalAlbumRadio.kt`,
+`ListQueue.kt`, identical shape to `YouTubeQueue`'s own Round 12
+change), and 13 call sites across three screens need
+`genre = viewModel.genreTileTitle` (or the `LocalAlbumRadio`/
+`ListQueue` equivalent once those two classes support it) added — 3 in
+`AlbumScreen.kt`, 6 in `ArtistScreen.kt`, 4 in `OnlinePlaylistScreen.kt`.
+No changes needed in `MusicService.kt`/`CampaignInjectedQueue.kt`/
+`GenreTileMappingCache` — the injection mechanism itself already
+reads `queue.genre` generically (Round 14) regardless of which `Queue`
+subtype produced it, so once these two classes carry the value
+correctly, the existing mechanism picks it up with no further wiring.
+
+**Verified — no Android SDK/Gradle in this sandbox:** every line/call
+site cited above confirmed by direct file read this session, not
+assumed from Round 15/16's own prior text. No code changed this part —
+trace only, per instruction.
 
 ---
 
