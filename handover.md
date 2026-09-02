@@ -635,6 +635,37 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-02, latest of all) — Task 60 Part A done
+> (Velune): the double-recording bug fixed exactly as diagnosed.**
+> This box was stale relative to the real commit history when this
+> session started — the true latest commit was Task 59 Part 3a (banner
+> repository layer) plus a re-flag of Task 49's Q1 as still genuinely
+> unconfirmed, neither of which had a note here yet. **Always check
+> `git log --oneline -20` against this box's own claims first** — same
+> lesson an earlier session already learned the same way, worth
+> repeating since it happened again.
+>
+> This session picked Task 60 over continuing Task 59 Part 3b: a real,
+> live, already-fully-diagnosed data-integrity bug (every genuine play
+> was being recorded twice, plus a third call site silently failed
+> every single time) outweighed continuing a feature build. Split into
+> Part A (the concrete fix) / Part B (listener-identity auto-
+> provisioning for Task 49 — deferred, since Task 49 itself is still
+> blocked on an unanswered product-owner question and can't use it
+> yet regardless). **Part A only, built this session:** removed two
+> duplicate/broken play-recording call sites
+> (`CampaignCardSection.kt`, `HomeScreen.kt`), added the missing
+> `countryCode` argument to the one surviving correct call
+> (`MusicService.kt`). Net result: one write per real play, not two;
+> zero silent failures; real device-id and country attribution on
+> every write. Not compile-verified (no Android SDK in this sandbox,
+> same standing limitation). **See Task 60's own "Split into Part A /
+> Part B" + "Part A — done" entries for full detail.**
+>
+> **Next: Task 60 Part B** (once Task 49 unblocks) **or Task 59 Part
+> 3b** (banner UI rebuild — Velune's repository-layer half, 3a, is
+> already done) — both independent, this session didn't rank them.
+>
 > **Newest note (2026-09-01, latest of all) — Task 59 Part 2b-b Round
 > 13: the cache-lifecycle half of Round 12's flagged next sub-part
 > built (Velune, new `GenreTileMappingCache.kt`); `MusicService.kt`'s
@@ -13386,7 +13417,7 @@ by this round, which was scoped to the wiring only:
 
 ## Task 60 — Cross-repo diagnosis: Velune double-records every campaign
 play, one call site silently fails outright; listener identity is
-device-based by design, not a missing-auth bug [ ]
+device-based by design, not a missing-auth bug [Part A done, Part B not started]
 
 **Ask, from the product owner directly:** does Velune write to the
 database completely, or is it missing something — cross-check Velune
@@ -13575,6 +13606,75 @@ the same four names — zero hits, no write path exists there either.
 ever sees a permanently-wrong number, because no artist ever sees
 these fields at all. No fix needed; noted here so a future session
 doesn't rediscover the same suspicion and re-investigate it.
+
+### Split into Part A / Part B, per the mandatory task-splitting rule
+
+**Part A — the double-recording + missing country-code fix (the
+concrete, already-fully-specified "3-line-diff" above).** Velune-side
+only, no schema/migration involved.
+
+**Part B — the listener-identity auto-provisioning design** (a
+`public.users` row auto-created on a device's first qualifying stream,
+tagged `'device_listener'` or similar, so Task 49's
+`listener_play_events.listener_id` FK has something real to point at).
+Separate schema/migration work, more speculative, and — worth stating
+plainly — Task 49 itself is currently blocked on an unanswered
+product-owner question (its own Q1, the payout-pool percentage), so
+building the identity-provisioning mechanism now would be getting
+ahead of a task that can't use it yet regardless. Left for whenever
+Task 49 actually unblocks.
+
+#### Part A — done, this session
+
+**Applied exactly the 3-step fix specified above, no deviation:**
+1. `CampaignCardSection.kt` — removed the immediate
+   `repository.recordPlay(campaign.id)` call and its wrapping
+   `scope.launch { ... }`. `scope` (`rememberCoroutineScope()`) had no
+   other use in this file — confirmed via grep before removing it —
+   so the now-dead `rememberCoroutineScope`/`kotlinx.coroutines.launch`
+   imports were removed too, not left dangling.
+2. `HomeScreen.kt` — removed the inner `launch { val countryCode =
+   ...; campaignRepository.recordPlay(...) }` block entirely, per the
+   fix's own instruction to preserve the `countryCode` computation
+   rather than discard it wholesale. The outer `scope.launch { ... }`
+   (which starts playback) stays untouched — confirmed `scope`/
+   `launch` are both still genuinely used elsewhere in this much
+   larger file before leaving their imports alone, unlike file #1.
+3. `MusicService.kt` — added the missing `countryCode =
+   java.util.Locale.getDefault().country` argument to the one
+   surviving, correct `recordCampaignStream()` call (the one gated on
+   the tapped song actually becoming the current playing item) —
+   same computation `HomeScreen.kt`'s removed block used, moved here
+   rather than reinvented.
+
+**Also, not in the original fix's own 3 steps but a natural
+consequence of them:** `recordPlay()` (the "legacy wrapper" both
+removed call sites used) now has zero remaining callers anywhere in
+the app — confirmed via grep. Left in place rather than deleted (same
+reasoning Task 59 Part 2a used for a similarly-orphaned function in
+this same file — removing a whole function felt like a bigger, less
+reversible call than this fix's own scope needed), but its own doc
+comment's "kept for backward compatibility with existing call sites"
+claim was no longer true, so that was corrected rather than left
+stating something false.
+
+**Net result, matching the diagnosis's own predicted outcome exactly:**
+one write per real play, not two; zero silent failures; real
+device-id attribution on every write; real country attribution on
+every write (previously only present on two of the three now-removed/
+consolidated call sites, and even then inconsistently).
+
+**Verified, this session:** brace/paren balance check on all four
+touched files (`CampaignCardSection.kt`, `HomeScreen.kt`,
+`MusicService.kt`, `CampaignRepository.kt`) — all balanced. Confirmed
+by direct grep, not assumed: zero remaining `.recordPlay(` call sites
+anywhere in the app; `scope`/`rememberCoroutineScope`/
+`kotlinx.coroutines.launch` each individually checked for other
+real uses in their own file before removing or keeping their imports
+(removed in `CampaignCardSection.kt`, correctly kept in
+`HomeScreen.kt`). **Not compile-verified** — no Android SDK/Google
+Maven access in this sandbox, same structural limitation as every
+prior Velune task in this project.
 
 ---
 
