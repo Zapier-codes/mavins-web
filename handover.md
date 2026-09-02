@@ -584,6 +584,23 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-01, latest of all) — Task 59 Part 2b-b Round
+> 13: the cache-lifecycle half of Round 12's flagged next sub-part
+> built (Velune, new `GenreTileMappingCache.kt`); `MusicService.kt`'s
+> own wiring still not done, deliberately left for the next round.**
+> New singleton cache wrapping `fetchGenreTileMapping()` with periodic
+> refresh + the 3-way resolve logic (real mapping / reviewed non-genre
+> / unknown-so-ingest). Caught and fixed a real correctness bug before
+> it shipped: staleness must NOT be judged by cache-map emptiness,
+> since the live table is expected to start genuinely empty — that
+> would have defeated the whole cache for the actual real-world launch
+> state. Verified via a 12-scenario Python simulation (all passed,
+> including the empty-table case) — no Android SDK in this sandbox,
+> same limitation as every prior Velune round. **Next: wire this cache
+> into `MusicService.kt`'s `campaignSlotProvider = { null }` — a single
+> call site's lambda body, everything it needs already built.** Full
+> write-up in Task 59's own "Round 13" section.
+>
 > **Newest note (2026-09-01, later still) — Task 59 Part B's first job
 > done: `MAVINS_API_URL` confirmed by the product owner
 > (`https://mavins.vercel.app`) + Velune's `ingestGenreTile()` built.**
@@ -13101,6 +13118,100 @@ before this round:**
    titles (still zero rows until real production traffic or a manual
    seed populates it — expected, not a bug, per Round 6's own
    "starts empty, fails closed until curated" design).
+
+---
+
+### Round 13 — the cache-lifecycle half of Round 12's flagged next sub-part (Velune, `GenreTileMappingCache.kt`, new file); `MusicService.kt` wiring still not done [x]
+
+**Pulled latest first** (mavins-web and Velune both) — no successor
+work had landed on top of Round 12 since it was written; built
+directly on that state.
+
+Round 12 explicitly flagged its own remaining work as "a cache
+lifecycle plus the actual provider construction, not a small
+follow-up" — split further here, per the mandatory task-splitting
+rule, rather than attempting both in one patch. **This round builds
+only the cache lifecycle, as its own new, self-contained file — the
+`MusicService.kt` wiring (`campaignSlotProvider = { null }` → a real
+lambda using this cache) is deliberately still not done, left for the
+next round.**
+
+**New file:** `app/src/main/kotlin/com/nikhil/yt/campaign/
+GenreTileMappingCache.kt` — an `object` singleton (matches this
+package's neighboring `com.nikhil.yt.discord.DiscordAssetRegistrar`
+cache convention, for the same reason: a cache only amortizes repeated
+fetches if every caller shares one instance, not a fresh empty one per
+queue construction). Wraps `CampaignRepository.fetchGenreTileMapping()`
+with the periodic-refresh behavior that function's own KDoc already
+asks callers to provide. One public entry point,
+`suspend fun resolveGenreId(tileTitle: String): String?`, implementing
+the exact three-way behavior Round 12's own note specified:
+1. Tile known, mapped to a real genre id → returns it.
+2. Tile known, explicitly reviewed as NOT a genre (a real `null` value
+   present for that key) → returns `null`, no ingest call.
+3. Tile not in the map at all (unreviewed/unknown) → fires
+   `ingestGenreTile()` (fire-and-forget) and returns `null` for this
+   call — "ingest at lookup-miss time, not at tap time," resolving the
+   design question Round 11/12 already flagged.
+
+**A real correctness bug caught and fixed before it shipped, not
+found by luck:** staleness is judged by a separate `lastFetchedAtMs`
+timestamp (`0L` = never fetched), explicitly NOT inferred from
+`cachedMapping.isEmpty()`. The live `campaign_genre_tile_mapping`
+table is expected to start (and may remain, for a while) genuinely
+empty, per Round 12's own note #4. A first-draft version of this cache
+judged staleness by map emptiness — which would have meant an empty
+live table (the actual expected launch state) causes a full refetch on
+**every single call, forever**, completely defeating the periodic
+caching this function exists to provide, for exactly the real-world
+condition this feature is expected to launch in. Caught by tracing
+through the empty-table case by hand before writing the simulation
+below, not by the simulation itself catching it after the fact.
+
+**Verified — no Android SDK/Gradle in this sandbox, same structural
+limitation as every prior Velune part in this task:**
+- Brace/paren/bracket balance check on the new file — all balanced
+  (7/7, 28/28, 7/7).
+- Confirmed the two external references this file makes are exactly
+  right, not assumed from memory: `Queue.genre: String? get() = null`
+  (Round 12's own addition, `Queue.kt` line 33) and
+  `CampaignRepository()`'s no-arg constructor (`CampaignRepository.kt`
+  line 26).
+- **12-scenario Python simulation** (this project's established
+  substitute for a live Kotlin compile/run) of the cache's actual
+  logic — not just the three resolve branches, but the staleness
+  timing too: empty-table behavior (2 calls within the refresh window
+  → exactly 1 fetch, confirming the bug above is actually fixed, not
+  just described as fixed), known-tile-with-real-mapping,
+  known-tile-explicitly-non-genre (no ingest), just-under vs.
+  just-over the refresh window (1 fetch vs. 2), and an unknown tile
+  that becomes resolvable after a simulated admin review + cache
+  refresh (ingested once, not re-ingested once known). **All 12
+  passed.**
+- **Not verified — no way to check this from a sandbox:** an actual
+  Kotlin compile (generic type inference on the `Map<String, String?>`
+  cache field, `Mutex`/`withLock` usage against the real
+  kotlinx-coroutines version this project pins, and whether
+  `CampaignRepository`'s suspend functions are called correctly from
+  within `withLock`'s block) — same limitation as every prior round.
+
+**Still fully open after this round — unchanged from Round 12's own
+list except item 1, now half-done:**
+1. **`MusicService.kt`'s actual wiring** — replace
+   `campaignSlotProvider = { null }` with a lambda that reads
+   `queue.genre`, returns `null` immediately if it's `null` (no genre
+   context — most queues), otherwise calls
+   `GenreTileMappingCache.resolveGenreId(genre)`, and if that resolves
+   to a non-null genre id, calls
+   `CampaignRepository().fetchNextCampaignForQueueSlot(resolvedGenreId)`
+   for the actual `MediaItem?` to inject. This is now genuinely the
+   next sub-part — a single call site's lambda body, with everything
+   it needs to call already built across this and prior rounds.
+2. `MusicService.kt`'s own separate, still-unrelated initial-batch bug
+   (Round 7's finding).
+3. The grid/album/playlist play-path gap (Round 12's own note).
+4. Confirming `campaign_genre_tile_mapping` is seeded with real tile
+   titles (still expected-empty, not a bug).
 
 ---
 
