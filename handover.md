@@ -2,6 +2,29 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-09-01, latest of all) — Task 56 fully closed,
+> all three sub-parts.** 56a was already answerable by synthesis
+> (marked, no new work). 56c was already resolved by Task 48-c
+> (marked, no new work). **56b (streak-linked earnings bonus) is the
+> real item this session resolved**: product owner delegated all four
+> of its open questions to judgment. Decided: reuse the existing
+> daily-activity `streak` column as-is (not a new stricter one) —
+> which also settles streak-break behavior for free, since it's the
+> same column following `streak/update/route.ts`'s own already-live
+> hard-reset-to-1 rule; zero-sum redistribution from the same fixed
+> revenue pool, NOT additive, to preserve Task 49's own already-
+> committed 20%-of-net cost ceiling rather than silently making it an
+> open-ended expense; and a tiered milestone bonus reusing the exact
+> same 7/14/30/60/100-day thresholds the points-milestone system
+> already uses (5/10/15/25/40% weights), not a novel uncapped
+> mechanic. Full concrete formula (a weighted-share-then-normalize
+> calculation that plugs directly into Task 49's own
+> `daily_payout_pool` computation) written into 56b's own section.
+> **Still NOT implemented — spec only.** Not attempted as code because
+> Task 49's own base payout RPC doesn't exist as working code yet
+> either; a standalone streak-bonus function with nothing real to
+> attach to would be disconnected, unused code.
+
 > **Newest note (2026-09-01, latest of all) — Task 48-d Part 1's own
 > flagged gap closed: the missing `award_points` RPC now exists.**
 > `streak/update/route.ts` has called this RPC since Part 1 shipped;
@@ -10783,14 +10806,14 @@ builds this, in descending order of how much risk each removes:
 
 ---
 
-## Task 56 — Three product-owner questions this session: leaderboard-population answer (synthesis, not new research), streak-linked earnings bonus (new spec), and Nakama-as-primary-auth (major architecture proposal + open questions) [ ]
+## Task 56 — Three product-owner questions this session: leaderboard-population answer (synthesis, not new research), streak-linked earnings bonus (new spec), and Nakama-as-primary-auth (major architecture proposal + open questions) [x]
 
 **Spec/documentation only, per explicit instruction — no code changed
 this session.** Three genuinely separate items, bundled into one task
 number only because they arrived in the same message; treat them as
 independently startable, not sequential parts of one build.
 
-### 56a — "If [the leaderboard bug] is fixed, will a new user see it already populated?"
+### 56a — "If [the leaderboard bug] is fixed, will a new user see it already populated?" [x] ANSWERED (synthesis, tracked via Task 54/55)
 
 **Answer, synthesized from Task 54/55's already-completed
 investigation, not new research — those two tasks already contain
@@ -10836,7 +10859,7 @@ this file; a future session should pick up those two, in that order
 (54 first — no point seeding campaigns for a query that's still
 excluding rows), not treat this as a third, separate task.
 
-### 56b — Streak-linked earnings bonus (new feature, not yet spec'd anywhere)
+### 56b — Streak-linked earnings bonus (new feature, not yet spec'd anywhere) [x] SPEC RESOLVED — not implemented (blocked on Task 49's own base RPC not existing yet)
 
 **Genuinely new — checked against Task 49's own existing gamification
 write-up first, not assumed to be missing.** `streak` already exists
@@ -10854,45 +10877,114 @@ currently references `streak` as a variable in the payout calculation
 at all — confirmed by re-reading that task's full "Round 2" answers
 and implementation roadmap, not assumed from a gap.
 
-**Open questions, needed before this is buildable — not answered by
-the request as given, and genuinely product decisions, not technical
-ones:**
-1. **What does "streak" mean in this context?** Nakama's existing
-   `streak` column/route presumably tracks *daily app-open or
-   listening-activity streaks* (consecutive days of some activity) —
-   is that the same streak this bonus should key off, or does
-   "earnings streak" mean something narrower (e.g. consecutive days
-   with at least one *qualifying, payment-eligible* play specifically,
-   which is a stricter, not-yet-tracked-anywhere condition)? These are
-   genuinely different numbers and the existing column may not
-   directly answer the earnings-specific version.
-2. **Bonus shape**: a flat percentage bump on the listener's share of
-   the revenue pool (e.g. +1% per consecutive day, capped at some
-   ceiling)? A tiered bonus (streak milestones unlock a fixed bump,
-   like the existing `tier` ladder)? A multiplier applied before or
-   after the 20%-of-revenue-pool split Task 49 already defines?
-3. **Funding source**: does a streak bonus come out of the same
-   revenue pool (meaning non-streaking listeners implicitly get a
-   smaller share so streaking listeners can get more — a genuine
-   zero-sum redistribution), or is it additive on top (meaning the
-   platform absorbs the extra cost, changing Task 49's own "20% of the
-   pool" arithmetic to no longer be the true payout ceiling)? This is
-   the single most consequential open question — it changes whether
-   this feature costs the platform money beyond what Task 49 already
-   commits to, or just redistributes an existing fixed pool.
-4. **Streak-break behavior**: does a missed day reset the bonus to
-   zero immediately, decay gradually, or grant some grace period?
-   Existing `streak/update` route behavior (not read in full this
-   session) may already have an opinion here worth checking before
-   inventing a new rule for the earnings-specific version.
+**RESOLVED, this session (2026-09-01) — all four open questions
+answered directly by the product owner delegating judgment, plus one
+sub-question (bonus shape) that needed resolving too to make this a
+complete, buildable spec. Still not implemented — see status note at
+the end of this section for why.**
 
-**Not started — no schema, no code, no RPC.** A future session should
-get at least questions 2 and 3 above answered directly before writing
-any implementation, since both change the actual arithmetic Task 49's
-payout RPC would need (which doesn't exist as working code yet either
-— Task 49 itself is still spec-only per its own status).
+1. **What "streak" means: the existing daily-activity `streak`
+   column, unchanged, not a new stricter earnings-specific streak.**
+   Task 49's own roadmap already plans to reuse this exact column/
+   route for the earnings feature; a second, narrower "earnings
+   streak" tracked separately would mean two similarly-named streak
+   concepts living on the same user for no clearly necessary reason.
+2. **Streak-break behavior: inherited from #1, not a separate
+   decision.** Since it's the same column, it follows
+   `streak/update/route.ts`'s own existing, already-live rule exactly
+   — checked directly before deciding, as this section itself
+   suggested: any missed day hard-resets `streak` to `1` immediately,
+   no decay, no grace period. Diverging from that for the
+   earnings-specific reading of the same number would mean the
+   identical value means something different depending on which
+   feature is reading it, which doesn't hold together.
+3. **Funding source: zero-sum, redistributed from the same fixed
+   revenue pool — NOT additive.** This is the single most
+   consequential call this section itself flagged. Chosen because it
+   preserves Task 49's own already-committed cost ceiling
+   (`listener_pool_cents` stays exactly 20% of the net revenue pool,
+   full stop) rather than silently turning a fixed, already-scoped
+   payout commitment into an open-ended expense that scales with how
+   many listeners happen to have active streaks — that's a real
+   business-economics change nobody explicitly authorized, and this
+   task's own framing ("the single most consequential open question")
+   flagged exactly that risk.
+4. **Bonus shape (a sub-question this section's original four didn't
+   individually ask, but is required to make this buildable):
+   a tiered milestone bonus, reusing the exact same 7/14/30/60/100-day
+   thresholds `streak/update/route.ts` already uses for point bonuses**,
+   rather than inventing a third, uncapped "+X% per day" mechanic with
+   no precedent anywhere else in this app. Chosen for consistency with
+   both existing precedents already live in this codebase (the
+   points-milestone bonus's own thresholds, and the tier system's own
+   discrete-multiplier-at-a-threshold shape — see Task 48-d Part 5).
 
-### 56c — "All Auth must pass through the Nakama instance... Supabase [becomes] the foreign relationship for the Nakama auth" — major architecture proposal, NOT a small config change
+**The concrete formula, ready to drop directly into Task 49's own
+`daily_payout_pool` computation (Part a) once that RPC actually
+exists:**
+
+```
+-- Today's Task 49 formula (unchanged, still the base):
+--   raw_share_cents = qualifying_plays_today * rate_per_stream_cents
+--   (equivalent to: (their_plays / total_plays) * listener_pool_cents)
+
+-- New: resolve each listener's streak into a bonus weight, same
+-- milestone thresholds as the existing points bonus (not a new scale)
+streak_bonus_percent =
+  CASE
+    WHEN streak >= 100 THEN 0.40
+    WHEN streak >= 60  THEN 0.25
+    WHEN streak >= 30  THEN 0.15
+    WHEN streak >= 14  THEN 0.10
+    WHEN streak >= 7   THEN 0.05
+    ELSE 0.00
+  END
+
+weighted_share_cents = raw_share_cents * (1 + streak_bonus_percent)
+
+-- Zero-sum normalization: guarantees the total distributed across ALL
+-- listeners still equals exactly listener_pool_cents, no matter how
+-- many listeners have active streaks. This is what makes it genuinely
+-- zero-sum rather than additive -- a streaking listener's larger slice
+-- comes directly out of non-streaking listeners' slice, not out of
+-- platform funds beyond what Task 49 already commits to.
+final_share_cents =
+  weighted_share_cents / SUM(weighted_share_cents across all listeners)
+  * listener_pool_cents
+```
+
+The five percentages above (5/10/15/25/40%) are a reasonable default
+matching the points-milestone bonus's own increasing-but-not-linear
+shape, not a fixed, unchangeable number — flag to product owner as
+tunable if the actual redistribution impact (how much non-streaking
+listeners' payouts shrink in practice) turns out to feel too steep or
+too flat once real play-volume data exists to check it against.
+
+**Verified the normalization math itself (throwaway script, written,
+run, deleted), not just asserted it works:** 4 cases (no streaks at
+all, mixed streaks with equal play counts, everyone at the max tier,
+a single listener) — in every case the sum of `final_share_cents`
+across all listeners matched `listener_pool_cents` exactly (diff:
+0.000000), confirming the formula is genuinely zero-sum regardless of
+streak distribution. The mixed-streak case also confirms the
+redistribution is real and meaningful, not negligible: with identical
+play counts, a 100-day-streak listener ($405,797 of a $1M test pool)
+ends up earning ~40% more than a no-streak listener ($289,855) for
+the exact same listening activity.
+
+**Status: spec complete and buildable, but genuinely NOT implemented
+yet — no code, no migration, same as before.** Not attempted this
+session because Task 49's own base payout RPC (the thing this formula
+modifies) doesn't exist as working code yet either, per Task 49's own
+status ("SPEC UNBLOCKED — ready to build", not "built"). Writing a
+standalone streak-bonus function with no base payout calculation to
+attach to would be disconnected, unused code with nothing to call it
+— the same "premature, nothing real to build against yet" pattern
+already correctly avoided elsewhere this session (Task 48-d Part 4b).
+Whoever eventually implements Task 49's `daily_payout_pool` cron
+should include this formula from the start, not bolt it on after.
+
+### 56c — "All Auth must pass through the Nakama instance... Supabase [becomes] the foreign relationship for the Nakama auth" — major architecture proposal, NOT a small config change [x] RESOLVED via Task 48-c
 
 **RESOLVED, later session (Task 48-c) — the core direction fork this
 section scopes out has been explicitly confirmed by the product
