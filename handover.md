@@ -635,8 +635,23 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-09-02, latest of all) — Task 60 Part A done
-> (Velune): the double-recording bug fixed exactly as diagnosed.**
+> **Newest note (2026-09-02, latest of all) — Task 59 Part 3b split
+> into 3b-a/3b-b (Velune); 3b-a done.** New
+> `campaign/CampaignCarouselState.kt` — the carousel's state/timer/
+> lifecycle engine (30s auto-advance, reshuffle-on-resume-after-stop),
+> decoupled from the actual `CampaignCardSection.kt` rendering rebuild
+> (3b-b, not started). Exposes `current: CampaignCard?` only, never
+> the underlying list, enforcing the "never reveal the live count"
+> rule at the data-shape level. Verified via a 15-scenario Python
+> simulation (all passed) — the one real bug it was written to catch:
+> a naive implementation would reshuffle on Compose's own initial
+> `ON_RESUME` too, not just a genuine background-then-resume. Not
+> compile-verified, same standing limitation as every prior Velune
+> part in this task. **Next: 3b-b** (wire this into the actual UI
+> rebuild) — genuinely unblocked, everything it needs now exists.
+>
+> **Older note (2026-09-02) — Task 60 Part A done (Velune): the
+> double-recording bug fixed exactly as diagnosed.**
 > This box was stale relative to the real commit history when this
 > session started — the true latest commit was Task 59 Part 3a (banner
 > repository layer) plus a re-flag of Task 49's Q1 as still genuinely
@@ -662,9 +677,9 @@ looking like a part was skipped.
 > same standing limitation). **See Task 60's own "Split into Part A /
 > Part B" + "Part A — done" entries for full detail.**
 >
-> **Next: Task 60 Part B** (once Task 49 unblocks) **or Task 59 Part
-> 3b** (banner UI rebuild — Velune's repository-layer half, 3a, is
-> already done) — both independent, this session didn't rank them.
+> **Next: Task 60 Part B** (once Task 49 unblocks) — the Part 3b
+> alternative this note originally listed is superseded by the newer
+> note above (3b-a is now done, 3b-b is next).
 >
 > **Newest note (2026-09-01, latest of all) — Task 59 Part 2b-b Round
 > 13: the cache-lifecycle half of Round 12's flagged next sub-part
@@ -12121,18 +12136,69 @@ into 3 parts, doing only the first:**
   render** — same standing limitation as every prior Velune task in
   this file's history.
 
-  **3b — UI rebuild. Not started.** `CampaignCardSection.kt`'s current
-  `LazyRow` (shows all active campaigns at once, horizontally
-  swipeable, and directly displays `campaign.playCount`/a "New" pill —
-  both violate the "never reveal the live count" rule) needs replacing
-  (not augmenting — Round 3's own already-resolved decision) with a
-  single-card view reading from 3a's new `fetchLiveCampaignsForBanner()`
-  instead of `fetchActiveCampaigns`, a 30-second auto-advance timer,
-  and a `Lifecycle` observer that reshuffles specifically `ON_RESUME`
-  after a prior `ON_STOP` (not on every recomposition, not
-  periodically) — see `CampaignCardSection.kt`'s own current structure
-  (no timer/lifecycle logic exists there at all today) for exactly
-  what's being replaced.
+  **3b — UI rebuild. Split further into 3b-a/3b-b this session, per
+  the mandatory task-splitting rule — 3b-a done, 3b-b not started.**
+  `CampaignCardSection.kt`'s current `LazyRow` (shows all active
+  campaigns at once, horizontally swipeable, and directly displays
+  `campaign.playCount`/a "New" pill — both violate the "never reveal
+  the live count" rule) needs replacing (not augmenting — Round 3's
+  own already-resolved decision) with a single-card view reading from
+  3a's new `fetchLiveCampaignsForBanner()` instead of
+  `fetchActiveCampaigns`, a 30-second auto-advance timer, and a
+  `Lifecycle` observer that reshuffles specifically `ON_RESUME` after
+  a prior `ON_STOP` (not on every recomposition, not periodically) —
+  see `CampaignCardSection.kt`'s own current structure (no
+  timer/lifecycle logic exists there at all today) for exactly what's
+  being replaced.
+
+  **3b-a — the state/timer/lifecycle engine, decoupled from rendering.
+  Done this session (2026-09-02), Velune.** New
+  `campaign/CampaignCarouselState.kt` —
+  `rememberCampaignCarouselState(campaigns)`, a composable state
+  holder exposing `current: CampaignCard?` only, never the underlying
+  list or its size — so whatever 3b-b builds has no way to accidentally
+  leak the true live-campaign count even by mistake, enforcing Round
+  3's own rule at the data-shape level, not just by UI convention. Owns
+  its own 30-second `LaunchedEffect` auto-advance loop and a
+  `LifecycleEventObserver` (same `DisposableEffect`/
+  `LocalLifecycleOwner` pattern `LibraryScreen.kt` already uses,
+  mirrored exactly rather than inventing a new one) that reshuffles
+  specifically on `ON_RESUME` following a real prior `ON_STOP` —
+  critically, NOT on the initial `ON_RESUME` Compose fires when the
+  screen first appears, which is arriving, not returning from
+  background. Getting that distinction right was the actual point of
+  writing a simulation before the Kotlin: a naive "reshuffle on every
+  ON_RESUME" implementation would have reshuffled on first load too,
+  silently violating the spec's own "specifically on
+  background-then-resume" wording.
+
+  **Verified with a throwaway Python simulation of the state machine**
+  (written, run, discarded, not committed — same convention every
+  prior Velune part in this task has used): 15 scenarios — initial
+  state, tick-advance-and-wrap, the no-reshuffle-on-initial-resume
+  distinction described above, stop-then-resume triggering exactly one
+  reshuffle with index reset to 0, double-stop defensiveness (backgrounding
+  twice without an intervening resume still only reshuffles once),
+  empty-list and single-item edge cases (no crash either way), multiple
+  independent background/resume cycles each reshuffling on their own,
+  and a documented assumption for mid-session data refresh (swaps the
+  source list in place, doesn't force a reshuffle — not separately
+  specified by Round 4's own spec, so the simplest safe default was
+  chosen rather than inventing a rule). **All 15 passed.** Brace/paren
+  balance also checked on the real edited file (20/20, 43/43) as a
+  basic structural sanity check given no compiler is available. **Not
+  compile-verified** — same standing limitation as every prior Velune
+  part in this task.
+
+  **3b-b — not started.** Wire this state holder into an actual
+  rebuild of `CampaignCardSection.kt`'s composable: replace the
+  `LazyRow` with a single-card layout reading `.current` from
+  `rememberCampaignCarouselState(...)`, remove the `playCount`/"New"
+  pill rendering entirely (not hide — Round 3's "replace, not augment"
+  decision applies to the display code too, not just the data source),
+  and wire the click handler through to the same
+  `CampaignPlaybackTracker.setActive(...)` + `onCampaignClick(...)`
+  path `HomeScreen.kt` already uses, unchanged by Task 60's own fix.
 
 **Part 1 built:
 `supabase_migration_023_fair_rotation_queue_slot.sql`.** New function
