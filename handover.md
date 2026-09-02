@@ -118,17 +118,27 @@ looking like a part was skipped.
 > anything, especially the box below it.**
 >
 > **Newest note (2026-09-02, latest of all) — Task 59 Round 16, B-ii
+> Part b-b-b split a/b per explicit instruction (hadn't been split at
+> all yet); Part b-b-b-a done, Velune commit `e2ba9ef`.** Split by
+> whole file again: `AlbumScreen.kt` alone (3 sites) done this round;
+> `OnlinePlaylistScreen.kt` (4 sites) left for **Part b-b-b-b, next —
+> the last remaining piece of this entire 16-round genre-threading
+> chain.** All 3 sites re-verified against the real current file
+> before editing. Brace-balanced (163/163, 394/394), not
+> compile-verified — same standing limitation this whole chain has
+> had. Full write-up in Task 59's own "Round 16" section.
+>
+> **Older note (2026-09-02, previous) — Task 59 Round 16, B-ii
 > Part b-b split a/b per explicit instruction (hadn't been split at
 > all yet); Part b-b-a done, Velune commit `51df723`.** Split by whole
 > file (not edit count) to keep each part independently committable:
 > `ArtistScreen.kt` alone (6 call sites, two different queue types —
 > the most complex single file) done this round; `AlbumScreen.kt` (3)
 > + `OnlinePlaylistScreen.kt` (4) = 7 sites, both simpler
-> single-queue-type files, left for **Part b-b-b, next**. All 6 sites
-> re-verified against the real current file before editing, not
-> trusted from the trace note alone. Brace-balanced (189/189, 413/413),
-> not compile-verified — same standing limitation this whole chain has
-> had. Full write-up in Task 59's own "Round 16" section.
+> single-queue-type files. All 6 sites re-verified against the real
+> current file before editing, not trusted from the trace note alone.
+> Brace-balanced (189/189, 413/413), not compile-verified — same
+> standing limitation this whole chain has had.
 >
 > **Also this session — fixed a real structural corruption in this
 > file, twice.** A ~585-line block of "newest note" bullets had landed
@@ -13856,7 +13866,7 @@ passed, discarded, not committed. **Not compile-verified** — no
 Android SDK in this sandbox, same standing limitation as every prior
 part of this task.
 
-### Round 16 — Part B sub-split into i/ii; B-i done: `genreTile` now reaches all three ViewModels (Velune); B-ii further split into a/b, B-ii Part a (trace) done, B-ii Part b further split into a/b, Part b-a done, Part b-b further split into a/b, Part b-b-a done [B-i: x, B-ii Part a: x, B-ii Part b-a: x, B-ii Part b-b-a: x, B-ii Part b-b-b: not started]
+### Round 16 — Part B sub-split into i/ii; B-i done: `genreTile` now reaches all three ViewModels (Velune); B-ii further split into a/b, B-ii Part a (trace) done, B-ii Part b further split into a/b, Part b-a done, Part b-b further split into a/b, Part b-b-a done, Part b-b-b further split into a/b, Part b-b-b-a done [B-i: x, B-ii Part a: x, B-ii Part b-a: x, B-ii Part b-b-a: x, B-ii Part b-b-b-a: x, B-ii Part b-b-b-b: not started]
 
 **Sub-split per explicit instruction — Part B (Round 15's own scope:
 consumption in `AlbumScreen`/`ArtistScreen`/`OnlinePlaylistScreen`) is
@@ -14043,6 +14053,41 @@ this chain has flagged.
 same mechanical named-arg addition as every site in Part b-b-a above,
 precisely bounded by Part a's own trace, no further investigation
 needed first.
+
+**Part b-b-b split a/b, same convention as Part b-b's own split one
+level up, since it hadn't been split yet. Part b-b-b-a done, Velune
+commit `e2ba9ef`; Part b-b-b-b not started.** Split by whole file
+again: **Part b-b-b-a = `AlbumScreen.kt` alone** (3 sites, done this
+round); **Part b-b-b-b = `OnlinePlaylistScreen.kt`** (4 sites, not
+started — the last remaining piece of this entire genre-threading
+chain once done).
+
+All 3 of Part b-b-b-a's sites verified against `AlbumScreen.kt`'s real
+current code directly before editing — confirmed `LocalAlbumRadio`'s
+actual constructor order (`albumWithSongs` positional, `startIndex`
+defaulted-positional, `genre` defaulted-named — from Round 16 Part
+b-a) by reading `LocalAlbumRadio.kt` directly, and confirmed
+`AlbumViewModel`'s `genreTileTitle` field exists (from Round 16 Part
+B-i) before assuming it, rather than trusting either from memory of
+earlier rounds' own descriptions:
+- Line 549: `LocalAlbumRadio(albumWithSongs)` → genre added.
+- Line 569: `LocalAlbumRadio(albumWithSongs.copy(songs =
+  albumWithSongs.songs.shuffled()))` → genre added.
+- Line 742: `LocalAlbumRadio(albumWithSongs, startIndex = index)` →
+  genre added as a third named arg after `startIndex`.
+
+Confirmed via grep, not assumed: exactly 3 `LocalAlbumRadio(...)` call
+sites exist in `AlbumScreen.kt` total, and all 3 now carry the genre
+arg. Verified via brace/paren balance check (163/163 `{}`, 394/394
+`()`) — not compile-verified, no Android SDK/Gradle in this sandbox,
+same standing limitation every round of this chain has flagged.
+
+**Part b-b-b-b — not started.** `OnlinePlaylistScreen.kt`'s 4 sites
+(all `YouTubeQueue(...)`, already genre-capable since Round 12 — named
+arg only, no class change needed), precisely bounded by Part a's own
+trace, no further investigation needed first. Once this lands, Round
+16 — and with it, the entire genre-tile-threading chain this task has
+built across 16 rounds — is fully done.
 
 ---
 
