@@ -657,6 +657,29 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-02, latest of all) — Task 59 Part 3b-b done
+> (Velune); Task 59 is now FULLY CLOSED end to end.** Rebuilt
+> `CampaignCardSection.kt`: single-card render from
+> `rememberCampaignCarouselState`'s `.current` (replacing the old
+> `LazyRow`), `playCount`/"New" pill rendering removed entirely, click
+> handler unchanged (signature-compatible with `HomeScreen.kt`'s
+> existing call site, confirmed). A parallel-session conflict happened
+> mid-build (this session independently found the same "3a's
+> `fetchLiveCampaignsForBanner()` doesn't actually exist" gap another
+> session was fixing at the same time) — resolved by discarding the
+> local duplicate and rebuilding cleanly on the real merged 3a commit;
+> no conflicting code landed anywhere. Verified via brace/paren balance
+> (15/15, 78/78); not compile-verified, same standing limitation every
+> Velune part in this whole task has had. Full detail in Task 59's own
+> Part 3/3b-b entry.
+>
+> **Task 59 is fully closed.** Whatever's next is a different task —
+> check the box immediately below this one (Task 60 Part B, blocked on
+> Task 49) and the three still-open items this box already tracked
+> before this note (Round 12's grid/album/playlist gap, confirming
+> `campaign_genre_tile_mapping`'s real seed data) for what's actually
+> next, rather than assuming Task 59 has more to do.
+>
 > **Newest note (2026-09-02, latest of all) — Task 59 Part 3b split
 > into 3b-a/3b-b (Velune); 3b-a done.** New
 > `campaign/CampaignCarouselState.kt` — the carousel's state/timer/
@@ -12337,15 +12360,45 @@ into 3 parts, doing only the first:**
   compile-verified** — same standing limitation as every prior Velune
   part in this task.
 
-  **3b-b — not started.** Wire this state holder into an actual
-  rebuild of `CampaignCardSection.kt`'s composable: replace the
-  `LazyRow` with a single-card layout reading `.current` from
-  `rememberCampaignCarouselState(...)`, remove the `playCount`/"New"
-  pill rendering entirely (not hide — Round 3's "replace, not augment"
-  decision applies to the display code too, not just the data source),
-  and wire the click handler through to the same
-  `CampaignPlaybackTracker.setActive(...)` + `onCampaignClick(...)`
-  path `HomeScreen.kt` already uses, unchanged by Task 60's own fix.
+  **3b-b — done (2026-09-02), Velune.** Rebuilt
+  `CampaignCardSection.kt`: `LazyRow` replaced with a single
+  `CampaignBanner` render (or nothing, via `AnimatedVisibility`, when
+  `.current` from `rememberCampaignCarouselState(...)` is `null`), the
+  `playCount`/"New" pill rendering block removed entirely (not hidden —
+  Round 3's "replace, not augment" decision applied to the display code
+  too, not just the data source; the now-unused `accent` color and its
+  four supporting imports removed too). Click handler unchanged
+  (`onCampaignClick(campaign)`, same path `HomeScreen.kt` already wires
+  through `CampaignPlaybackTracker.setActive(...)` — confirmed
+  signature-compatible via its call site, no other file needed
+  touching).
+
+  **A real parallel-session conflict happened while building this,
+  worth recording so it isn't confusing later if anyone diffs commit
+  history closely:** this session independently found the same "3a's
+  `fetchLiveCampaignsForBanner()` doesn't actually exist in code"
+  discrepancy another session was fixing at effectively the same time,
+  and had built its own duplicate implementation before pulling latest
+  and discovering the collision. Discarded that local duplicate
+  entirely and rebuilt 3b-b's own UI work fresh on top of the real,
+  already-merged 3a commit — confirmed the merged function's exact
+  signature matched what 3b-b's own code already called, so no
+  adjustment was needed beyond the reset itself. No conflicting code
+  landed in either repo's history; this is a process note, not a bug
+  report.
+
+  **Verified:** brace/paren balance on the edited file (15/15, 78/78).
+  Not compile-verified — no Android SDK in this sandbox, same standing
+  limitation every prior Velune part in this task has had.
+
+  **Task 59 Part 3 is now fully closed** — Part 1 (mavins-web RPC),
+  Part 2/2b-b (queue-slot injection, closed across Rounds 4–14), and
+  Part 3/3a/3b-a/3b-b (banner carousel) are all done. The only
+  remaining open items anywhere in this whole task are the three this
+  file's own top box already lists (Round 12's flagged grid/album/
+  playlist gap, confirming `campaign_genre_tile_mapping` is seeded with
+  real tile titles, and Task 60 Part B once Task 49 unblocks) — none of
+  which are Task 59's own scope any further.
 
 **Part 1 built:
 `supabase_migration_023_fair_rotation_queue_slot.sql`.** New function
