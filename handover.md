@@ -2,9 +2,41 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
-> **Newest note (2026-09-01, latest of all) — Task 59 Part 2b-b Round
-> 14: the full genre-locked queue-injection chain is now wired end to
-> end.** `MusicService.kt`'s `campaignSlotProvider = { null }`
+> **Newest note (2026-09-01, latest of all) — Task 59 Part 3, Velune
+> half split into 3a/3b, 3a done.** New
+> `CampaignRepository.fetchLiveCampaignsForBanner()` — calls migration
+> 025's `get_live_campaigns_for_banner()`, uses the DB-provided
+> `artist_name`/`track_title`/`cover_url` directly instead of an
+> eager per-row YouTube resolution (this surface must show *every*
+> live campaign, not a capped list — see the function's own header
+> comment for why that matters here specifically). Verified via a
+> 14-case Python simulation of the parsing logic, all passed; no
+> compiler available in this sandbox. **3b (the actual UI rebuild —
+> single-card carousel, 30s timer, resume-triggered reshuffle,
+> replacing `CampaignCardSection.kt`'s current `LazyRow`) is next,
+> genuinely unblocked, no open questions.** Full write-up in Task 59
+> Part 3's own entry.
+>
+> **Also this session — Task 49 (listener payouts) found blocked on a
+> real, unconfirmed money question, not treated as "ready to build"
+> despite its own header claiming so.** A prior session marked six
+> open product questions "RESOLVED... no further confirmation
+> required" via self-generated "industry-standard" reasoning — but Q1
+> (whether the payout pool is 10% of gross ad-spend, via a two-step
+> 20%-of-50% chain) was never actually confirmed by the product owner,
+> despite that same task's own earlier round correctly calling it "the
+> single highest-leverage number in this whole feature" needing a
+> direct yes/no first. Declined to build payout-calculation logic
+> against an unconfirmed real-money percentage — asked the product
+> owner directly instead (not yet answered as of this note). A future
+> session should get that answer before touching Task 49's Part a
+> calculation logic, not trust that task's own "SPEC UNBLOCKED"
+> header at face value.
+>
+> **Older note (2026-09-01) — Task 59 Part 2b-b Round 14: the full
+> genre-locked queue-injection chain is now wired end to end.**
+>
+> `MusicService.kt`'s `campaignSlotProvider = { null }`
 > placeholder (Part 2a's own deliberate no-op) is now a real lambda:
 > `queue.genre` → `GenreTileMappingCache.resolveGenreId()` (Round 13)
 > → `CampaignRepository().fetchNextCampaignForQueueSlot()` (Part 2a) —
@@ -12011,17 +12043,65 @@ into 3 parts, doing only the first:**
   yet applied to the live DB — same project-owner-only
   `supabase db push` hand-off as every prior migration.
 
-  **Still needed, not started: the actual Velune-side rebuild** —
-  `CampaignCardSection.kt`'s current `LazyRow` (shows all active
-  campaigns at once, horizontally swipeable, and directly displays
-  `campaign.playCount`/a "New" pill — both violate the "never reveal
-  the live count" rule) needs replacing (not augmenting — Round 3's
-  own already-resolved decision) with a single-card view, a 30-second
-  auto-advance timer, and a `Lifecycle` observer that reshuffles
-  specifically `ON_RESUME` after a prior `ON_STOP` (not on every
-  recomposition, not periodically) — see `CampaignCardSection.kt`'s
-  own current structure (no timer/lifecycle logic exists there at all
-  today) for exactly what's being replaced.
+  **Velune-side rebuild, split into 3a/3b this session, per the
+  mandatory task-splitting rule — 3a done, 3b not started:**
+
+  **3a — repository layer. [x] Done this session (2026-09-01).** New
+  `CampaignRepository.fetchLiveCampaignsForBanner()`, calling
+  `get_live_campaigns_for_banner()` (this migration). Deliberately
+  does **not** call `CampaignUrlResolver.resolve()` the way
+  `fetchActiveCampaigns` does — that resolver exists because
+  `get_trending_campaigns` never returns display metadata, only ids,
+  forcing a live YouTube round-trip per row; this new function's own
+  `SELECT` already joins and returns `artist_name`/`track_title`/
+  `cover_url` directly, specifically so a surface that must show
+  *every* live campaign (no `LIMIT`) doesn't need one YouTube API call
+  per row just to render a title and thumbnail. `CampaignCard`'s own
+  field doc comments already described a "resolved from YouTube **or
+  fallback to** track_title/artist_name/cover_url" path — this is the
+  first call site to actually use that fallback, not a new pattern.
+  `songId` is still computed (same `resolvedSongId ?: extractVideoId`
+  order as every other call site) since playback still needs it once
+  a card is tapped — only the eager metadata *resolution* is skipped,
+  not the id itself. `totalStreams`/`trendingScore`/`playCount` are
+  hardcoded `0` (the RPC doesn't return them at all, by design) and
+  `ctaLabel` stays at its data-class default ("Play") rather than the
+  stage-based Discover/Trending/Hot/Viral/Charting ladder
+  `parseTrendingRows` computes — enforcing this task's own "that
+  ladder is dead, ranking-adjacent data, never wire it to a UI"
+  finding at the data layer, not leaving it to 3b's UI to remember not
+  to render. `certified` reuses the exact same stage-based check
+  `parseTrendingRows` already uses, per this task's own explicit
+  "keep this signal, it's moderation/trust, not ranking" instruction.
+
+  **Verified with a throwaway Python simulation of the parsing logic**
+  (written, run, discarded — same convention every prior Velune part
+  in this task has used, no Android SDK in this sandbox to compile
+  against): 14 checks — a full row with `resolved_song_id` present, a
+  row with only `source_url` requiring URL extraction, an unparseable
+  URL correctly dropped, a missing `campaign_id` correctly dropped,
+  blank `track_title`/`artist_name` correctly falling back to
+  "Untitled"/"Unknown Artist", `resolved_song_id` confirmed to take
+  priority over URL extraction when both are present, and `certified`
+  computed correctly across all 5 `current_stage` values — **all 14
+  passed.** Brace/paren balance in the actual edited file also checked
+  (96/96, 316/316) as a basic structural sanity check given no
+  compiler is available. **Not verified: an actual compile or runtime
+  render** — same standing limitation as every prior Velune task in
+  this file's history.
+
+  **3b — UI rebuild. Not started.** `CampaignCardSection.kt`'s current
+  `LazyRow` (shows all active campaigns at once, horizontally
+  swipeable, and directly displays `campaign.playCount`/a "New" pill —
+  both violate the "never reveal the live count" rule) needs replacing
+  (not augmenting — Round 3's own already-resolved decision) with a
+  single-card view reading from 3a's new `fetchLiveCampaignsForBanner()`
+  instead of `fetchActiveCampaigns`, a 30-second auto-advance timer,
+  and a `Lifecycle` observer that reshuffles specifically `ON_RESUME`
+  after a prior `ON_STOP` (not on every recomposition, not
+  periodically) — see `CampaignCardSection.kt`'s own current structure
+  (no timer/lifecycle logic exists there at all today) for exactly
+  what's being replaced.
 
 **Part 1 built:
 `supabase_migration_023_fair_rotation_queue_slot.sql`.** New function
