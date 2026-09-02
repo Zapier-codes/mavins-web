@@ -3,6 +3,18 @@
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
 > **Newest note (2026-09-02, latest of all) — Task 59 Round 16, B-ii
+> Part b further split into a/b per explicit instruction; Part b-a
+> done, Velune commit `583b14c`.** `LocalAlbumRadio.kt` and
+> `ListQueue.kt` both gained the same trailing `genre: String? = null`
+> constructor param `YouTubeQueue` got in Round 12 — confirmed no
+> existing caller of either class is affected (grepped every call
+> site first). Brace-balanced, not compile-verified (no Android SDK
+> here, same standing limitation this whole chain has had). **Next:
+> B-ii Part b-b** — the 13 actual call-site edits this trace already
+> precisely bounded (3 `AlbumScreen.kt`, 6 `ArtistScreen.kt`, 4
+> `OnlinePlaylistScreen.kt`), no further investigation needed first.
+>
+> **Older note (2026-09-02) — Task 59 Round 16, B-ii
 > sub-split into a/b per explicit instruction; B-ii Part a (trace)
 > done.** Every song-tap-to-queue call site in `AlbumScreen.kt` (3),
 > `ArtistScreen.kt` (6), `OnlinePlaylistScreen.kt` (4) traced by direct
@@ -13823,7 +13835,7 @@ passed, discarded, not committed. **Not compile-verified** — no
 Android SDK in this sandbox, same standing limitation as every prior
 part of this task.
 
-### Round 16 — Part B sub-split into i/ii; B-i done: `genreTile` now reaches all three ViewModels (Velune); B-ii further split into a/b, B-ii Part a (trace) done [B-i: x, B-ii Part a: x, B-ii Part b: not started]
+### Round 16 — Part B sub-split into i/ii; B-i done: `genreTile` now reaches all three ViewModels (Velune); B-ii further split into a/b, B-ii Part a (trace) done, B-ii Part b further split into a/b, Part b-a done [B-i: x, B-ii Part a: x, B-ii Part b-a: x, B-ii Part b-b: not started]
 
 **Sub-split per explicit instruction — Part B (Round 15's own scope:
 consumption in `AlbumScreen`/`ArtistScreen`/`OnlinePlaylistScreen`) is
@@ -13931,6 +13943,37 @@ correctly, the existing mechanism picks it up with no further wiring.
 site cited above confirmed by direct file read this session, not
 assumed from Round 15/16's own prior text. No code changed this part —
 trace only, per instruction.
+
+**B-ii Part b further split into a/b, per explicit instruction (same
+"prerequisite structural change first, then the actual call-site
+wiring" shape this whole chain has used throughout). Part b-a done,
+Velune commit `583b14c`; Part b-b not started.**
+
+**Part b-a — the two queue-class constructor changes, done.**
+`LocalAlbumRadio.kt` and `ListQueue.kt` both gained a trailing,
+defaulted `genre: String? = null` constructor param overriding
+`Queue`'s own interface default — identical shape to `YouTubeQueue`'s
+own Round 12 change, confirmed by reading that class's current code
+again before writing these two, not assumed from memory of Round 12's
+description. Confirmed via grep, not assumed, that every existing
+caller of both classes is unaffected: `LocalAlbumRadio`'s callers all
+either omit trailing params positionally or already use a named arg
+(`startIndex = index`) past the first; `ListQueue`'s callers all use
+multi-line named-argument style. A new trailing default param collides
+with neither calling convention. Verified via a brace-balance check on
+both files this session (both balanced) — same standing "not
+compile-verified, no Android SDK/Gradle here" caveat as every round of
+this chain.
+
+**Part b-b — not started.** The actual 13 call-site edits this trace
+identified: 3 in `AlbumScreen.kt` (now pass `genre =
+viewModel.genreTileTitle` to the newly-genre-capable
+`LocalAlbumRadio`), 6 in `ArtistScreen.kt` (4 already-genre-capable
+`YouTubeQueue` sites need only the named arg added; 2 need it added to
+the now-genre-capable `ListQueue`), 4 in `OnlinePlaylistScreen.kt`
+(already-genre-capable `YouTubeQueue`, named arg only). Precisely
+bounded by Part a's own trace above — no further investigation needed
+before writing these 13 edits, just the mechanical addition itself.
 
 ---
 
