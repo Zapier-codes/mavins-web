@@ -1,0 +1,47 @@
+-- ============================================================
+-- Migration 017 — Task 46f-e (part 1 of 3, this session's split):
+-- previous_role, safe to add regardless of the two still-open
+-- product questions blocking the rest of this task
+-- ============================================================
+--
+-- Context (handover.md, Task 46f-e): building the actual first-time
+-- admin-promotion endpoint is blocked on two real product decisions
+-- that haven't been answered yet — (1) who's eligible for promotion
+-- (all of creator/listener/curator, or creator-only), and (2) on
+-- revocation, does `role` revert to the person's original pre-admin
+-- value, or a single fixed fallback regardless of what they were
+-- before. This migration deliberately does NOT answer or presuppose
+-- either — it only adds the one piece of schema that's needed *if*
+-- question 2's answer turns out to be "revert to original," and is
+-- simply unused (always NULL after promotion) if the answer is "fixed
+-- fallback" instead. Either way, nothing downstream breaks or needs
+-- redoing once the real answer comes in — the promotion endpoint
+-- itself (part 2) and cap enforcement (part 3) are NOT built by this
+-- migration and still need those two answers before they can be.
+--
+-- Why capture it now rather than waiting for the answer: if this
+-- column doesn't exist yet at the moment the first real promotion
+-- happens, that person's original role is gone the instant `role` is
+-- overwritten to `'admin'` — there is no other column that records it
+-- (confirmed by reading the full 65-column list this session, see
+-- Task 46f-e's own entry). Adding the capture point now, before any
+-- promotion endpoint exists to use it, means the endpoint (part 2)
+-- can simply always write it, and question 2's eventual answer only
+-- decides whether the *revocation* logic (part 3, or later) reads it
+-- back or ignores it — not whether the data exists to read in the
+-- first place.
+--
+-- `public.users` is very likely a shared, non-Mavins-owned table (see
+-- Task 46f-e's own finding this session: 65 columns, several reading
+-- like a different game-server/Nakama system's schema, not this
+-- app's). This migration stays on the safe end of that risk
+-- deliberately: `ADD COLUMN IF NOT EXISTS`, nullable, no CHECK
+-- constraint tying it to a fixed enum of roles (since question 1's
+-- answer might expand or narrow which roles are even eligible to
+-- become `previous_role` values), no default, no NOT NULL. Purely
+-- additive — nothing existing reads or writes this column yet, so
+-- nothing outside this app's own future code can be affected by it
+-- existing.
+
+ALTER TABLE public.users
+  ADD COLUMN IF NOT EXISTS previous_role TEXT;

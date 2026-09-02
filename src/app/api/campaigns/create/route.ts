@@ -219,6 +219,8 @@ export async function POST(request: NextRequest) {
       .insert({
         source_url: body.sourceUrl,
         artist_id: authUser.id,
+        scheduled_for: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(),
+        purchase_status: "pending",
         // Task 40/35 (handover.md): total_budget_cents is the
         // delivery-funding amount only — it must NOT include the 10%
         // platform fee. The wallet is still debited pricing.totalCostCents
