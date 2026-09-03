@@ -1,7 +1,136 @@
 # Handover — mavins-web
 
+> ⚠️ **STRUCTURAL WARNING — read before editing anything above the
+> real `▶ START HERE` box.** This exact spot (right under this file's
+> first `##` heading) has attracted a misplaced ~100–600 line block of
+> session notes **three separate times** (see the structural-fix
+> commits in this file's own git history if you want the specifics).
+> Every time, some editing approach matched this heading's own
+> distinctive title text as its insertion anchor instead of the actual
+> `> **▶ START HERE` line further down. **New session notes go there —
+> in the `> **▶ START HERE` box below the next `##` heading — never
+> directly under this heading or the "Build-focus" heading right after
+> it.** Before adding a note, search for the literal string `▶ START
+> HERE` and insert there; don't just search for "the top of the file"
+> or this heading's title.
+
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+**Kept identical across all three repos' handover files — this file's
+copy, Velune's `HANDOVER_CAMPAIGN.md`, and B-Pay-backend's own
+`handover.md` should all read the same here. If you edit this section,
+copy the same edit into the other two in the same session** (same rule
+this project already applies to any "cross-repo status" note).
+
+**Added to this file for the first time this session (2026-08-30) —
+this repo's own `handover.md` didn't have this section at all until
+now, discovered while cross-referencing Velune's copy for an unrelated
+diagnosis (see Task 57 below). Copy this same addition into
+B-Pay-backend's `handover.md` too, next time that repo is touched —
+not done this session since this session never cloned it.**
+
+Whenever a session finishes work — in this repo alone, or this one
+plus another — the final message must end with **one single,
+copy-pasteable, `&&`-chained command line** covering every repo
+touched this session, nothing else. Never separate blocks per repo,
+never prose interleaved between repos, never a bare `git am` without
+its `git push` right after it:
+
+```
+cd ~/<repo-1-local-dir> && git am ~/storage/downloads/<repo-1-slug>-<description>.patch && git push origin main && cd ~/<repo-2-local-dir> && git am ~/storage/downloads/<repo-2-slug>-<description>.patch && git push origin main
+```
+
+Extend with more `&& cd ~/<repo> && git am ... && git push ...`
+segments for however many repos were actually touched. A single-repo
+session still uses this exact shape — just a one-segment chain, not a
+different/shorter format.
+
+**Fixed rules:**
+1. Patch filenames: always `<repo-slug>-<short-description>.patch`,
+   lowercase-hyphenated. Fixed slugs: `mavins-web`, `b-pay-backend`,
+   `velune`.
+2. `cd` targets use each repo's **real local folder name/casing**,
+   which is NOT always the slug or the GitHub name:
+   - Mavins-web → `cd ~/mavins-web` (lowercase — GitHub repo is
+     capitalized `Zapier-codes/Mavins-web`, the local clone is not)
+   - B-Pay-backend → `cd ~/B-PAY-backend` (matches GitHub casing)
+   - Velune → `cd ~/Velune` (matches GitHub casing) — this repo pushes
+     directly to `main`, no fork/PR step, confirmed by a successful
+     `git am` + `git push origin main` run in this project.
+3. Every repo segment gets its own `git push origin main` right after
+   its own `git am` — never batch every `git am` first and push once
+   at the end.
+4. All three currently push the same way (`git push origin main`) —
+   B-Pay-backend's still auto-joins its open upstream PR on push, no
+   extra command; Mavins-web and Velune push straight to `main` with
+   no PR step at all. If any repo's push mechanics ever change, update
+   this section (in all three files) and that repo's cross-repo status
+   note together.
+5. Nothing between or after the chain — explanatory prose goes before
+   this command block, never interleaved with or appended after it.
+
+See B-Pay-backend's own `handover.md` → "Unified hand-off command
+format" for the full original write-up with complete rationale for
+each rule — this is the same content, kept in sync.
+
+## Build-focus + mandatory task-splitting — MANDATORY, every session, all three repos
+
+**Added to all three repos' handover files this session (2026-08-30),
+kept identical the same way the section above it is — if you edit
+this section, copy the same edit into the other two in the same
+session.**
+
+**Direct product-owner instruction, two parts:**
+
+1. **All sessions should focus on building the code now, fully** — the
+   discovery/diagnosis-heavy phase this project spent a lot of recent
+   sessions in (schema queries, cross-repo diagnoses, architecture
+   proposals) should give way to actually implementing what's already
+   been decided. A task that's still genuinely blocked on a real open
+   product question stays blocked — don't force an answer that isn't
+   there — but a task sitting on a *resolved* decision with nothing
+   left but to write the code is exactly what a session should pick
+   next, in preference to opening a new discovery thread.
+2. **Every session must split whatever task it picks into parts, and
+   build only one of those parts** — never the whole task in one go,
+   regardless of how small the task looks at a glance. This formalizes,
+   as a standing rule rather than an occasional judgment call, the
+   pattern this project has already used successfully several times
+   (Task 33 Part 2's a/b/c/d split, Task 46's a/b/c/d/e split, Task
+   48-b/48-c's own lettered sub-splits) — each part stays independently
+   reviewable, independently revertible, and independently patchable,
+   and the natural stopping point after one part keeps a single
+   session's diff small enough to actually verify properly (`tsc`,
+   targeted checks, a throwaway comparison script) rather than
+   ballooning into something no one part of which got real scrutiny.
+   **Amended (2026-09-01, later still), per explicit product-owner
+   instruction: cap the split at 5 parts, lettered a through e.** A
+   task doesn't need all 5 — 2 parts (a/b) is completely fine when
+   that's the natural shape, same as Task 59 Part 2b-b's own A/B split
+   above — but never split into more than 5. If a task's natural
+   granularity seems to want a 6th part, that's a signal the task
+   itself is too big for one split and should be broken into two
+   separate top-level tasks (each with its own up-to-5-part split)
+   rather than stretched to 6+ lettered sub-parts under one task.
+
+**How to split, in practice:** before writing any code, write out the
+task's natural parts (even if the task text doesn't already list them —
+most won't yet, since this is a new standing rule) as their own labeled
+sub-entries in the handover file, the same way Task 46's own entry
+lists 46a/46b/46c/46d/46e. Pick the first genuinely unblocked part,
+build only that one, and leave the rest explicitly marked not-started
+for the next session — don't silently keep going into part two because
+it "was right there." If a task turns out to have exactly one
+indivisible unit of work (rare, but possible for something truly
+small), that's fine — say so explicitly in the write-up ("not split
+further, this is a single atomic change") rather than leaving it
+looking like a part was skipped.
+
+---
+
+> **▶ START HERE — read this box top-to-bottom before touching
+> anything, especially the box below it.**
+>
 > **Newest note (2026-09-04, latest of all) — Task 49 Part b-ii-ii
 > split A/B, Part b-ii-ii-a done: the withdrawal-request state
 > machine.** Picked up exactly the "dedicated scoping session" the
@@ -139,121 +268,6 @@
 > computation + earnings accumulation, no real money movement) before
 > Part b-ii (actual Korapay disbursement) — b-i is now fully unblocked
 > and ready to build.**
-
-**Kept identical across all three repos' handover files — this file's
-copy, Velune's `HANDOVER_CAMPAIGN.md`, and B-Pay-backend's own
-`handover.md` should all read the same here. If you edit this section,
-copy the same edit into the other two in the same session** (same rule
-this project already applies to any "cross-repo status" note).
-
-**Added to this file for the first time this session (2026-08-30) —
-this repo's own `handover.md` didn't have this section at all until
-now, discovered while cross-referencing Velune's copy for an unrelated
-diagnosis (see Task 57 below). Copy this same addition into
-B-Pay-backend's `handover.md` too, next time that repo is touched —
-not done this session since this session never cloned it.**
-
-Whenever a session finishes work — in this repo alone, or this one
-plus another — the final message must end with **one single,
-copy-pasteable, `&&`-chained command line** covering every repo
-touched this session, nothing else. Never separate blocks per repo,
-never prose interleaved between repos, never a bare `git am` without
-its `git push` right after it:
-
-```
-cd ~/<repo-1-local-dir> && git am ~/storage/downloads/<repo-1-slug>-<description>.patch && git push origin main && cd ~/<repo-2-local-dir> && git am ~/storage/downloads/<repo-2-slug>-<description>.patch && git push origin main
-```
-
-Extend with more `&& cd ~/<repo> && git am ... && git push ...`
-segments for however many repos were actually touched. A single-repo
-session still uses this exact shape — just a one-segment chain, not a
-different/shorter format.
-
-**Fixed rules:**
-1. Patch filenames: always `<repo-slug>-<short-description>.patch`,
-   lowercase-hyphenated. Fixed slugs: `mavins-web`, `b-pay-backend`,
-   `velune`.
-2. `cd` targets use each repo's **real local folder name/casing**,
-   which is NOT always the slug or the GitHub name:
-   - Mavins-web → `cd ~/mavins-web` (lowercase — GitHub repo is
-     capitalized `Zapier-codes/Mavins-web`, the local clone is not)
-   - B-Pay-backend → `cd ~/B-PAY-backend` (matches GitHub casing)
-   - Velune → `cd ~/Velune` (matches GitHub casing) — this repo pushes
-     directly to `main`, no fork/PR step, confirmed by a successful
-     `git am` + `git push origin main` run in this project.
-3. Every repo segment gets its own `git push origin main` right after
-   its own `git am` — never batch every `git am` first and push once
-   at the end.
-4. All three currently push the same way (`git push origin main`) —
-   B-Pay-backend's still auto-joins its open upstream PR on push, no
-   extra command; Mavins-web and Velune push straight to `main` with
-   no PR step at all. If any repo's push mechanics ever change, update
-   this section (in all three files) and that repo's cross-repo status
-   note together.
-5. Nothing between or after the chain — explanatory prose goes before
-   this command block, never interleaved with or appended after it.
-
-See B-Pay-backend's own `handover.md` → "Unified hand-off command
-format" for the full original write-up with complete rationale for
-each rule — this is the same content, kept in sync.
-
-## Build-focus + mandatory task-splitting — MANDATORY, every session, all three repos
-
-**Added to all three repos' handover files this session (2026-08-30),
-kept identical the same way the section above it is — if you edit
-this section, copy the same edit into the other two in the same
-session.**
-
-**Direct product-owner instruction, two parts:**
-
-1. **All sessions should focus on building the code now, fully** — the
-   discovery/diagnosis-heavy phase this project spent a lot of recent
-   sessions in (schema queries, cross-repo diagnoses, architecture
-   proposals) should give way to actually implementing what's already
-   been decided. A task that's still genuinely blocked on a real open
-   product question stays blocked — don't force an answer that isn't
-   there — but a task sitting on a *resolved* decision with nothing
-   left but to write the code is exactly what a session should pick
-   next, in preference to opening a new discovery thread.
-2. **Every session must split whatever task it picks into parts, and
-   build only one of those parts** — never the whole task in one go,
-   regardless of how small the task looks at a glance. This formalizes,
-   as a standing rule rather than an occasional judgment call, the
-   pattern this project has already used successfully several times
-   (Task 33 Part 2's a/b/c/d split, Task 46's a/b/c/d/e split, Task
-   48-b/48-c's own lettered sub-splits) — each part stays independently
-   reviewable, independently revertible, and independently patchable,
-   and the natural stopping point after one part keeps a single
-   session's diff small enough to actually verify properly (`tsc`,
-   targeted checks, a throwaway comparison script) rather than
-   ballooning into something no one part of which got real scrutiny.
-   **Amended (2026-09-01, later still), per explicit product-owner
-   instruction: cap the split at 5 parts, lettered a through e.** A
-   task doesn't need all 5 — 2 parts (a/b) is completely fine when
-   that's the natural shape, same as Task 59 Part 2b-b's own A/B split
-   above — but never split into more than 5. If a task's natural
-   granularity seems to want a 6th part, that's a signal the task
-   itself is too big for one split and should be broken into two
-   separate top-level tasks (each with its own up-to-5-part split)
-   rather than stretched to 6+ lettered sub-parts under one task.
-
-**How to split, in practice:** before writing any code, write out the
-task's natural parts (even if the task text doesn't already list them —
-most won't yet, since this is a new standing rule) as their own labeled
-sub-entries in the handover file, the same way Task 46's own entry
-lists 46a/46b/46c/46d/46e. Pick the first genuinely unblocked part,
-build only that one, and leave the rest explicitly marked not-started
-for the next session — don't silently keep going into part two because
-it "was right there." If a task turns out to have exactly one
-indivisible unit of work (rare, but possible for something truly
-small), that's fine — say so explicitly in the write-up ("not split
-further, this is a single atomic change") rather than leaving it
-looking like a part was skipped.
-
----
-
-> **▶ START HERE — read this box top-to-bottom before touching
-> anything, especially the box below it.**
 >
 > **Newest note (2026-09-03, later still) — found and fixed a real
 > pre-production schema conflict before Part b (pool calculation)
