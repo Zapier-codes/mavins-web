@@ -2,6 +2,22 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-09-03, latest of all) — Task 63's open question
+> #2 resolved: `INTERNAL_API_KEY` confirmed set on Render, matching
+> `BPAY_INTERNAL_API_KEY`.** Project owner confirmed directly. **Still
+> genuinely open, not resolved by this alone:** (1) whether
+> B-Pay-backend's Render service auto-deploys on push — if so, there
+> may still have been a real gap between that repo's `5424c65` (the
+> `requireInternalApiKey` protection) going live and this repo's own
+> Edge Function fix deploying, during which real checkouts could have
+> 401'd; a confirmed-set secret today doesn't retroactively answer
+> whether that gap existed, and (2) whether a real checkout has
+> actually been observed succeeding post-deploy, as opposed to both
+> sides' configuration merely being correct on paper. Don't mark Task
+> 63 fully closed until those two are also answered — this note
+> resolves one of the three open questions the previous note listed,
+> not all three.
+>
 > **Newest note (2026-09-01, latest of all) — Task 49 Part b-ii-i
 > BUILT: `credit_listener_earnings_for_date()` (migration 029), the
 > per-listener accrual step (no real money movement — that's b-ii-ii,
