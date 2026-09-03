@@ -131,7 +131,30 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-09-04, latest of all) — Task 49 Part b-ii-ii
+> **Newest note (2026-09-04, later still) — found a real, previously
+> unflagged blocker on Part b-ii-ii-b before writing any disbursement
+> code: there is currently no way for a listener to ever provide a
+> payout bank account.** Multiple sessions' own "no remaining known
+> blocker" claim for this part only checked that B-Pay-backend's
+> `/payout` endpoint exists and is reachable — never checked that the
+> *payload* it needs (a real `bank_code`/`account_number`) has
+> anywhere to come from. Grepped `supabase_schema.sql` and every
+> migration: no such columns exist on `public.users`. Read
+> `ensure_device_listener()` directly: a listener's own row is
+> entirely synthetic (a non-deliverable placeholder email, no real
+> name, no contact info at all). Grepped both this repo's `src/` and
+> Velune's Kotlin source: no bank/payout form or route exists in
+> either app. **This is a genuine product/compliance question — how
+> does an anonymous, device-based listener (Task 60's own confirmed
+> design) ever acquire a real-world payout identity, and does Korapay's
+> own disbursement product even support paying an unverified
+> recipient — not something to guess a UX/schema design for.** Full
+> write-up, including the three specific open questions, in Task 49's
+> own "Part b-ii-ii-b" entry. Nothing built or changed this session
+> beyond this documentation — asking directly before designing
+> anything further here.
+>
+> **Older note (2026-09-04) — Task 49 Part b-ii-ii
 > split A/B, Part b-ii-ii-a done: the withdrawal-request state
 > machine.** Picked up exactly the "dedicated scoping session" the
 > numbering-collision-fix note right below deliberately left open. New
@@ -10842,13 +10865,62 @@ independent, and a defensive multi-row case picking the highest
 `cycle_number`. All 10 passed. **Not run against the live DB** — same
 standing limitation as every migration in this task.
 
-**Part b-ii-ii-b — not started.** The actual Korapay disbursement call
-to B-Pay-backend's now-confirmed-live `POST /payout`, transitioning
-`'claimable'` → `'claimed'` on success. No remaining known blocker —
-the endpoint's existence and protection are confirmed above — this is
-now purely a matter of writing and testing the actual integration,
-real money movement, deserving its own careful session rather than a
-rushed continuation of this one.
+**Part b-ii-ii-b — not started. "No remaining known blocker" (this
+section's own prior claim, repeated across multiple sessions) was
+wrong — checked before writing any disbursement code, not assumed.**
+A Korapay disbursement needs a real destination — a bank account, per
+this task's own earlier-confirmed Q3 answer (`bank_code` +
+`account_number`, the Nova Bank / Korapay disburse shape). **No such
+data exists anywhere in this system for a listener, and there is
+currently no way for one to ever provide it:**
+- `public.users`' real schema (`supabase_schema.sql`) has no
+  `payout_bank_code`/`payout_account_number` columns at all — grepped
+  every schema and migration file in this repo, zero hits. The Q1–Q6
+  section above *mentions* those exact column names, but only as part
+  of the disbursement-payload sketch — they were never actually
+  migrated into the real table.
+- A listener's actual `public.users` row (via `ensure_device_listener()`,
+  migration 028/030) is entirely synthetic by design — a deterministic
+  `device-<uuid>@listener.mavins.internal` placeholder email, a
+  `listener_<uuid>` username, no real name, no phone, no contact
+  info of any kind. Confirmed by reading that function directly.
+- Grepped both this repo's `src/` and Velune's own Kotlin source for
+  any bank/payout/withdrawal-form UI or API route — zero hits in
+  either repo. There is no screen, anywhere, where a listener could
+  type in a bank account today.
+
+**This is a real product/compliance question, not an implementation
+detail to guess at — deliberately not designed around here.** Given
+Task 60's own confirmed no-login, device-based identity model, a
+listener has no persistent real-world identity at all until the
+moment they'd need to actually receive money. Standard disbursement
+rails (Korapay included) generally expect the payee's own verified
+name/account, for AML/KYC reasons as much as technical ones — a
+purely anonymous device ID has no natural bridge to "a specific
+person's bank account" without *some* new collection step. Genuine
+open questions this needs a direct product-owner answer on, not an
+assumed default:
+1. Does claiming a payout require the listener to provide real
+   identity/bank info at that moment (a new in-app form, in Velune,
+   shown only when there's a claimable balance)? If so, where does
+   that data live — new columns on `public.users`, or a separate
+   `listener_payout_details` table (arguably safer: keeps sensitive
+   bank data out of the same table every anonymous device-listener
+   row already lives in, with its own tighter RLS)?
+2. Does Korapay's own disbursement product actually support paying
+   out to a recipient with no prior KYC on Korapay's side, given
+   sufficient bank details alone — or does Korapay itself require the
+   recipient (not just the sender) to be verified first, which would
+   be a much bigger process than "collect a bank account number"?
+3. Is there a minimum real-world identity bar (a name, at least) this
+   project wants to hold before ever disbursing, independent of
+   whatever Korapay itself technically requires?
+
+Until at least Q1 above has a real answer, there's no concrete "Part
+b-ii-ii-b" to build — the RPC call itself (`POST /payout` to
+B-Pay-backend, already confirmed live and reachable) is the easy,
+already-scoped part; the actual blocker is that the payload it would
+send has no real data source yet.
 
 
 **A session earlier today created migration 027, a NEW
