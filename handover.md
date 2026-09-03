@@ -2,6 +2,30 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-09-01, latest of all) — Task 49 Part b-ii-i
+> BUILT: `credit_listener_earnings_for_date()` (migration 029), the
+> per-listener accrual step (no real money movement — that's b-ii-ii,
+> still not built).** Cycle-boundary question genuinely re-confirmed
+> directly ("how industry standards do it") → continuous accrual, lazy
+> cycle creation both for a listener's first-ever cycle and for the
+> cycle after a claim, matching real accrual-ledger/NET-payout
+> systems. Found and applied a real schema correction along the way:
+> `listener_earnings.cycle_end_date` was `NOT NULL` in migration 019,
+> but that predates knowing NET-50 counts from a withdrawal *request*
+> — a value genuinely unknowable at lazy-creation time — so this
+> migration `ALTER`s it nullable, backed by new information, not a
+> workaround. The function self-invokes `compute_daily_payout_pool()`
+> (idempotent, so always safe), then loops per-listener (not a single
+> set query — no natural `ON CONFLICT` target exists for "find/create
+> the current accumulating cycle") crediting `qualifying_plays ×
+> rate_per_stream_cents` into their existing accumulating row or a
+> lazily-created new one. Verified via statement count (6, exact),
+> paren/IF/LOOP balance, and a 5-case Python simulation with real
+> `assert`s (same-cycle accumulation, correct new-cycle creation after
+> a claim, independent per-listener numbering) — all passed. Not
+> verified: no live DB in this sandbox. Full write-up in Task 49's own
+> Part b section.
+
 > **Newest note (2026-09-01, latest of all) — Task 49 Part b-i BUILT:
 > `compute_daily_payout_pool()` (migration 028), the platform-wide
 > daily payout aggregate only.** Scope narrowed from this session's
@@ -10536,16 +10560,74 @@ introduced here). Out of scope to fix as part of this migration;
 noting it plainly rather than silently leaving it undiscovered for
 whoever looks next.
 
-**Still not done — Part b-ii, next:** the actual Korapay disbursement
-call, AND (per the scope correction above) the per-listener
-`listener_earnings` crediting logic, which now genuinely needs the
-cycle-boundary question answered first (a real, unresolved product
-question, not a technical one — when does an "accumulating" cycle
-close and become "claimable"? Only on an explicit withdrawal request,
-per Q3/Q4's existing resolution — but what's `cycle_start_date` for a
-listener's very first cycle, and does a *new* cycle open immediately
-after the previous one is claimed, or only when they next earn
-something?).
+**Part b-ii sub-split, same session, same "no real money movement
+first" pattern used for b-i vs b-ii itself: b-ii-i (per-listener
+crediting, accrual bookkeeping only) before b-ii-ii (Korapay
+disbursement + withdrawal-triggered cycle closing, still not built).**
+
+**Cycle-boundary question — genuinely re-confirmed directly, not
+guessed:** asked plainly; confirmed "how industry standards do it" —
+resolves to continuous accrual with lazy cycle creation both times: a
+listener's first cycle starts the moment they earn their first cent
+(not a fixed calendar schedule), and the next cycle after a claim
+opens only when they next earn something (not proactively re-opened
+at $0). Matches how real accrual-ledger/NET-payout systems generally
+work — a "cycle" row is a ledger boundary marking what got grouped
+into a payout, not a pre-provisioned container.
+
+**Part b-ii-i — BUILT this session (migration 029,
+`credit_listener_earnings_for_date(p_date DATE)`).** A real schema
+correction found and applied along the way, not a workaround:
+`listener_earnings.cycle_end_date` was `NOT NULL` per migration 019,
+but that predates this session's own confirmation that NET-50 counts
+from a withdrawal *request* — a separate, later, user-triggered
+action, genuinely unknowable at the moment a cycle is lazily created.
+Forcing a placeholder value at creation time would be worse than
+admitting the column is genuinely unknown until then, so this
+migration `ALTER`s it nullable — a correction backed by new
+information (this session's own direct confirmation), not an
+assumption.
+
+The function itself: calls `compute_daily_payout_pool(p_date)` itself
+first (idempotent/upsert-based, so always safe to call again — makes
+this function self-sufficient regardless of what calls it or in what
+order, not dependent on external cron sequencing). For each listener
+with at least one qualifying play that date, computes their share
+(`qualifying_plays_today × rate_per_stream_cents`), then finds their
+current `'accumulating'` cycle row or lazily creates one — a loop over
+listeners, not a single set-based query, because "find-or-create the
+current accumulating cycle" has no natural `ON CONFLICT` target (the
+table's only `UNIQUE` constraint is `(listener_id, cycle_number)`, not
+`(listener_id, status)`); correctness for real money mattered more
+here than a denser query.
+
+**Verified — no live DB in this sandbox, same standing limitation:**
+- Dollar-quote-aware statement count: exactly 6 top-level statements
+  as intended (1 `ALTER`, the function, 3 `REVOKE`s, 1 `GRANT`).
+- Paren balance 0; `IF`/`END IF` matched 2/2; `LOOP`/`END LOOP`
+  matched; dollar-quote count 2 (paired).
+- **Simulated the actual lazy-cycle logic** (throwaway Python script,
+  written, run, deleted, with real `assert`s, not just printed output
+  eyeballed): 5 cases — a brand-new listener's first credit, a second
+  day accumulating into the *same* cycle (not creating a duplicate),
+  a cycle being claimed, a new cycle correctly lazily created
+  (`cycle_number` incremented, `cycle_start_date` reset to the new
+  date, `cycle_end_date` correctly `None`) on the next earning after
+  that claim, and a second, independent listener confirmed not to
+  affect the first listener's rows or numbering at all. All 5
+  assertions passed.
+
+**Still not done, next:** Part b-ii-ii (the actual Korapay disbursement
+call, and the withdrawal-request-triggered state machine that sets
+`cycle_end_date` and transitions `'accumulating'` → `'claimable'` →
+`'claimed'`) — needs a live, confirmed-reachable B-Pay-backend
+endpoint, not independently re-verified this session (noted as
+"unblocked by B-Pay-backend patch" in this section's own heading).
+Also still open: Part c (gamification wiring, blocked on the untracked
+`daily_tasks`/`user_tasks` tables per Task 48-d Parts 2/3) and Part d
+(frontend — earnings balance display, withdrawal UI, play history —
+not started, and not worth starting before b-ii-ii gives it real data
+to display).
 
 **Part c — Gamification wiring:**
 - Reuse existing `daily_tasks` / `user_tasks` tables
