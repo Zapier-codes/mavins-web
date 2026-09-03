@@ -117,9 +117,8 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-09-03, latest of all) — Task 49 Part b-b split
-> into b-b-i/b-b-ii (wasn't split yet, per explicit instruction);
-> b-b-i done, b-b-ii not started.** New
+> **Newest note (2026-09-03, latest of all) — Task 49 Part b-b DONE,
+> both b-b-i and b-b-ii.** New
 > `CampaignRepository.ensureDeviceListener(deviceId)` (Velune) — the
 > Kotlin wrapper for migration 028's `ensure_device_listener` RPC.
 > **One real, flagged-not-assumed uncertainty:** this RPC returns a
@@ -136,10 +135,20 @@ looking like a part was skipped.
 > standing limitation as every prior Velune part in this project. **See
 > Task 49's own "Part b-b" entry for full detail.**
 >
-> **Next: b-b-ii** — wire `ensureDeviceListener()` into the real call
-> site (`MusicService.kt`, near `getOrCreateCampaignDeviceId()`), with
-> the real-device-id-only guard this part's own doc comment already
-> spells out precisely.
+> **Now done, b-b-ii — wired `ensureDeviceListener()` into
+> `MusicService.kt`'s one real `getOrCreateCampaignDeviceId()` call
+> site**, using the exact same `deviceId` local variable
+> `recordCampaignStream` already uses two lines below (confirmed via
+> grep before wiring — exactly one real call site). Called
+> sequentially before `recordCampaignStream`, inside the same existing
+> `scope.launch(SilentHandler)` block. **Confirmed, not assumed:**
+> `recordCampaignStream` doesn't touch `listener_play_events` at all
+> yet, so this call is purely proactive today — no ordering race
+> exists yet. Verified via brace/paren balance check (0/0, balanced).
+> Not compile-verified. **Part b-b (both sub-parts) is now fully
+> done** — the original spec's "Part b: payout mechanics" (crediting
+> via B-Pay-backend, Korapay disburse) and the pool-calculation math
+> remain genuinely further, still-unscoped work.
 >
 > **Newest note (2026-09-03, latest of all) — Task 49 "Part b" split
 > into b-a/b-b before being built as-is; b-a done (DB), b-b not
@@ -10433,8 +10442,8 @@ against the live DB** — same standing hand-off every prior migration in
 this file has needed.
 
 **Part b-b — split into b-b-i / b-b-ii this session (2026-09-03), per
-explicit instruction — wasn't split yet, is now. b-b-i done, b-b-ii not
-started.**
+explicit instruction — wasn't split yet, is now. Both b-b-i and b-b-ii
+now done.**
 
 **b-b-i — the Kotlin repository wrapper.** Wire Velune's own call
 sites needs something to call first — `CampaignRepository.kt` had no
@@ -10492,6 +10501,42 @@ B-Pay-backend, Korapay disburse) and the pool-calculation math itself
 remain their own further, still-unscoped work beyond even b-b — not
 renamed or folded into this split, just genuinely later in the
 sequence than b-a, b-b-i, or b-b-ii.
+
+**b-b-ii — done, this session (2026-09-03), Velune.** Wired
+`CampaignRepository().ensureDeviceListener(deviceId)` into
+`MusicService.kt`'s one real `getOrCreateCampaignDeviceId()` call
+site (confirmed via grep before writing anything — exactly one real
+call, at the `recordCampaignStream` site the doc comment itself named),
+using the same `deviceId` local variable `recordCampaignStream` already
+uses two lines below — not a second, independently-obtained value that
+could drift from it. Called sequentially before `recordCampaignStream`,
+inside the same existing `scope.launch(SilentHandler)` block (no new
+coroutine scope introduced) — off the player's own thread, matches
+this call site's own established non-blocking posture exactly.
+
+**Confirmed, not assumed, before wiring:** `recordCampaignStream`
+itself doesn't call `ensure_device_listener` or touch
+`listener_play_events` at all yet (grepped `CampaignRepository.kt` for
+both — zero matches outside `ensureDeviceListener`'s own definition) —
+today this call is purely proactive/preparatory, readying the
+`public.users` row for whichever future, still-unscoped part actually
+starts writing `listener_play_events` rows. No ordering race exists
+yet because nothing reads the row this ensures exists yet — sequencing
+it before `recordCampaignStream` regardless, since that's the correct
+order once something does.
+
+Verified via a brace/paren balance check on the modified file (both
+0/0, fully balanced) — same discipline b-b-i's own catch (a doc-comment
+parenthetical left unclosed) established earlier this session. Not
+compile-verified — same standing limitation as every prior Velune part
+in this project. `npx tsc --noEmit` clean on the Mavins-web side (no
+TypeScript touched).
+
+**Part b-b (both b-b-i and b-b-ii) is now fully done.** The original
+spec's own "Part b: payout mechanics" (crediting via B-Pay-backend,
+Korapay disburse) and the pool-calculation math remain genuinely
+further, still-unscoped work beyond b-b — not touched by either
+sub-part.
 
 ---
 
