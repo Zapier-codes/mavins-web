@@ -1,5 +1,28 @@
 -- Migration 027: listener_play_events (Task 49 Part a)
 --
+-- RECONCILIATION, not fresh creation -- caught before this migration
+-- was ever pushed live, not after. Migration 019
+-- (supabase_migration_019_listener_earnings_schema.sql /
+-- 20260830000019_listener_earnings_schema.sql) already created a
+-- table by this exact name and applied it to the live DB on
+-- 2026-08-30, confirmed via the product owner's own terminal log
+-- (this repo's own handover.md, Task 49's "Part a" entry). This
+-- migration's original CREATE TABLE IF NOT EXISTS would therefore
+-- have silently no-op'd against the live table the moment it was
+-- pushed, leaving it on migration 019's older, incompatible column
+-- set (qualifies_for_payment instead of is_qualifying_play; no
+-- is_full_listen or country_code columns at all) forever -- every
+-- line below this comment (up to record_campaign_stream()) was
+-- rewritten from a fresh CREATE TABLE into an ALTER-based
+-- reconciliation of the table migration 019 actually created.
+--
+-- Confirmed the live table is genuinely empty and safe to alter
+-- freely, not just assumed: migration 019 itself never touches
+-- record_campaign_stream() (checked directly -- no CREATE OR REPLACE
+-- FUNCTION anywhere in that file), and nothing else in this codebase
+-- wrote to this table before this migration's own RPC extension
+-- below -- so no real row has ever been written under either schema.
+--
 -- Real, current blocker this closes (confirmed by reading
 -- record_campaign_stream() directly, not assumed from older notes):
 -- that function already receives p_user_id and
@@ -25,23 +48,33 @@
 -- tied to a real registered listener; you can't pay out to a random
 -- device UUID that isn't a real, payable account).
 
-CREATE TABLE IF NOT EXISTS public.listener_play_events (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  campaign_id UUID NOT NULL REFERENCES public.track_campaigns(id) ON DELETE CASCADE,
-  listener_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-  listen_duration_seconds INTEGER NOT NULL DEFAULT 0,
-  is_full_listen BOOLEAN NOT NULL DEFAULT false,
-  -- Stored, not computed at query time -- Task 49's own repeatedly-
-  -- referenced spec figure (60 seconds) is cheap to index/aggregate on
-  -- as a real column, and a GENERATED column keeps the threshold
-  -- defined in exactly one place (this line) rather than duplicated
-  -- into every future payout-calculation query that needs to filter
-  -- on it.
-  is_qualifying_play BOOLEAN GENERATED ALWAYS AS (listen_duration_seconds >= 60) STORED,
-  country_code TEXT,
-  played_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+-- ALTER, not DROP+CREATE, even though the live table is empty --
+-- keeps this migration's intent auditable (evolving 019's table, not
+-- silently replacing it outright) and matches this project's own
+-- general preference for reversible, incremental schema changes over
+-- destructive ones.
+ALTER TABLE public.listener_play_events
+  RENAME COLUMN qualifies_for_payment TO is_qualifying_play;
+
+ALTER TABLE public.listener_play_events
+  ADD COLUMN IF NOT EXISTS is_full_listen BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE public.listener_play_events
+  ADD COLUMN IF NOT EXISTS country_code TEXT;
+
+-- migration 019's own track_url TEXT column is deliberately left in
+-- place, not dropped here -- this migration's own schema design never
+-- referenced it, but dropping a column is a separate, more
+-- consequential decision than this reconciliation is trying to make;
+-- still nullable, still harmless to leave unused for now.
+
+-- migration 019's own three indexes (listener_play_events_listener_idx,
+-- _campaign_idx, _lookup_idx) covered similar but not identical access
+-- patterns to the two partial indexes below -- superseded by these,
+-- not left redundant alongside them.
+DROP INDEX IF EXISTS public.listener_play_events_listener_idx;
+DROP INDEX IF EXISTS public.listener_play_events_campaign_idx;
+DROP INDEX IF EXISTS public.listener_play_events_lookup_idx;
 
 -- The payout calculation (Part b) will need to sum qualifying plays
 -- per listener within a NET-50 cycle window and per campaign for
@@ -55,16 +88,24 @@ CREATE INDEX IF NOT EXISTS idx_listener_play_events_campaign_played_at
   ON public.listener_play_events (campaign_id, played_at)
   WHERE is_qualifying_play;
 
--- RLS: no anon/authenticated read or write policy at all, matching
--- payment_sessions/wallet_ledger's own posture (migration 006's
--- header) for money-adjacent tables -- a listener's own earnings
--- record is exactly this kind of table. The only writer is
--- record_campaign_stream() below, which runs SECURITY DEFINER (same
--- as it already does today) so the anon-key caller (Velune) never
--- needs direct table access. Reads for a listener's own dashboard (a
--- future task, not this one) will need their own SECURITY DEFINER
--- RPC too, not a relaxed RLS policy on this table directly.
+-- RLS: migration 019 already enabled RLS and set this exact same
+-- REVOKE/GRANT posture (service_role only, no anon/authenticated
+-- access) -- re-stating idempotently rather than assuming 019's own
+-- prior state, since a plain re-run of these statements is always
+-- safe regardless. Same posture as payment_sessions/wallet_ledger
+-- (migration 006's own header) for money-adjacent tables -- a
+-- listener's own earnings record is exactly this kind of table. The
+-- only writer is record_campaign_stream() below, which runs SECURITY
+-- DEFINER (same as it already does today) so the anon-key caller
+-- (Velune) never needs direct table access. Reads for a listener's
+-- own dashboard (a future task, not this one) will need their own
+-- SECURITY DEFINER RPC too, not a relaxed RLS policy on this table
+-- directly.
 ALTER TABLE public.listener_play_events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.listener_play_events FROM PUBLIC;
+REVOKE ALL ON public.listener_play_events FROM anon;
+REVOKE ALL ON public.listener_play_events FROM authenticated;
+GRANT ALL ON public.listener_play_events TO service_role;
 
 -- ------------------------------------------------------------------
 -- record_campaign_stream() — extended, not replaced. Every existing
