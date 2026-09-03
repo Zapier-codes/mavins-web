@@ -2,6 +2,59 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-09-01, latest of all) — Task 49 Part b-i BUILT:
+> `compute_daily_payout_pool()` (migration 028), the platform-wide
+> daily payout aggregate only.** Scope narrowed from this session's
+> own earlier b-i/b-ii split, flagged plainly, not silently: crediting
+> individual listeners needs `listener_earnings.cycle_start_date`/
+> `cycle_end_date` (`NOT NULL`), and this codebase has never actually
+> decided when a cycle starts or ends — that's now b-ii's job, along
+> with the Korapay disbursement call. b-i itself does the confirmed
+> formula: prorate each same-day-delivering campaign's
+> `total_budget_cents` across `estimated_duration_days` → 50%/20% down
+> to the listener pool (10% of gross, matching this session's direct
+> Q1 confirmation) → rate per qualifying play that day. Verified via a
+> dollar-quote-aware manual statement count (5 statements, exactly as
+> intended — `sqlparse` itself mishandles this file's `$$` body, found
+> and worked around), paren/BEGIN-END balance, and a 6-case Python
+> simulation of the actual arithmetic (all correct, including the
+> 10%-of-gross ratio holding exactly in every non-zero case). Not
+> verified: no live DB in this sandbox to actually run it. Also found,
+> in passing: none of migration 019's three tables were ever added to
+> `supabase_schema.sql` — a pre-existing gap, not fixed here, noted
+> for whoever looks next. Full write-up in Task 49's own Part b
+> section.
+
+> **Newest note (2026-09-01, latest of all) — Task 49 Part b:
+> genuinely re-confirmed Q1 directly (not the prior self-asserted
+> "resolved"), and found + resolved a real, separate technical gap
+> before any code got written. Documentation only, no code this
+> session, per explicit instruction — a future session builds this.**
+> Q1 (listener pool = 10% of gross ad-spend) is now real, direct
+> product-owner confirmation, closing a genuine problem: an earlier
+> entry in this same section had declared all 6 questions "resolved,
+> no further confirmation required" by citing industry patterns
+> instead of actually asking — directly contradicting this task's own
+> earlier, more careful demand for "your direct yes/no before any
+> schema or calculation code gets written" on this exact number.
+> Separately, traced `record_campaign_stream()` before writing any
+> Part b-i code and found `spent_cents` only increments for **seed**
+> plays — it's the platform's own seed-network cost meter, not ad-spend
+> revenue, a serious name collision that would have produced a
+> plausible-looking but backwards calculation if summed naively.
+> `total_budget_cents` (the real revenue figure) has no daily
+> granularity at all, so a naive per-active-day sum would wildly
+> over-count a multi-day campaign. Asked directly, confirmed:
+> **prorate each campaign's `total_budget_cents` evenly across its
+> `estimated_duration_days`** (added this same session, Task
+> 51/migration 022), attributed only to days it has a real
+> `campaign_daily_metrics` row (backfill-safe, unlike the live-only
+> `is_active` flag). Full formula, ready to implement, in Task 49's
+> own Part b section. **Recommended split: Part b-i (daily pool
+> computation + earnings accumulation, no real money movement) before
+> Part b-ii (actual Korapay disbursement) — b-i is now fully unblocked
+> and ready to build.**
+
 **Kept identical across all three repos' handover files — this file's
 copy, Velune's `HANDOVER_CAMPAIGN.md`, and B-Pay-backend's own
 `handover.md` should all read the same here. If you edit this section,
@@ -10335,6 +10388,164 @@ plus `is_full_listen`/`country_code`), not this list.
   - `account_number`: from `users.payout_account_number` (the Nova Bank "tag")
   - `narration`: "Mavins listener earnings — Cycle #{cycle_number}"
   - `reference`: `MAVW-PAYOUT-{listener_id}-{cycle_number}-{timestamp}`
+
+**Q1 — genuinely re-confirmed directly with the product owner this
+session (2026-09-01), not just self-asserted.** This task's own
+earlier "RESOLVED... No further product-owner confirmation is
+required" claim (a few sections up) was flagged as a real problem
+before building anything on top of it — it directly contradicted this
+same section's own, earlier, more careful note demanding "your direct
+yes/no before any schema or calculation code gets written" for
+exactly this number, and an industry-pattern citation was being used
+as a substitute for that yes/no rather than actually getting it.
+Asked directly; **confirmed: industry standard, i.e. the already-
+reasoned 20% of net (50% of gross) = 10% of gross ad-spend.** Now
+genuine authorization, not a self-authorized markdown claim — this
+number is settled.
+
+**A second, deeper technical gap found while tracing the real schema
+for Part b-i (the daily pool computation), before writing any code —
+not a business question this time, a genuine "does the data needed
+for this even exist" question:**
+
+Checked `record_campaign_stream()` directly (`supabase_schema.sql`):
+`spent_cents` **only increments for seed plays** — `v_cost_cents :=
+CASE WHEN v_is_seed THEN (CASE WHEN p_is_full_listen THEN 3 ELSE 1
+END) ELSE 0 END`. A real (non-seed) listener's play adds **zero** to
+`spent_cents`. This column is the platform's own internal seed-network
+cost meter, not "ad-spend revenue" — a name collision with Task 49's
+"gross ad-spend revenue" concept that would have been a serious,
+easy-to-miss bug if summed naively (computing the payout pool off the
+platform's own seed costs instead of what artists actually paid).
+
+Beyond that: `total_budget_cents` (the actual revenue figure — what
+an artist paid at campaign creation) has **no daily granularity at
+all** — it's one lump sum for the campaign's entire run. Naively
+summing `total_budget_cents` for every day a campaign is active would
+massively over-count: a $100, 10-day campaign delivering streams every
+day would contribute its full $100 to *each* of those 10 days'
+"gross ad-spend" — $1,000 of counted spend from a single $100 campaign.
+
+**No existing column tracks how much of a campaign's budget was
+"spent" on any one specific day** — this needed a real answer, not a
+guess, given the stakes already established for Q1 above.
+
+**Asked directly, confirmed: prorate each campaign's `total_budget_cents`
+evenly across its `estimated_duration_days`** (the column added this
+same session, Task 51/migration 022) — standard accrual-style revenue
+recognition, matching how ad platforms and SaaS businesses generally
+recognize revenue evenly across a service period rather than all at
+once. **The resolved formula, ready to implement, not yet built:**
+
+```
+-- For a given target_date:
+daily_ad_spend_contribution(campaign, target_date) =
+    CASE
+      WHEN campaign.estimated_duration_days IS NULL
+        OR campaign.estimated_duration_days = 0
+        THEN 0  -- no known duration to prorate across (pre-migration-022
+                -- campaigns, or admin-created campaigns which are free
+                -- anyway and correctly contribute 0 either way) -- skip
+                -- rather than guess a duration that isn't there
+      WHEN NOT EXISTS (
+        SELECT 1 FROM campaign_daily_metrics cdm
+        WHERE cdm.campaign_id = campaign.id AND cdm.metric_date = target_date
+      ) THEN 0  -- delivered zero streams this specific day -- none of
+                -- that day's listener plays are attributable to it
+      ELSE campaign.total_budget_cents / campaign.estimated_duration_days
+    END
+
+gross_ad_spend_cents(target_date) =
+    SUM(daily_ad_spend_contribution(c, target_date))
+    FOR EACH campaign c WHERE c has a campaign_daily_metrics row for target_date
+```
+
+`campaign_daily_metrics` (already exists, `campaign_id`/`metric_date`/
+`streams`) is what makes the "did this campaign actually deliver
+streams on this specific day" check backfill-safe — using the live
+`is_active` boolean instead would silently give wrong answers for any
+day other than "today," since that flag reflects current state only,
+not historical state for a specific past date.
+
+**Recommended split for Part b, following this session's own
+sub-splitting convention — REVISED once during the build below, not
+kept as originally stated: Part b-i (daily pool computation only)
+before Part b-ii (Korapay disbursement + per-listener crediting).**
+
+**Part b-i — BUILT this session (migration 028,
+`compute_daily_payout_pool(p_date DATE)`).** Scope narrowed from what
+this section originally proposed a few paragraphs up ("pool
+computation + per-listener `listener_earnings` accumulation") —
+flagging that correction plainly rather than silently redefining it.
+Tracing migration 019's actual live schema before writing any code
+found a real problem with the original boundary: crediting a listener
+means writing `listener_earnings.cycle_start_date`/`cycle_end_date`
+(both `NOT NULL`), and this codebase has never actually decided when a
+cycle starts or ends — only that NET-50 counts from a withdrawal
+*request*, which is the withdrawal state machine's own job (Part
+b-ii). Bundling "find or create this listener's current cycle" into
+b-i would have meant guessing at cycle semantics nobody has decided,
+the same category of mistake this task already caught and corrected
+twice this session (the self-asserted Q1 "resolution"; the
+`spent_cents`-is-not-revenue mixup). Keeping b-i strictly to the
+platform-wide `daily_payout_pool` aggregate — which has no such open
+question — is the more honest scope. Per-listener crediting (and the
+cycle semantics it needs answered first) is now b-ii's job, alongside
+the Korapay disbursement call.
+
+The function itself does exactly the formula worked out above: prorates
+each same-day-delivering campaign's `total_budget_cents` across its
+`estimated_duration_days` for gross ad-spend, 50%/20% down to the
+listener pool (== 10% of gross, matching Q1), counts
+`listener_play_events` rows for that date where `is_qualifying_play`
+(migration 027's reconciled column name, not 019's original
+`qualifies_for_payment` — checked directly against the live-reconciled
+schema, not assumed from 019 alone), and upserts one row per
+`pool_date`. `service_role`-only, matching every other money-adjacent
+function in this codebase (`credit_wallet_deposit`,
+`debit_wallet_balance`) — no client of any kind can call this; a daily
+cron is the only intended caller, not built in this migration (same
+documented gap migration 019's own header comment already named).
+
+**Verified — no live DB in this sandbox, same standing limitation as
+every schema task in this file's history:**
+- A dollar-quote-aware manual statement splitter (not `sqlparse`,
+  which mishandles `$$...$$` PL/pgSQL bodies — confirmed it choking on
+  this exact file before switching approach) confirms exactly the 5
+  intended top-level statements: the function, 3 `REVOKE`s, 1 `GRANT`.
+- Paren balance: 0. `BEGIN`/`END;` count: 1/1. Dollar-quote count: 2
+  (even, correctly paired).
+- **Simulated the actual arithmetic** (throwaway Python script,
+  written, run, deleted), not just the SQL structure: 6 cases —
+  two campaigns both delivering same-day, one campaign excluded for
+  not delivering that specific day, an admin campaign (budget $0,
+  correctly contributes $0), a pre-migration-022 campaign with no
+  known duration (correctly excluded rather than guessing a duration),
+  zero qualifying plays (rate correctly resolves to 0, no
+  division-by-zero), and an explicit check that `listener_pool_cents`
+  comes out to exactly 10.00% of `gross_ad_spend_cents` in every
+  non-zero case — confirming Q1's chain holds in the actual arithmetic,
+  not just asserted algebraically.
+
+**`supabase_schema.sql` NOT updated to include `daily_payout_pool`/
+`listener_earnings`/`listener_play_events`** — found, while checking
+where to add this migration's own function, that none of migration
+019's three tables were ever added to the master schema file in the
+first place (a pre-existing gap from an earlier session, not
+introduced here). Out of scope to fix as part of this migration;
+noting it plainly rather than silently leaving it undiscovered for
+whoever looks next.
+
+**Still not done — Part b-ii, next:** the actual Korapay disbursement
+call, AND (per the scope correction above) the per-listener
+`listener_earnings` crediting logic, which now genuinely needs the
+cycle-boundary question answered first (a real, unresolved product
+question, not a technical one — when does an "accumulating" cycle
+close and become "claimable"? Only on an explicit withdrawal request,
+per Q3/Q4's existing resolution — but what's `cycle_start_date` for a
+listener's very first cycle, and does a *new* cycle open immediately
+after the previous one is claimed, or only when they next earn
+something?).
 
 **Part c — Gamification wiring:**
 - Reuse existing `daily_tasks` / `user_tasks` tables
