@@ -253,6 +253,24 @@ looking like a part was skipped.
 > independently verified against a live deployed pair, same standing
 > limitation every Edge Function task here has flagged.
 >
+> **Newest note (2026-09-03, latest of all) — Task 64 (new): the
+> grid-tap-to-album/artist/playlist navigation gap Task 59 flagged
+> along the way, split a/b, Part A done.** `ArtistScreen.kt`'s own
+> grid (3 branches: `AlbumItem`/`ArtistItem`/`PlaylistItem`) now
+> forwards `?genreTile=...` on the second nav hop, matching
+> `YouTubeBrowseScreen.kt`'s equivalent (Round 15 Part A). Part B
+> (`AlbumScreen.kt`/`OnlinePlaylistScreen.kt`'s own equivalent grid
+> branches, if either has one — not yet checked) not started.
+> **Explicitly out of scope, not Part B or any future part of this
+> task**: a much larger set of nav call sites found via grep across
+> search screens, library, and context menus — none reached via a
+> genre-tile-tap-originated browse, so forwarding genre there was
+> never this gap's premise. Full write-up in Task 64's own entry.
+> `ArtistScreen.kt` verified via brace/paren balance only (no Android
+> SDK in this sandbox). **Next: Task 64 Part B, or the other remaining
+> flagged follow-up (HTTP-status log-escaping bug in
+> `CampaignRepository.kt`, Round 11's own note).**
+>
 > **Newest note (2026-09-02, latest of all) — Task 59 fully done, all
 > 16 rounds. Part b-b-b-b (the final piece): `OnlinePlaylistScreen.kt`'s
 > 4 `YouTubeQueue(...)` call sites now carry `genre =
@@ -14590,6 +14608,72 @@ navigation gap noted in B-ii Part b's own write-up above, and the
 pre-existing HTTP-status log-escaping bug in `CampaignRepository.kt`
 noted back in Round 11) remain open as their own small, separate,
 explicitly-flagged follow-ups — not part of this chain's own closure.
+
+---
+
+## Task 64 — Grid-tap-to-album/artist/playlist navigation gap (Velune) [ ]
+
+**Flagged during Task 59 Round 16, this task's own thread — deliberately
+separate from that task, not folded into its closure.** A genre-tile
+tap that lands on an artist page (via `YouTubeBrowseScreen.kt`'s own
+grid, genre already forwarded there since Round 15 Part A), then taps
+*further* into one of that artist's own albums/related artists/
+playlists from within the artist page's own grid, loses genre context
+at that second nav hop — `ArtistScreen.kt`'s own `is AlbumItem`/
+`ArtistItem`/`PlaylistItem` navigation branches never forwarded
+`genreTile`, unlike the first hop. This is a navigation-forwarding gap,
+not song-tap-to-queue construction (Task 59's own scope), hence its
+own task.
+
+**Split a/b this session, per direct instruction (this had no prior
+split) — only Part A built.**
+
+**Part A — `ArtistScreen.kt`'s own grid, done, this session.** All 3
+branches (`is AlbumItem`, `is ArtistItem`, `is PlaylistItem`, at what
+was line 1012 before this change) now append
+`?genreTile=${URLEncoder.encode(...)}` when
+`viewModel.genreTileTitle` is non-null — same pattern
+`YouTubeBrowseScreen.kt`'s own equivalent grid tap already uses (Round
+15 Part A): re-encoded (already URL-decoded on the ViewModel) since a
+tile title can contain `&`/`?` (e.g. "R&B", confirmed real, not
+theoretical, same precedent Round 9 established for this exact class
+of value). Confirmed before writing anything: all three destination
+routes (`album/{albumId}?genreTile={genreTile}`,
+`artist/{artistId}?genreTile={genreTile}`,
+`online_playlist/{playlistId}?genreTile={genreTile}`) already declare
+`genreTile` as a nav argument in `NavigationBuilder.kt`, and their
+ViewModels already read it (`AlbumViewModel`/`ArtistViewModel`/
+`OnlinePlaylistViewModel`'s own `genreTileTitle` property, all three
+pre-existing from earlier rounds) — this fix only needed the *sending*
+side in `ArtistScreen.kt`, no route/ViewModel changes.
+
+**Part B — `AlbumScreen.kt`/`OnlinePlaylistScreen.kt`'s own equivalent
+grid branches, if either has one — not started.** The natural
+continuation of the same gap: if either of those two screens has its
+own "tap a grid item to go one hop deeper" navigation code (not yet
+checked this session), it needs the identical fix. Not assumed either
+way — a future session should check both files directly before
+building Part B, not assume the pattern repeats.
+
+**Explicitly out of scope, not Part B or any future part of this
+task:** grepped the whole app for every `navController.navigate` call
+to `album/`/`artist/`/`online_playlist/` — found a much larger set of
+call sites in search screens (`OnlineSearchScreen.kt`,
+`OnlineSearchResult.kt`, `LocalSearchScreen.kt`), library
+(`Library.kt`, `LibraryMixScreen.kt`), context menus (`SongMenu.kt`,
+`YouTubeSongMenu.kt`, `QueueMenu.kt`, `AlbumMenu.kt`,
+`YouTubeAlbumMenu.kt`, `PlayerMenu.kt`), and `MainActivity.kt`. None of
+those are reached via a genre-tile-tap-originated browse — they're
+separate entry points (a user's own library, a search result, a
+context menu opened from anywhere) where forwarding a genre tile was
+never this gap's premise to begin with. Flagging this explicitly so a
+future session doesn't read "navigation gap" too broadly and start
+"fixing" places that were never part of this chain.
+
+Verified (Part A only): brace/paren balance on the modified file
+(195/195 `{}`, 424/424 `()`) — balanced. Not compile-verified — no
+Android SDK/Gradle in this sandbox, same standing limitation as every
+Velune part in this project.
 
 ---
 
