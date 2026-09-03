@@ -1,5 +1,5 @@
 -- ============================================================
--- Migration 029 — Task 49 Part b-ii-i: credit_listener_earnings_for_date()
+-- Migration 031 — Task 49 Part b-ii-i: credit_listener_earnings_for_date()
 -- ============================================================
 --
 -- Part b-ii itself sub-split into i/ii this session, same "no real

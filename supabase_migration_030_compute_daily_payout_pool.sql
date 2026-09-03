@@ -1,5 +1,5 @@
 -- ============================================================
--- Migration 028 — Task 49 Part b-i: compute_daily_payout_pool()
+-- Migration 030 — Task 49 Part b-i: compute_daily_payout_pool()
 -- ============================================================
 --
 -- Builds ONLY the daily_payout_pool computation — the platform-wide

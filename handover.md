@@ -2,6 +2,27 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-09-03, latest of all) — found and fixed a
+> second numbering mistake in the same area as the migration 027
+> retraction, missed by that retraction's own author: migration 028
+> was claimed by TWO different files at once** (`ensure_device_listener`
+> and `compute_daily_payout_pool`). Renamed the two later files to 030/
+> 031 (internal header comments updated to match; no cross-references
+> between them, confirmed via grep). Not a live-DB risk — the real push
+> workflow generates its own timestamp regardless of this repo's
+> sequential number — but a real documentation-consistency problem,
+> now fixed. **Also confirmed, not assumed: Part b-ii-ii's flagged
+> B-Pay-backend dependency is genuinely satisfied today** — cloned that
+> repo fresh, found a real, live, `requireInternalApiKey`-protected
+> `POST /payout` route calling a genuine `processPayout()` → Korapay
+> disbursement chain. **Part b-ii-ii's cross-repo blocker is resolved —
+> only the mavins-web-side state-machine work itself remains**,
+> deliberately not started this pass (money-movement logic this size
+> deserves its own dedicated scoping session, same discipline "Part b"
+> itself was split around from the start). Full write-up in Task 49's
+> own new "Correction" entry, right before the migration 027 retraction
+> note.
+>
 > **Newest note (2026-09-03, latest of all) — Task 63's open question
 > #2 resolved: `INTERNAL_API_KEY` confirmed set on Render, matching
 > `BPAY_INTERNAL_API_KEY`.** Project owner confirmed directly. **Still
@@ -10667,7 +10688,65 @@ to display).
 
 ---
 
-### Part a — CORRECTION: this session's own migration 027 was a real mistake, retracted [x] (correction, not new work)
+### Correction — migration 028 was used for two different, unrelated functions simultaneously; also confirmed Part b-ii-ii's cross-repo dependency is real and live [x]
+
+**A second numbering mistake found in the same area as the migration
+027 retraction directly above — not caught by that retraction's own
+author, despite that commit's own message explicitly naming both
+"migrations 028 and 029" as unaffected.** Two files both claimed
+`supabase_migration_028_*.sql` on disk at once:
+`supabase_migration_028_ensure_device_listener.sql` (Part b-a, built
+earlier) and `supabase_migration_028_compute_daily_payout_pool.sql`
+(Part b-i, built later — its neighbor, `029_credit_listener_earnings.sql`,
+was also next-in-line for the same problem once 028 was double-booked).
+Not a live-DB risk in itself (the actual `supabase db push` workflow
+this project uses generates a fresh timestamped filename at push time,
+per the "Supabase CLI workflow" section near the top of this file — it
+never reads this repo's own sequential number directly) but a real
+source-of-truth/documentation-consistency problem: two files claiming
+the same identity makes this repo's own migration history misleading
+to read, and risks a future session assuming "migration 028" refers to
+whichever one they happen to open first.
+
+**Fixed by renumbering, not by picking a "winner":** `028_compute_daily_payout_pool.sql`
+→ `030_compute_daily_payout_pool.sql`, `029_credit_listener_earnings.sql`
+→ `031_credit_listener_earnings.sql` — both files' own internal header
+comments (`-- Migration 028 — ...` / `-- Migration 029 — ...`) updated
+to match, and checked for any cross-references between the two (none
+found — they don't call each other by migration number anywhere in
+their SQL bodies, only by function name, which didn't change). Left
+the gap at 027 (correctly retracted, nothing to fill it with) and the
+now-vacant 029 (content moved to 031) — gaps in this sequence are
+harmless, same reasoning as why the collision itself wasn't a live-DB
+risk.
+
+**Also verified, not assumed, while investigating this area: Part
+b-ii-ii's own flagged cross-repo dependency is genuinely satisfied
+today, not still theoretical.** That part's own note says it "needs a
+live, confirmed-reachable B-Pay-backend endpoint, not independently
+re-verified this session" — cloned B-Pay-backend fresh and checked
+directly: `routes.js` has a real `router.post('/payout',
+requireInternalApiKey, ...)` route, calling `korapay.js`'s real
+`processPayout()`, which genuinely calls Korapay's disbursement API.
+Protected by the same `requireInternalApiKey` middleware Task 42/63's
+own work already hardened and confirmed deployed with a matching
+secret on both sides. **This means Part b-ii-ii's cross-repo blocker is
+resolved — the endpoint exists, is live, and is protected — leaving
+only the mavins-web-side state-machine work itself (the
+withdrawal-request-triggered `cycle_end_date` transition and the
+actual outbound call to this now-confirmed endpoint) as what's
+genuinely still needed, not an external dependency to wait on.**
+Deliberately not built in this same pass — real money-movement logic
+of this shape deserves its own dedicated scoping session, the same
+standing discipline this task's own "Part b" split was built around
+from the start, not a rushed add-on to a numbering-collision fix.
+
+Verified: `ls supabase_migration_*.sql | sort` confirms no remaining
+duplicate numbers anywhere in the sequence. No live-DB action needed —
+neither renamed file has been pushed yet (same "Action required before
+this does anything live" status both already carried under their old
+names).
+
 
 **A session earlier today created migration 027, a NEW
 `listener_play_events` table plus a `record_campaign_stream()`
