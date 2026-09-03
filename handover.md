@@ -310,22 +310,32 @@ looking like a part was skipped.
 > resolutions in that box remain unverified by this session; don't
 > treat them as settled without the same kind of direct confirmation.
 >
-> **Newest note (2026-09-02, latest of all) — Task 63 done: urgent
-> cross-repo fix, `initialize-payment` now sends the header
-> B-Pay-backend's `/pay` route requires.** That repo's own Task 42
-> explicitly warned "DO NOT DEPLOY ALONE" — its `/pay` route now
-> requires `X-Internal-Api-Key`, and this was the one missing piece on
-> this repo's side. New Deno secret `BPAY_INTERNAL_API_KEY` (must match
-> B-Pay-backend's own `INTERNAL_API_KEY` exactly, one shared secret,
-> not two), fails closed if unset (a clear 500 before ever attempting
-> the network call, not an opaque 401 from the other side). Confirmed
-> via fresh grep this is the only call site needing it — `korapay.
-> service.ts` no longer exists in this repo at all. **Deploy this
-> alongside B-Pay-backend's own Part c-a/c-b rollout, not after** — see
-> Task 63's own entry for the exact `supabase secrets set` +
-> `functions deploy` commands. `npx tsc --noEmit` clean; not
-> independently verified against a live deployed pair, same standing
-> limitation every Edge Function task here has flagged.
+> **Newest note (2026-09-02, latest — deploy confirmed) — Task 63's
+> Edge Function is live.** Project owner ran `supabase secrets set
+> BPAY_INTERNAL_API_KEY=... && supabase functions deploy
+> initialize-payment` from the `proot-distro` container — clean
+> deploy, no errors ("Deployed Functions on project
+> atojskxrxfsbpeefigtm: initialize-payment"). `initialize-payment` now
+> sends `X-Internal-Api-Key` on every call to B-Pay-backend's `/pay`.
+> **This is only half the pair, though — a real, currently-unknown risk,
+> not a settled "harmless either way" situation:** B-Pay-backend's own
+> `INTERNAL_API_KEY` (the Render-side env var this Deno secret's value
+> must exactly match) has NOT been confirmed set as of this note — that
+> repo's own handover.md hasn't moved since flagging Part c-a/c-b as
+> urgent, and nothing in this conversation confirms the Render
+> dashboard step happened. **Render web services typically auto-deploy
+> on every push to the connected branch — if that's true for
+> B-Pay-backend too, its `requireInternalApiKey`-protected `/pay` route
+> (committed as `5424c65`) may have already gone live in production
+> BEFORE this Mavins-web fix was deployed just now, meaning real
+> checkouts could have been failing with 401 in the gap between those
+> two moments.** Not confirmed either way — flagging the real
+> possibility rather than assuming Render's deploy behavior or timeline
+> without checking. Worth confirming directly: (1) does B-Pay-backend
+> auto-deploy on push, (2) is `INTERNAL_API_KEY` actually set on
+> Render's dashboard with the same value as `BPAY_INTERNAL_API_KEY`
+> above, (3) are real checkouts working right now. Don't mark this
+> fully closed until those three are answered.
 >
 > **Newest note (2026-09-03, latest of all) — Task 64 fully closed.**
 > Part B-ii (`OnlinePlaylistScreen.kt`'s own equivalent check):
