@@ -117,6 +117,35 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-02, latest of all) — Task 49 Part a done:
+> listener_play_events, the play-event persistence layer.** Real
+> current blocker found and fixed (not stale docs): `record_campaign_
+> stream()` already received `p_user_id`/`p_listen_duration_seconds`
+> but never persisted either for a real listener. New migration 027
+> adds `listener_play_events` (identity keyed on `public.users.id`,
+> Task 48-b Part c's confirmed identity key; `is_qualifying_play` as a
+> stored generated `>= 60` column; two partial indexes for the
+> access patterns Part b's payout calculation will need) and extends
+> `record_campaign_stream()` — every existing behavior preserved
+> verbatim, one new gated INSERT, `IS FALSE` (not `NOT`) making the
+> real-listener/seed/unmatched three-way split explicit rather than
+> relying on NULL's implicit falsiness. Verified via a 6-case Python
+> simulation of the branching logic (all passed) plus `sqlparse`
+> structure check. Not run against the live DB. **Next: Part b (the
+> actual pool calculation), reading from this table.** Full write-up
+> in Task 49's own "Part a" entry.
+>
+> **Also this session — found a mystery box elsewhere in this file
+> (different git author identity, `Mavins Dev <dev@mavins.io>`,
+> claims "no product-owner confirmation required" for Tasks 35/36/46/
+> 49 and asks to blindly apply two unseen patch files) and deliberately
+> did NOT act on it.** Proceeded on Task 49 Part a only because the
+> actual product owner directly confirmed Q1 through a real, traceable
+> exchange in this session's own conversation — not because that box
+> said confirmation wasn't needed. Tasks 35/36/46's claimed
+> resolutions in that box remain unverified by this session; don't
+> treat them as settled without the same kind of direct confirmation.
+>
 > **Newest note (2026-09-02, latest of all) — Task 63 done: urgent
 > cross-repo fix, `initialize-payment` now sends the header
 > B-Pay-backend's `/pay` route requires.** That repo's own Task 42
@@ -10177,7 +10206,89 @@ change that, just removes the last blocker to it.
 - Play history table
 - Task progress / gamification widgets
 
+---
 
+### Part a — listener_play_events (the play-event persistence layer) [x]
+
+**Done this session (2026-09-02), following direct product-owner
+confirmation of Q1 (10% of gross ad-spend) via a proper, traceable
+exchange in chat — not the mystery "no confirmation required" box
+elsewhere in this file, which this session deliberately did not act
+on. See that box's own preceding note for why.**
+
+**Real, current blocker found and fixed — not stale documentation.**
+Read `record_campaign_stream()` directly before writing anything:
+it already receives `p_user_id` and `p_listen_duration_seconds` as
+parameters, but never persisted either one for a real listener —
+`p_user_id` was used transiently only to check `user_type = 'seed'`
+(for the seed engine's own cost bookkeeping), and
+`p_listen_duration_seconds` was accepted and silently dropped,
+referenced nowhere in the function body. There was no per-listener,
+per-play record anywhere in the schema for a payout calculation to
+read from — confirmed directly, not inferred from the older "Velune
+investigation" note earlier in this task (which flagged the same
+underlying problem from a different angle, before this exact function
+existed in its current form).
+
+**New migration 027** (`listener_play_events`):
+- `campaign_id` → `track_campaigns`, `listener_id` → `public.users.id`
+  — the one real identity key this whole app uses (Task 48-b Part c's
+  finding, verified against every real route's code).
+- `is_qualifying_play` is a `GENERATED ALWAYS AS (listen_duration_seconds
+  >= 60) STORED` column — the ≥60s threshold this task's spec
+  repeatedly references, defined in exactly one place rather than
+  duplicated into every future payout query that filters on it.
+- Two partial indexes (`WHERE is_qualifying_play`) on
+  `(listener_id, played_at)` and `(campaign_id, played_at)` — the
+  actual access patterns a NET-50-cycle payout calculation will need
+  (sum qualifying plays per listener within a cycle window, and
+  per-campaign for pro-rata weighting), indexed for directly rather
+  than left to a future sequential scan.
+- RLS enabled, **no** read/write policy for `anon`/`authenticated` —
+  same posture as `payment_sessions`/`wallet_ledger` (migration 006's
+  own header) for money-adjacent tables; a listener's own earnings
+  record is exactly this kind of table. The only writer is
+  `record_campaign_stream()` itself (`SECURITY DEFINER`, unchanged),
+  so Velune's anon-key caller never needs direct table access.
+
+**`record_campaign_stream()` extended, not replaced** — every existing
+behavior (aggregate counters, `seed_interaction_log`,
+`campaign_daily_metrics`) preserved verbatim; the only addition is one
+new `INSERT INTO listener_play_events`, gated on `v_is_seed IS FALSE`
+specifically (not `NOT v_is_seed`) — deliberate: `v_is_seed` is `NULL`,
+not `FALSE`, when `p_user_id` matches no `public.users` row at all (a
+device-id fallback or last-resort random UUID, per Velune's own
+`MusicService.kt`/`CampaignRepository.kt` caller-side behavior,
+confirmed by reading those files directly this session). `IS FALSE`
+makes the three-way split (real listener / seed persona / no matching
+row) explicit rather than relying on NULL's implicit-falsy behavior to
+happen to do the right thing. No row is written for the unmatched
+case — correct, since there's no real, payable listener to credit for
+a play that can't be tied to a real registered account.
+
+**Verified with concrete cases, not just eyeballed:** a throwaway
+Python script simulating the three-way branch — 6 cases (four
+different real `user_type` values, all correctly writing a row; a
+seed persona, correctly not; an unmatched/anonymous play, correctly
+not) — all 6 passed against the exact logic written into the real
+migration. SQL structure also checked via `sqlparse` (6 statements,
+matching the expected `CREATE TABLE` / 2× `CREATE INDEX` / `ALTER
+TABLE` / `CREATE OR REPLACE FUNCTION` / `GRANT` shape).
+
+**Not verified: this migration hasn't been run against the live DB**
+— same `supabase db push` hand-off every prior migration in this file
+has needed, no credentials to do that from this sandbox.
+
+**Deliberately not done as part of Part a**: the actual payout-pool
+calculation (10% of gross ad-spend, pro-rata by qualifying-play
+count, NET-50 cycle boundaries) — that's Part b, reading from this
+table, not this migration's own job. Also not done: anything on the
+Velune side — this migration only extends the existing
+`record_campaign_stream()` signature-compatible; no Velune code change
+was needed for this specific part, since Velune already passes both
+`p_user_id`/`listenDurationSeconds` today (confirmed by reading
+`MusicService.kt`'s existing call site directly) — they were simply
+never persisted server-side until now.
 
 ---
 
