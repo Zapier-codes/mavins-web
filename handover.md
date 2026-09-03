@@ -253,7 +253,21 @@ looking like a part was skipped.
 > independently verified against a live deployed pair, same standing
 > limitation every Edge Function task here has flagged.
 >
-> **Newest note (2026-09-03, latest of all) — Task 64 (new): the
+> **Newest note (2026-09-03, latest of all) — Task 64 Part B split into
+> i/ii; i done (`AlbumScreen.kt`).** Same `?genreTile=...` forwarding
+> as Part A, applied to `AlbumScreen.kt`'s "Other Versions" grid
+> (`LazyRow` of `YouTubeGridItem`s tapping into `album/${item.id}`) —
+> checked directly, not assumed to exist, and confirmed
+> `AlbumViewModel` actually has `genreTileTitle` before writing
+> anything. A separate, unrelated artist-credit text link elsewhere in
+> the same file is not a grid and correctly untouched. Verified via
+> brace/paren balance only (no Android SDK in this sandbox). **Next:
+> Part B-ii** (`OnlinePlaylistScreen.kt`'s own equivalent check — not
+> yet confirmed to even have a comparable grid), **or the other
+> remaining flagged follow-up** (HTTP-status log-escaping bug in
+> `CampaignRepository.kt`, Round 11's own note).
+>
+> **Newest note (2026-09-03, previous) — Task 64 (new): the
 > grid-tap-to-album/artist/playlist navigation gap Task 59 flagged
 > along the way, split a/b, Part A done.** `ArtistScreen.kt`'s own
 > grid (3 branches: `AlbumItem`/`ArtistItem`/`PlaylistItem`) now
@@ -267,9 +281,7 @@ looking like a part was skipped.
 > genre-tile-tap-originated browse, so forwarding genre there was
 > never this gap's premise. Full write-up in Task 64's own entry.
 > `ArtistScreen.kt` verified via brace/paren balance only (no Android
-> SDK in this sandbox). **Next: Task 64 Part B, or the other remaining
-> flagged follow-up (HTTP-status log-escaping bug in
-> `CampaignRepository.kt`, Round 11's own note).**
+> SDK in this sandbox).
 >
 > **Newest note (2026-09-02, latest of all) — Task 59 fully done, all
 > 16 rounds. Part b-b-b-b (the final piece): `OnlinePlaylistScreen.kt`'s
@@ -14611,7 +14623,7 @@ explicitly-flagged follow-ups — not part of this chain's own closure.
 
 ---
 
-## Task 64 — Grid-tap-to-album/artist/playlist navigation gap (Velune) [ ]
+## Task 64 — Grid-tap-to-album/artist/playlist navigation gap (Velune) [ ] (Part A done; Part B split into i/ii, i done, ii not started)
 
 **Flagged during Task 59 Round 16, this task's own thread — deliberately
 separate from that task, not folded into its closure.** A genre-tile
@@ -14648,12 +14660,32 @@ pre-existing from earlier rounds) — this fix only needed the *sending*
 side in `ArtistScreen.kt`, no route/ViewModel changes.
 
 **Part B — `AlbumScreen.kt`/`OnlinePlaylistScreen.kt`'s own equivalent
-grid branches, if either has one — not started.** The natural
+grid branches, if either has one. Split into i/ii this session, per
+explicit instruction — i done, ii not started.** The natural
 continuation of the same gap: if either of those two screens has its
-own "tap a grid item to go one hop deeper" navigation code (not yet
-checked this session), it needs the identical fix. Not assumed either
-way — a future session should check both files directly before
-building Part B, not assume the pattern repeats.
+own "tap a grid item to go one hop deeper" navigation code, it needs
+the identical fix.
+
+**Part B-i — `AlbumScreen.kt` — done this session, Velune commit
+`b3f942c`.** Checked directly rather than assumed: this screen's own
+grid is an "Other Versions" `LazyRow` of `YouTubeGridItem`s (tapping
+one navigates to `album/${item.id}`) — genuinely the same class of gap
+Part A fixed. (A separate, unrelated clickable element earlier in the
+same file — the album's artist-credit text link — is not a grid and
+was correctly left untouched; it was never part of this gap's
+premise.) Confirmed `AlbumViewModel` actually has `genreTileTitle`
+(reads from `savedStateHandle.get<String>("genreTile")`) before
+writing anything, not assumed from Part A's own summary of that fact.
+Same forwarding pattern as Part A: re-encoded via
+`java.net.URLEncoder.encode(it, "UTF-8")`. Verified via brace/paren
+balance on the modified file (165/165 `{}`, 400/400 `()`) — balanced.
+Not compile-verified, same standing limitation every Velune part here
+has.
+
+**Part B-ii — `OnlinePlaylistScreen.kt`'s own equivalent check — not
+started.** Not assumed either way — check the file directly (same
+discipline Part B-i just used) before building anything; it may not
+even have a comparable grid at all.
 
 **Explicitly out of scope, not Part B or any future part of this
 task:** grepped the whole app for every `navController.navigate` call
