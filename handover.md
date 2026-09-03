@@ -2,6 +2,30 @@
 
 ## Unified hand-off command format — MANDATORY, every session, all three repos
 
+> **Newest note (2026-09-04, latest of all) — Task 49 Part b-ii-ii
+> split A/B, Part b-ii-ii-a done: the withdrawal-request state
+> machine.** Picked up exactly the "dedicated scoping session" the
+> numbering-collision-fix note right below deliberately left open. New
+> `supabase_migration_032_request_listener_withdrawal.sql` (drafted as
+> 030, renumbered to 032 after pulling that same note's own 028-fix
+> mid-work, rather than recreate the collision it had just resolved) —
+> `request_listener_withdrawal(p_listener_id UUID)` transitions a
+> listener's current `'accumulating'` cycle to `'claimable'` once it
+> clears the already-confirmed $10.00 per-cycle minimum, returning a
+> structured success/message row rather than throwing. Trust model
+> deliberately matches every other listener-facing RPC in this system
+> (plain UUID, `anon`-grantable, no additional token) — consistent
+> with Task 60's own confirmed no-login device-based design. Also
+> flagged (not built): the separate, time-based `'claimable'` →
+> `'expired'` transition for a missed claim window needs a scheduled
+> job, not this RPC. Verified via paren/IF balance (function body
+> confirmed byte-identical across the renumbering via `diff`) and a
+> 10-assertion Python simulation (all passed, discarded, not
+> committed). Not run against the live DB. **Part b-ii-ii-b (the
+> actual Korapay disbursement call) is next — no remaining known
+> blocker, deliberately not started this session.** Full write-up in
+> Task 49's own new "Part b-ii-ii" section.
+>
 > **Newest note (2026-09-03, latest of all) — found and fixed a
 > second numbering mistake in the same area as the migration 027
 > retraction, missed by that retraction's own author: migration 028
@@ -10746,6 +10770,71 @@ duplicate numbers anywhere in the sequence. No live-DB action needed —
 neither renamed file has been pushed yet (same "Action required before
 this does anything live" status both already carried under their old
 names).
+
+### Part b-ii-ii — the "dedicated scoping session" above, done: split A/B, Part b-ii-ii-a built
+
+**Picked up the work the numbering-collision fix above deliberately
+left for its own session.** Split into A (the withdrawal-request state
+machine, `'accumulating'` → `'claimable'`) and B (the actual outbound
+Korapay disbursement call via B-Pay-backend's now-confirmed-live
+`/payout` route, `'claimable'` → `'claimed'`) — the same nav-layer-
+then-consumption shape this file's own task-splitting rule has used
+throughout, applied here to "state transition" vs. "external call"
+instead. Splitting isn't just procedural here either: A is fully
+buildable and testable with zero external dependency; B needs a real
+outbound HTTP call to a live service this sandbox can exercise once
+but shouldn't build blind — a genuinely different kind of work.
+
+**Part b-ii-ii-a — done this session. New
+`supabase_migration_032_request_listener_withdrawal.sql`**
+(originally drafted as 030 before pulling this same session's own
+numbering-collision fix mid-work — renumbered to 032 rather than
+recreate the exact problem that commit had just resolved):
+`request_listener_withdrawal(p_listener_id UUID)` finds the listener's
+current `'accumulating'` cycle, checks it against the already-
+confirmed $10.00 per-cycle minimum (Q6, resolved earlier in this
+section), and on success sets `cycle_end_date = CURRENT_DATE` and
+transitions status to `'claimable'`. Returns a structured
+`(success, message, cycle_id, earnings_cents)` row rather than
+throwing — no balance or a below-minimum balance are expected outcomes
+a caller needs to display, not exceptions to catch.
+
+**Trust model, deliberate, flagged explicitly:** plain
+`p_listener_id`, no additional auth token, `GRANT`ed to `anon` —
+matching every other listener-facing RPC in this system
+(`record_campaign_stream`, `ensure_device_listener`), consistent with
+Task 60's own confirmed device-based, no-real-login design. A
+stronger check just for this one step would be inconsistent with the
+trust model already established for every other listener interaction,
+not more correct — the real safeguard against misuse is downstream:
+actual money only ever moves once a real payout tag is supplied
+(b-ii-ii-b), which only the real listener would have.
+
+**Also flagged, genuinely a different function, not built here:**
+nothing yet transitions a `'claimable'` cycle to `'expired'` if the
+5-business-day claim window (already-confirmed NET-50 rule) passes
+without an actual claim — that needs a scheduled/cron job checking
+`cycle_end_date` against `now()`, not a listener-triggered RPC.
+
+Verified: paren balance (24/24 — the function body itself is
+byte-identical between the 030 draft and the 032 renumbering, header
+comments only; confirmed via `diff`), `IF`/`END IF` matched (2/2). A
+throwaway Python simulation of the state machine (written, run,
+deleted, not committed) — 10 assertions: no accumulating cycle,
+below-minimum (untouched), exactly-$10 boundary (inclusive),
+above-minimum, an already-claimable cycle re-requested (correctly
+finds nothing to transition), two listeners' cycles confirmed
+independent, and a defensive multi-row case picking the highest
+`cycle_number`. All 10 passed. **Not run against the live DB** — same
+standing limitation as every migration in this task.
+
+**Part b-ii-ii-b — not started.** The actual Korapay disbursement call
+to B-Pay-backend's now-confirmed-live `POST /payout`, transitioning
+`'claimable'` → `'claimed'` on success. No remaining known blocker —
+the endpoint's existence and protection are confirmed above — this is
+now purely a matter of writing and testing the actual integration,
+real money movement, deserving its own careful session rather than a
+rushed continuation of this one.
 
 
 **A session earlier today created migration 027, a NEW
