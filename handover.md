@@ -14522,7 +14522,7 @@ explicitly-flagged follow-ups — not part of this chain's own closure.
 
 ## Task 60 — Cross-repo diagnosis: Velune double-records every campaign
 play, one call site silently fails outright; listener identity is
-device-based by design, not a missing-auth bug [Part A done, Part B not started]
+device-based by design, not a missing-auth bug [x — CORRECTED: Part B was already fully applied, this header was stale]
 
 **Ask, from the product owner directly:** does Velune write to the
 database completely, or is it missing something — cross-check Velune
@@ -14630,6 +14630,19 @@ attribution. Nothing about `CampaignPlaybackTracker`, the RPC's own
 signature, or anything on the mavins-web/database side needs to
 change — this is entirely a Velune-side, three-line-diff fix once
 someone is instructed to actually apply it.
+
+**Correction, later session (2026-09-03) — this fix was already
+applied in full, by a session this file has no other record of.**
+Confirmed by reading Velune's current code directly, not assumed:
+`HomeScreen.kt`'s `onCampaignClick` now carries a comment citing
+"Task 60 (handover.md)" explaining exactly this removal —
+`CampaignCardSection.kt`'s own duplicate call and `HomeScreen.kt`'s
+`"anonymous"`-userId call are both gone, and `MusicService.kt`'s
+surviving `recordCampaignStream()` call (~line 3687) now passes
+`countryCode = java.util.Locale.getDefault().country`, computed at
+the point of the real, transition-based call — exactly the fix
+prescribed above, already live. The top-of-section status marker was
+stale; corrected to `[x]`. Nothing further to do here.
 
 ### The deeper question this cross-check was really asking — resolved, not a gap to fix with auth
 
