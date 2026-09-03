@@ -117,8 +117,36 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-09-03, latest of all) — Task 49 Part b-b DONE,
-> both b-b-i and b-b-ii.** New
+> **Newest note (2026-09-03, later still) — found and fixed a real
+> pre-production schema conflict before Part b (pool calculation)
+> could be safely scoped.** Migrations 019 and 027 both define
+> `listener_play_events` with different, incompatible columns —
+> migration 019 already created and applied it live (2026-08-30, per
+> this file's own earlier confirmation); migration 027 (this task's
+> own "Part a" round) rewrote it from scratch with a different shape,
+> never accounting for 019 already existing, and was never actually
+> pushed live. Had it been pushed as originally written, its `CREATE
+> TABLE IF NOT EXISTS` would have silently no-op'd against the live
+> table, permanently stranding it on 019's older columns while every
+> downstream consumer (starting with `record_campaign_stream()`'s own
+> new `INSERT`, in that same migration) assumed 027's shape. Confirmed
+> safe to fix via `ALTER` rather than `DROP`+recreate: migration 019
+> never touches `record_campaign_stream()`, and nothing else writes to
+> this table before 027's own RPC extension, so the live table is
+> guaranteed empty under either schema. Rewrote migration 027's
+> schema-creation block into an `ALTER`-based reconciliation of 019's
+> already-live table — `record_campaign_stream()`'s own already-
+> verified extension is completely untouched. Verified via `sqlparse`
+> (15 statements, matching the intended structure) + paren balance
+> (62/62). Not run against the live DB — same hand-off every migration
+> here needs. **Part b (the actual pool calculation) is now safe to
+> scope against a schema that's actually consistent — genuinely still
+> unscoped, next up, but deliberately not started this session** (a
+> money-calculation task this size deserves its own proper scoping/
+> splitting pass, not a rushed add-on to a schema-conflict fix).
+>
+> **Older note (2026-09-03) — Task 49 Part b-b DONE, both b-b-i and
+> b-b-ii.** New
 > `CampaignRepository.ensureDeviceListener(deviceId)` (Velune) — the
 > Kotlin wrapper for migration 028's `ensure_device_listener` RPC.
 > **One real, flagged-not-assumed uncertainty:** this RPC returns a
@@ -10207,6 +10235,18 @@ alongside migrations 020/021/022 in the same push, see this file's top
 box). Velune still has nothing to write to these tables yet (per the
 "nothing real to receive yet" note just above) — being live doesn't
 change that, just removes the last blocker to it.
+
+**Correction, 2026-09-03: migration 027 (below, "Part a" round) later
+redefined this same `listener_play_events` table with different
+columns, without accounting for the fact that this migration had
+already created it live.** Caught and fixed before 027 was ever
+pushed — see migration 027's own file (its header comment now explains
+the reconciliation in full) and this task's "New migration 027"
+sub-section below. The column list immediately below this note (item
+1) reflects **this migration's original, still-live shape** — read
+migration 027's own section for the actual current shape after
+reconciliation (`is_qualifying_play` instead of `qualifies_for_payment`,
+plus `is_full_listen`/`country_code`), not this list.
 1. New table: `listener_play_events` (Velune writes directly, Mavins-web
    reads only)
    - `id` uuid PK
@@ -10312,6 +10352,39 @@ existed in its current form).
   record is exactly this kind of table. The only writer is
   `record_campaign_stream()` itself (`SECURITY DEFINER`, unchanged),
   so Velune's anon-key caller never needs direct table access.
+
+**Reconciled with migration 019, 2026-09-03, before ever being pushed
+live — real bug, caught before deploy, not after.** This migration
+was originally written as a fresh `CREATE TABLE IF NOT EXISTS
+listener_play_events`, same as described above — but migration 019
+(this task's own "Part a — Schema" section, above) had **already
+created a table by that exact name and applied it to the live DB**
+back on 2026-08-30, with a different, incompatible column set
+(`qualifies_for_payment` instead of `is_qualifying_play`; no
+`is_full_listen`/`country_code` at all; an extra `track_url` this
+migration never had). Since this migration was never actually pushed,
+that conflict hadn't caused any real damage yet — but it would have
+the moment it was: `CREATE TABLE IF NOT EXISTS` against an
+already-existing table is a silent no-op, so the live table would have
+stayed on 019's older shape forever, breaking every consumer written
+against this migration's own shape (starting with
+`record_campaign_stream()`'s own new `INSERT` immediately below, which
+references columns that would never have actually existed live).
+Confirmed safe to reconcile via `ALTER` rather than `DROP`+recreate:
+migration 019 never touches `record_campaign_stream()` (no `CREATE OR
+REPLACE FUNCTION` anywhere in that file, checked directly), and
+nothing else in this codebase wrote to this table before this
+migration's own RPC extension — so the live table is guaranteed to
+have zero real rows under either schema, genuinely safe to alter
+freely. This migration's file itself now contains the real fix (an
+`ALTER TABLE`-based reconciliation replacing the original `CREATE
+TABLE`) — see that file's own header comment for the full detail;
+everything described in the bullet points above is still an accurate
+description of the table's **final** shape, just reached via `ALTER`
+now instead of `CREATE`. Verified via `sqlparse`: 15 real statements,
+matching the intended structure exactly; paren balance 62/62. Not run
+against the live DB — same hand-off every migration in this file
+needs.
 
 **`record_campaign_stream()` extended, not replaced** — every existing
 behavior (aggregate counters, `seed_interaction_log`,
