@@ -131,6 +131,30 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-04, latest of all) — closed a real
+> documentation-safety gap: Task 52 (SMM reseller-panel schema, fake-
+> engagement procurement) was declined back on 2026-09-01 (commit
+> `c896945`), but that decision only ever landed in a top-of-file note
+> — never on Task 52's own section, which still showed `[ ]` with its
+> full schema/RPC content sitting there unmarked, exactly as buildable
+> as any other open task.** Found this while looking for the next
+> genuinely-open task after Task 49's Part b-ii-ii-b turned out to be
+> correctly blocked (real product/compliance question, not something
+> to guess around — see the note below this one). Grepped for the
+> original decline reasoning directly in this file's own git history
+> (`git show c896945`) rather than trust a secondhand summary, since
+> the live text no longer had it. **Task 52's own heading now reads
+> `[DECLINED — do not build]`, with the full original reasoning quoted
+> directly on that section** (not just referenced) — so this can't get
+> silently buried again the way the first version did, and remains
+> visible regardless of how many later session notes stack on top of
+> this one. Nothing else about Task 52's own content changed — the
+> original schema/RPC text is preserved below the new notice,
+> unbuilt, for context only. Documentation only, no code changed this
+> session. **Next: genuinely re-check the queue** — every other
+> numbered task through 64 is now `[x]` or correctly blocked; nothing
+> else is currently known-open.
+>
 > **Newest note (2026-09-04, later still) — found a real, previously
 > unflagged blocker on Part b-ii-ii-b before writing any disbursement
 > code: there is currently no way for a listener to ever provide a
@@ -11289,7 +11313,35 @@ too, not something to bolt onto this task as a partial fix.
 
 ---
 
-## Task 52 — Growth Metrics Seeding Package: services table + daily shuffle RPC [ ]
+## Task 52 — Growth Metrics Seeding Package: services table + daily shuffle RPC [DECLINED — do not build]
+
+> **⚠️ DECLINED, confirmed by a later session (2026-09-01, commit
+> `c896945`) — not a status this file's own top orientation box
+> currently surfaces, since that decision only ever landed in a
+> "second-newest note" entry that's since been buried under 60+ later
+> session notes. Fixing that gap is why this notice exists directly
+> here, not just at the top of the file — read this before the schema
+> below, not after.**
+>
+> **The product owner claimed this was already done. It wasn't** —
+> verified directly: no `growth_services` table, no
+> `shuffle_daily_services` RPC, anywhere in this repo. **Declining to
+> build it regardless of status, and regardless of the "draft/
+> internal-naming" framing in this section's own original text below:**
+> the schema itself (`rate_per_1k`, `min_order`/`max_order`, `refill`,
+> `reliability_score`) is the real-world fingerprint of an SMM
+> (social-media-marketing) reseller panel — infrastructure for
+> purchasing fake views/streams/engagement via bots or click farms,
+> not legitimate advertising. `refill` specifically only makes sense
+> for engagement the platform detects and purges — that's not a
+> feature legitimate ad delivery needs at all. Calling it a "draft" or
+> stripping provider names doesn't change what the schema itself is
+> for.
+>
+> **Everything below this notice is preserved as-written, unbuilt, for
+> historical/context reasons only — not a spec to pick up.** If a
+> future session is ever asked to build this again, point back to this
+> notice and the reasoning above rather than re-deriving it.
 
 **New task, this session.** This is the **draft implementation** for how
 campaigns achieve their promised growth metrics (views, streams, saves,
