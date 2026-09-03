@@ -117,6 +117,35 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-03, latest of all) — Task 49 "Part b" split
+> into b-a/b-b before being built as-is; b-a done (DB), b-b not
+> started (Velune).** Found a real problem before just building "Part
+> b: pool calculation" next in sequence: migration 027's own committed
+> `record_campaign_stream()` only writes a `listener_play_events` row
+> when `p_user_id` already matches a real `public.users` row — but per
+> the product owner's own explicit "Velune has no login, use device ID"
+> instruction (this file), that's the normal case for literally every
+> real Velune listener, meaning the table would stay permanently empty
+> in practice. Pool-calculation math built against that would be a dead
+> end, not real progress. **New migration 028: `ensure_device_listener(p_device_id)`**
+> — a `SECURITY DEFINER` RPC, granted to `anon`, that upserts a minimal
+> `public.users` row keyed on a device UUID (idempotent,
+> `ON CONFLICT DO NOTHING`), `role = 'listener'` explicitly (not this
+> app's general `'artist'` signup default), a deterministic synthetic
+> email on a non-deliverable `.internal` domain (real email is
+> impossible for a device with no signup). Deliberately simpler than
+> this project's existing guest-checkout account creation — no
+> `auth.users` row at all, since a device-ID listener never logs in, by
+> design. **Deliberately NOT wired into `record_campaign_stream()`
+> itself** — that would auto-provision a throwaway row for every random
+> one-off fallback UUID too (migration 027's own documented "no row for
+> an unmatched play" case), not just real persisted device IDs, which a
+> bare UUID can't be told apart from at the database layer. That
+> decision has to live on the Velune side, which is Part b-b, not
+> started. Verified via `sqlparse` structure check + manual
+> `BEGIN`/`END`/paren balance (1/1, 29/29); not run against the live
+> DB. Full write-up in Task 49's own "Part b" entry.
+>
 > **Newest note (2026-09-02, latest of all) — Task 49 Part a done:
 > listener_play_events, the play-event persistence layer.** Real
 > current blocker found and fixed (not stale docs): `record_campaign_
@@ -10289,6 +10318,109 @@ was needed for this specific part, since Velune already passes both
 `p_user_id`/`listenDurationSeconds` today (confirmed by reading
 `MusicService.kt`'s existing call site directly) — they were simply
 never persisted server-side until now.
+
+### Part b — split into b-a/b-b per direct instruction; b-a done, b-b not started
+
+**Before splitting: found a real problem with treating "Part b: the
+pool calculation" as simply next, worth explaining rather than just
+silently reshaping the task.** Read migration 027's actual committed
+`record_campaign_stream()` body directly (not just its own handover
+write-up) — the gating condition is literally `IF v_is_seed IS FALSE
+THEN INSERT INTO listener_play_events...`, which only fires when
+`p_user_id` already matches a real `public.users` row. Per the product
+owner's own explicit, direct instruction elsewhere in this file
+("Velune does not use any Auth... we should use user device id...
+Velune operates on a no login based"), **the normal, expected case for
+literally every Velune listener is a bare, unmatched device UUID** —
+meaning `listener_play_events` would stay permanently empty in
+practice, regardless of how correct Part a's own logic is in isolation.
+Building Part b's pool math against a table that structurally can never
+receive real data would be building on a dead foundation, not a
+genuinely useful next step — so this became the real Part a, split into
+its own two pieces, ahead of the pool-calculation work the original
+spec called "Part b."
+
+**Part b-a — `ensure_device_listener()`, the DB-side provisioning
+primitive. Done this session (2026-09-03).** New migration 028: a
+`SECURITY DEFINER` RPC, granted to `anon` (same posture as
+`record_campaign_stream()` itself — Velune has no authenticated session
+to require, by design), that upserts a minimal `public.users` row keyed
+directly on a device UUID (`ON CONFLICT (id) DO NOTHING`, idempotent by
+construction) and returns that same UUID unchanged. Column choices
+follow the exact minimal-insert pattern already proven working
+elsewhere in this schema (`korapay-webhook`'s own guest-resolution
+insert) rather than guessing a full column list: explicit
+`id`/`username`/`email`/`role` only, everything else (points, streak,
+tier, wallet, `user_type`, `is_active`) left to its own existing
+default. `role` is set explicitly to `'listener'` — **not** this app's
+general new-signup default (`'artist'`, migration 018) — since this
+function's entire purpose is provisioning a confirmed listener
+identity; the general signup default governs a different context (the
+app's own `/login` flow) that doesn't apply here. `email` (`UNIQUE NOT
+NULL`, no real value possible for a device with no signup) is a
+deterministic, obviously-synthetic placeholder on a non-deliverable
+`.internal` domain, not a fabricated-looking real address.
+
+**Deliberately simpler than this project's existing guest-checkout
+account creation** (`guestCheckout.ts` / `korapay-webhook`'s own
+`resolveOrCreateGuestUserId`) — those mint a real `auth.users` row via
+`auth.admin.createUser`, because that flow exists to eventually let a
+guest log in for real. A device-ID listener never does — there's
+nothing to log into, by the product owner's own explicit "no login"
+design. This function only ever touches `public.users` directly, no
+`auth.users` counterpart. **This does mean a device-ID listener's own
+future earnings READ path cannot rely on `auth.uid()`-gated RLS the way
+a real logged-in user's data can — already flagged as a separate, still
+fully open problem** (this task's own Q6-correction note above, options
+sketched there, not resolved by this migration and not this part's job
+either).
+
+**Deliberately NOT wired into `record_campaign_stream()` itself, and
+this needed real thought, not just deferral** — the obvious-looking
+shortcut (call `ensure_device_listener(p_user_id)` unconditionally at
+the top of `record_campaign_stream`, so Velune's existing call site
+needs zero changes) is actually wrong, not just unfinished: migration
+027's own header comment is explicit that Velune's caller falls back to
+a **fresh, one-off random UUID** (`CampaignRepository.kt`'s own
+`userId ?: UUID.randomUUID().toString()`) when no real persisted device
+ID is available for some reason — and that fallback case is deliberately
+supposed to result in *no* `listener_play_events` row (migration 027:
+"there's no real, payable listener to credit for a play that can't be
+tied to a real registered account"). A UUID alone can't be told apart
+at the database layer — a persisted device ID and a one-off random
+fallback look identical to SQL. Auto-provisioning on every call would
+silently create a throwaway `public.users` row for every single
+anonymous fallback play too, defeating the entire point of "the same
+device ID across plays is what makes accumulation meaningful for
+payout" and flooding `public.users` with junk, one row per anonymous
+play, unboundedly. **The decision of when to call this RPC has to stay
+on the Velune side, which is the only place that actually knows whether
+a given UUID is the real persisted device ID or a one-off fallback** —
+that's Part b-b, not started, not this part's job.
+
+**Verified:** `sqlparse` structure check (2 statements — the function,
+the grant — matching expected shape; dollar-quoted PL/pgSQL bodies
+aren't fully understood by its naive splitter, a known tool limitation
+noted rather than worked around, same honest-about-tooling-limits
+posture this file uses elsewhere) plus a manual `BEGIN`/`END` and
+paren-balance check (1/1, 29/29). `npx tsc --noEmit` clean (SQL-only
+change, no app code touched). **Not verified: migration not yet run
+against the live DB** — same standing hand-off every prior migration in
+this file has needed.
+
+**Part b-b — not started.** Wire Velune's own call sites: call
+`ensure_device_listener(deviceId)` once, specifically and only for the
+real persisted `getOrCreateCampaignDeviceId()` value (never for the
+random-UUID fallback path), before the first `record_campaign_stream`
+call that would use it — most likely at/near wherever
+`getOrCreateCampaignDeviceId()` itself is called
+(`MusicService.kt`, per Task 59 Round 5's own file/line citation),
+so the guarantee is established once per device rather than re-checked
+on every single play. The original spec's own "Part b: payout
+mechanics" (crediting via B-Pay-backend, Korapay disburse) and the pool
+-calculation math itself remain their own further, still-unscoped work
+beyond even b-b — not renamed or folded into this split, just
+genuinely later in the sequence than either b-a or b-b.
 
 ---
 
