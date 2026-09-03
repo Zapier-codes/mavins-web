@@ -117,6 +117,30 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-03, latest of all) — Task 49 Part b-b split
+> into b-b-i/b-b-ii (wasn't split yet, per explicit instruction);
+> b-b-i done, b-b-ii not started.** New
+> `CampaignRepository.ensureDeviceListener(deviceId)` (Velune) — the
+> Kotlin wrapper for migration 028's `ensure_device_listener` RPC.
+> **One real, flagged-not-assumed uncertainty:** this RPC returns a
+> bare scalar (`RETURNS UUID`), not a table like every other RPC this
+> file's Kotlin code parses — the quote-stripping approach is based on
+> PostgREST's documented scalar-return behavior, not verified against
+> a live call, and this codebase has no existing precedent for this
+> exact response shape to mirror. Worth a real first-device test
+> before trusting it in production. **Caught and fixed a real mistake
+> before finalizing:** a doc-comment parenthetical was left unclosed,
+> caught by a brace/paren balance check coming back unbalanced (357
+> vs 356) — isolated the diff's own added lines to find it immediately
+> rather than scanning the whole file. Not compile-verified — same
+> standing limitation as every prior Velune part in this project. **See
+> Task 49's own "Part b-b" entry for full detail.**
+>
+> **Next: b-b-ii** — wire `ensureDeviceListener()` into the real call
+> site (`MusicService.kt`, near `getOrCreateCampaignDeviceId()`), with
+> the real-device-id-only guard this part's own doc comment already
+> spells out precisely.
+>
 > **Newest note (2026-09-03, latest of all) — Task 49 "Part b" split
 > into b-a/b-b before being built as-is; b-a done (DB), b-b not
 > started (Velune).** Found a real problem before just building "Part
@@ -10408,19 +10432,66 @@ change, no app code touched). **Not verified: migration not yet run
 against the live DB** — same standing hand-off every prior migration in
 this file has needed.
 
-**Part b-b — not started.** Wire Velune's own call sites: call
-`ensure_device_listener(deviceId)` once, specifically and only for the
-real persisted `getOrCreateCampaignDeviceId()` value (never for the
-random-UUID fallback path), before the first `record_campaign_stream`
-call that would use it — most likely at/near wherever
-`getOrCreateCampaignDeviceId()` itself is called
-(`MusicService.kt`, per Task 59 Round 5's own file/line citation),
-so the guarantee is established once per device rather than re-checked
-on every single play. The original spec's own "Part b: payout
-mechanics" (crediting via B-Pay-backend, Korapay disburse) and the pool
--calculation math itself remain their own further, still-unscoped work
-beyond even b-b — not renamed or folded into this split, just
-genuinely later in the sequence than either b-a or b-b.
+**Part b-b — split into b-b-i / b-b-ii this session (2026-09-03), per
+explicit instruction — wasn't split yet, is now. b-b-i done, b-b-ii not
+started.**
+
+**b-b-i — the Kotlin repository wrapper.** Wire Velune's own call
+sites needs something to call first — `CampaignRepository.kt` had no
+Kotlin function for the `ensure_device_listener` RPC at all before
+this. **b-b-ii — the actual call site**, wiring this into
+`MusicService.kt` near `getOrCreateCampaignDeviceId()` with the
+real-device-id-only guard, deferred to a future part.
+
+**b-b-i — done, this session (2026-09-03), Velune.** New
+`CampaignRepository.ensureDeviceListener(deviceId: String): String?`
+— JSON POST body to `ensure_device_listener`, same safe pattern every
+other RPC call in this file uses. Its own doc comment is explicit and
+loud about the one thing that must be true wherever b-b-ii eventually
+calls it: only the real, persisted `getOrCreateCampaignDeviceId()`
+value, never `recordCampaignStream`'s own `userId ?: UUID.randomUUID()...`
+one-off fallback — this function itself has no way to tell those two
+apart, so getting it right is entirely b-b-ii's own job, not
+something this function can enforce.
+
+**One real assumption, flagged rather than presented as certain:**
+`ensure_device_listener` is `RETURNS UUID` (a bare scalar), not
+`RETURNS TABLE` like every other RPC this file's existing functions
+parse via `JSONArray`. PostgREST's documented behavior serializes a
+scalar return as a bare JSON-encoded value in the response body (a
+UUID as a quoted string, e.g. `"550e8400-..."`) — this function strips
+the surrounding quotes rather than reaching for an array parser that
+would fail on this shape. **This is based on PostgREST's general,
+documented REST semantics, not verified against a live call** (no
+Supabase session in this sandbox, same standing limitation as every
+migration in this project) **and this codebase has no existing
+scalar-returning RPC call to mirror as a precedent** — every other
+function in this file either parses a `JSONArray` (table-returning) or
+doesn't parse the body at all (`recordCampaignStream`, effectively
+void). Worth an explicit first real-device test before trusting this
+path in production, flagged here so that test isn't skipped on the
+assumption this pattern was already proven elsewhere in this file.
+
+**Verified, this session:** brace/paren balance check on the edited
+file — first pass came back unbalanced (357 open parens, 356 close);
+isolated the diff's own added lines specifically (`git diff` piped
+through the same check) rather than guessing where in a 650-line file
+the mismatch was, found it immediately: a doc-comment sentence opened
+a parenthetical — "never a one-off fallback UUID
+([recordCampaignStream]'s own..." — and never closed it. Fixed, then
+re-verified balanced (357/357, 105/105 braces). Not compile-verified —
+same standing limitation as every prior Velune part in this project.
+`npx tsc --noEmit` clean on the Mavins-web side (no TypeScript
+touched — this session's own work is entirely in Velune's Kotlin,
+this file's own documentation aside).
+
+**Next: b-b-ii** — wire `ensureDeviceListener()` into the real call
+site, exactly as this entry's own opening paragraph describes. The
+original spec's own "Part b: payout mechanics" (crediting via
+B-Pay-backend, Korapay disburse) and the pool-calculation math itself
+remain their own further, still-unscoped work beyond even b-b — not
+renamed or folded into this split, just genuinely later in the
+sequence than b-a, b-b-i, or b-b-ii.
 
 ---
 
