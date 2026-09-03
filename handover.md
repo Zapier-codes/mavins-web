@@ -253,7 +253,22 @@ looking like a part was skipped.
 > independently verified against a live deployed pair, same standing
 > limitation every Edge Function task here has flagged.
 >
-> **Newest note (2026-09-03, latest of all) — Task 64 Part B split into
+> **Newest note (2026-09-03, latest of all) — Task 64 fully closed.**
+> Part B-ii (`OnlinePlaylistScreen.kt`'s own equivalent check):
+> confirmed no gap exists — grepped for any grid component
+> (`YouTubeGridItem`/`LazyRow`/`LazyVerticalGrid`/`GridItem`) anywhere
+> in that file, zero matches. Its only navigation call besides
+> `navigateUp` is a playlist's author-credit clickable text link, the
+> same out-of-scope class of thing Parts A and B-i both already
+> established isn't a grid. This screen never had a second navigation
+> hop to lose genre context at. Combined with Part A (`ArtistScreen.kt`)
+> and Part B-i (`AlbumScreen.kt`), both of which had real gaps and got
+> the fix, Task 64 is done. **Next: the other remaining flagged
+> follow-up** (HTTP-status log-escaping bug in `CampaignRepository.kt`,
+> Round 11's own note) — no other open thread from this task's own
+> chain remains.
+>
+> **Newest note (2026-09-03, previous) — Task 64 Part B split into
 > i/ii; i done (`AlbumScreen.kt`).** Same `?genreTile=...` forwarding
 > as Part A, applied to `AlbumScreen.kt`'s "Other Versions" grid
 > (`LazyRow` of `YouTubeGridItem`s tapping into `album/${item.id}`) —
@@ -261,11 +276,7 @@ looking like a part was skipped.
 > `AlbumViewModel` actually has `genreTileTitle` before writing
 > anything. A separate, unrelated artist-credit text link elsewhere in
 > the same file is not a grid and correctly untouched. Verified via
-> brace/paren balance only (no Android SDK in this sandbox). **Next:
-> Part B-ii** (`OnlinePlaylistScreen.kt`'s own equivalent check — not
-> yet confirmed to even have a comparable grid), **or the other
-> remaining flagged follow-up** (HTTP-status log-escaping bug in
-> `CampaignRepository.kt`, Round 11's own note).
+> brace/paren balance only (no Android SDK in this sandbox).
 >
 > **Newest note (2026-09-03, previous) — Task 64 (new): the
 > grid-tap-to-album/artist/playlist navigation gap Task 59 flagged
@@ -14623,7 +14634,7 @@ explicitly-flagged follow-ups — not part of this chain's own closure.
 
 ---
 
-## Task 64 — Grid-tap-to-album/artist/playlist navigation gap (Velune) [ ] (Part A done; Part B split into i/ii, i done, ii not started)
+## Task 64 — Grid-tap-to-album/artist/playlist navigation gap (Velune) [x] (Part A done; Part B split into i/ii, both done — B-ii found no gap exists)
 
 **Flagged during Task 59 Round 16, this task's own thread — deliberately
 separate from that task, not folded into its closure.** A genre-tile
@@ -14682,10 +14693,23 @@ balance on the modified file (165/165 `{}`, 400/400 `()`) — balanced.
 Not compile-verified, same standing limitation every Velune part here
 has.
 
-**Part B-ii — `OnlinePlaylistScreen.kt`'s own equivalent check — not
-started.** Not assumed either way — check the file directly (same
-discipline Part B-i just used) before building anything; it may not
-even have a comparable grid at all.
+**Part B-ii — `OnlinePlaylistScreen.kt`'s own equivalent check — done
+this session, confirmed result: no gap exists in this file, nothing to
+fix.** Checked directly, same discipline Part B-i used: grepped for
+`YouTubeGridItem`/`LazyRow`/`LazyVerticalGrid`/`GridItem` anywhere in
+this file — zero matches. The only `navController.navigate` call in
+the whole file (besides `navigateUp`) is a playlist's author-credit
+clickable text link, the same class of thing as `ArtistScreen.kt`'s
+own artist-credit link and `AlbumScreen.kt`'s own artist-credit link —
+not a grid, correctly out of scope, same reasoning both of those
+already established. This screen simply doesn't have a "tap a grid
+item to go one hop deeper" pattern at all — there was never a second
+navigation hop here to lose genre context at.
+
+**Task 64 is now fully closed.** Part A (`ArtistScreen.kt`) and Part
+B-i (`AlbumScreen.kt`) both had real gaps and got the fix; Part B-ii
+(`OnlinePlaylistScreen.kt`) had no gap to begin with, confirmed rather
+than assumed either way.
 
 **Explicitly out of scope, not Part B or any future part of this
 task:** grepped the whole app for every `navController.navigate` call
