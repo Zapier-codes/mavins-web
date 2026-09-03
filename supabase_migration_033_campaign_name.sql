@@ -1,0 +1,37 @@
+-- ============================================================
+-- Migration 033 — Task 65 Part A: campaign_name
+-- ============================================================
+--
+-- Product owner's own words, resolving this task's original open
+-- question (which of two shapes was meant): "By campaign name I mean
+-- the promote page on the website Mavins web where it has new
+-- campaign user should be able to name the campaign anything he
+-- likes so that when the starts shows it carries the name that the
+-- user named it like industry standards ads campaign method."
+--
+-- Confirms the SECOND of the two shapes Task 65's own write-up
+-- flagged as needing a decision: a genuinely separate, user-supplied
+-- label — not the YouTube-resolved track title, and not something
+-- that needs the creation flow to resolve YouTube metadata before the
+-- field has anything to hold. "Like industry standards ads campaign
+-- method" is unambiguous on this point: Google Ads / Meta Ads let an
+-- advertiser name a campaign anything they like, purely for their own
+-- identification, completely independent of what's actually being
+-- advertised — this column is that, not a track-title override.
+--
+-- Nullable, no default: existing campaigns have no name to backfill
+-- from (this is new, optional, user-supplied data — same reasoning
+-- migration 022's own `target_view_count`/`estimated_duration_days`
+-- addition already used for an analogous "nothing to backfill"
+-- case). A campaign with no name keeps falling back to whatever
+-- display logic already exists (the resolved track title) wherever
+-- it's shown — Part B's own job, not this migration's.
+--
+-- Length-capped at 100 chars: generous for a short internal label
+-- (matches Google Ads' own 128-char campaign name limit closely
+-- enough without copying a specific competitor's exact number as if
+-- it were confirmed to matter here), while still ruling out someone
+-- pasting an entire paragraph into a field meant to be a short label.
+
+ALTER TABLE public.track_campaigns
+  ADD COLUMN IF NOT EXISTS campaign_name TEXT CHECK (campaign_name IS NULL OR char_length(campaign_name) <= 100);

@@ -37,6 +37,13 @@ interface CreateCampaignBody {
   genre?: string;
   geographicTier?: string;
   targetCountries?: string[];
+  // Task 65 Part A (handover.md): user-supplied campaign label, an
+  // industry-standard ad-campaign naming convention (Google/Meta Ads
+  // style) — purely for the artist's own identification, independent
+  // of the track's actual (YouTube-resolved) title. Optional: a
+  // campaign with none falls back to whatever display logic already
+  // shows today (Part B's own job, not this route's).
+  campaignName?: string;
 }
 
 // Task 34 (handover.md): the old getWalletBalanceCents() helper that
@@ -115,6 +122,18 @@ export async function POST(request: NextRequest) {
     const body: CreateCampaignBody = await request.json();
     if (!body?.sourceUrl || !body?.viewCount) {
       return NextResponse.json({ success: false, error: 'sourceUrl and viewCount are required' }, { status: 400 });
+    }
+
+    // Task 65 Part A — trim, cap at the same 100 chars migration 033's
+    // own DB CHECK constraint enforces (checked here too so a bad
+    // value gets a clear 400 instead of a raw Postgres constraint
+    // error), and normalize an empty/whitespace-only string to
+    // `null` — an empty label isn't a real name, it's "no name",
+    // which should behave identically to the field being omitted
+    // entirely (falls back to whatever Part B's display logic shows).
+    const trimmedCampaignName = body.campaignName?.trim() || null;
+    if (trimmedCampaignName && trimmedCampaignName.length > 100) {
+      return NextResponse.json({ success: false, error: 'Campaign name must be 100 characters or fewer' }, { status: 400 });
     }
 
     const admin = createAdminClient();
@@ -219,6 +238,11 @@ export async function POST(request: NextRequest) {
       .insert({
         source_url: body.sourceUrl,
         artist_id: authUser.id,
+        // Task 65 Part A (handover.md) — user-supplied label,
+        // completely independent of source_url/the resolved track
+        // title. See this field's own interface-level comment above
+        // for the product-owner confirmation this is based on.
+        campaign_name: trimmedCampaignName,
         scheduled_for: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(),
         purchase_status: "pending",
         // Task 40/35 (handover.md): total_budget_cents is the

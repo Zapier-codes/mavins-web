@@ -131,6 +131,30 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-04, latest of all) — Task 65 Part A done:
+> `campaign_name` column + creation-route wiring.** Product owner
+> resolved the open question directly: a genuinely separate,
+> user-supplied label (industry-standard Google/Meta Ads-style
+> campaign naming), not the YouTube-resolved track title — confirmed
+> via direct quote in Task 65's own section. New
+> `supabase_migration_033_campaign_name.sql`
+> (`track_campaigns.campaign_name`, nullable, 100-char capped) +
+> `api/campaigns/create/route.ts` now accepts and stores
+> `campaignName`. **Found a separate, real drift while in this route,
+> flagged not fixed:** the existing insert sets `scheduled_for`/
+> `purchase_status` — neither column exists anywhere in this repo's
+> tracked schema or migration history (001-032, checked via grep).
+> Same class of gap as the `role` column drift migration 016 already
+> flagged — worth a direct check, not investigated further this
+> session (outside Task 65's own scope). `npx tsc --noEmit` clean.
+> **Not applied to the live DB.** See Task 65's own section for full
+> detail.
+>
+> **Next: Part B** (the actual UI — pencil icon in `promote/page.tsx`,
+> plus an inventory of every surface that should display
+> `campaign_name` once it exists) — not started this session, Part A
+> stopped at persistence only.
+>
 > **Newest note (2026-09-04, latest of all) — new Task 66 added
 > (product owner request): the listener-facing "listen and earn" UI
 > doesn't exist anywhere — no page, no route, nothing a listener could
@@ -15886,7 +15910,7 @@ every Edge Function task in this file has flagged.
 
 ---
 
-## Task 65 — Editable campaign name: pencil icon next to "New Campaign", editable any time before posting [ ]
+## Task 65 — Editable campaign name: pencil icon next to "New Campaign", editable any time before posting [Part A done, Part B not started]
 
 **Ask, product owner's own words:** "add another task... where the
 text new campaign is and add a pencil icon so that the users can be
@@ -15946,6 +15970,81 @@ standard" class of decision Task 49's own Q1–Q6 resolution covers.
 Once confirmed, split into schema (if a new column is needed) and UI
 (the input + pencil affordance + save-on-change behavior) as separate
 parts, per this file's own mandatory task-splitting rule.
+
+### Question resolved — product owner, direct quote
+
+*"By campaign name I mean the promote page on the website Mavins web
+where it has new campaign user should be able to name the campaign
+anything he likes so that when the starts shows it carries the name
+that the user named it like industry standards ads campaign method."*
+
+Confirms the second of the two shapes above: a genuinely separate,
+user-supplied label — not the YouTube-resolved track title, and no
+"preview the resolved title first" complexity needed, since the field
+never depends on that resolution at all. "Like industry standards ads
+campaign method" is unambiguous: Google Ads / Meta Ads let an
+advertiser name a campaign anything they like, purely for their own
+identification, completely independent of what's actually being
+advertised — this is that, not a track-title override.
+
+### Part A — schema + creation-route wiring, done this session (2026-09-04)
+
+`supabase_migration_033_campaign_name.sql` — `campaign_name TEXT`
+added to `track_campaigns`, nullable (no backfill data exists, same
+reasoning migration 022's analogous addition already used), `CHECK`-
+capped at 100 chars (generous for a short label, roughly Google Ads'
+own 128-char campaign-name limit without asserting that specific
+number as confirmed to matter here — just a sanity bound, not a
+researched competitor-matching figure).
+
+`src/app/api/campaigns/create/route.ts` — `CreateCampaignBody` gained
+`campaignName?: string`; trimmed, empty-string normalized to `null`
+(an empty label behaves identically to an omitted one), and validated
+against the same 100-char cap the DB's own `CHECK` enforces — checked
+here too so a bad value gets a clear 400 instead of surfacing as a raw
+Postgres constraint error. Wired into the existing `.insert({...})`
+call as `campaign_name: trimmedCampaignName`.
+
+**A separate, real drift found while reading this route closely —
+flagged, not fixed, unrelated to this task's own scope:** the existing
+insert also sets `scheduled_for` and `purchase_status` — grepped both
+`supabase_schema.sql` and every tracked migration file (001 through
+032): **zero hits for either column, anywhere.** Either they were
+added directly against the live DB outside this repo's tracked
+migration workflow (the same kind of gap already found and flagged
+for the `role` column back in migration 016's own header comment), or
+this insert has actually been failing/erroring in a way nothing in
+this repo's own code path surfaces clearly. Not investigated further
+this session — genuinely outside Task 65's own scope, and confirming
+which of those two it is needs either live DB access this sandbox
+doesn't have, or a direct product-owner check of whether campaign
+creation is actually working in production today. Worth a dedicated
+look, not silently absorbed into this task.
+
+**Also checked, not touched:** `src/app/api/payments/initialize-campaign/route.ts`
+(the guest/direct-pay creation path) only inserts into
+`payment_sessions`, not `track_campaigns` directly — its own metadata
+comment confirms the actual campaign-row creation for that flow ("Part
+2") is itself a pre-existing, separately-flagged, not-yet-built gap,
+unrelated to this task. `campaign_name` doesn't need wiring there
+yet — whoever eventually builds that flow's own Part 2 can read it
+from the same `metadata` JSONB bag this route already writes to, once
+Part B (below) gives the client something to actually send.
+
+**Verified, this session:** `npx tsc --noEmit` clean. SQL
+parens-balance sanity check on the migration file. **Not applied to
+the live DB** — same `supabase db push` hand-off every prior migration
+in this file has needed.
+
+**Part B — UI, not started.** The pencil icon + editable input near
+"New Campaign" in `promote/page.tsx` (sending the new `campaignName`
+field this part just added server-side support for), plus displaying
+`campaign_name` wherever campaign stats currently show — falling back
+to the existing resolved-title display whenever a campaign has none.
+"Wherever the stats show it" needs its own quick inventory before
+building (leaderboard, artist analytics dashboard, admin campaigns
+list, the success/confirmation page) — not enumerated or checked this
+session, Part A's own scope stopped at persistence.
 
 ---
 
