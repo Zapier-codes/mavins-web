@@ -284,23 +284,20 @@ looking like a part was skipped.
 > `BEGIN`/`END`/paren balance (1/1, 29/29); not run against the live
 > DB. Full write-up in Task 49's own "Part b" entry.
 >
-> **Newest note (2026-09-02, latest of all) — Task 49 Part a done:
-> listener_play_events, the play-event persistence layer.** Real
-> current blocker found and fixed (not stale docs): `record_campaign_
-> stream()` already received `p_user_id`/`p_listen_duration_seconds`
-> but never persisted either for a real listener. New migration 027
-> adds `listener_play_events` (identity keyed on `public.users.id`,
-> Task 48-b Part c's confirmed identity key; `is_qualifying_play` as a
-> stored generated `>= 60` column; two partial indexes for the
-> access patterns Part b's payout calculation will need) and extends
-> `record_campaign_stream()` — every existing behavior preserved
-> verbatim, one new gated INSERT, `IS FALSE` (not `NOT`) making the
-> real-listener/seed/unmatched three-way split explicit rather than
-> relying on NULL's implicit falsiness. Verified via a 6-case Python
-> simulation of the branching logic (all passed) plus `sqlparse`
-> structure check. Not run against the live DB. **Next: Part b (the
-> actual pool calculation), reading from this table.** Full write-up
-> in Task 49's own "Part a" entry.
+> **Newest note (2026-09-02, latest of all) — CORRECTION: this
+> session's earlier claim of building Task 49 Part a was wrong.**
+> Migration 027 (built earlier this session) duplicated an
+> already-existing table from migration 019 — the real, canonical Part
+> a, done by an earlier session — and its `record_campaign_stream()`
+> rewrite would have broken every campaign-play recording call app-wide
+> if it had ever been applied (it wasn't — confirmed directly with the
+> product owner, no live-DB impact). Retracted: migration 027 deleted
+> outright, this box's own prior entry and Task 49's "Part a" section
+> both corrected to reflect what actually happened. Full account in
+> Task 49's own "Part a — CORRECTION" entry. **Task 49 Part a was
+> already done (migration 019) before this session touched anything —
+> Part b (compute_daily_payout_pool, migrations 028/029) is real,
+> unaffected, and remains the genuine next work.**
 >
 > **Also this session — found a mystery box elsewhere in this file
 > (different git author identity, `Mavins Dev <dev@mavins.io>`,
@@ -10644,120 +10641,43 @@ to display).
 
 ---
 
-### Part a — listener_play_events (the play-event persistence layer) [x]
+### Part a — CORRECTION: this session's own migration 027 was a real mistake, retracted [x] (correction, not new work)
 
-**Done this session (2026-09-02), following direct product-owner
-confirmation of Q1 (10% of gross ad-spend) via a proper, traceable
-exchange in chat — not the mystery "no confirmation required" box
-elsewhere in this file, which this session deliberately did not act
-on. See that box's own preceding note for why.**
+**A session earlier today created migration 027, a NEW
+`listener_play_events` table plus a `record_campaign_stream()`
+rewrite — without first searching broadly enough for prior art.**
+Migration 019 (an earlier session, well before this one) **already
+built the real, canonical Task 49 Part a** — a `listener_play_events`
+table with a different, deliberate schema
+(`qualifies_for_payment`, not `is_full_listen`/`country_code`), and
+its own explicit design comment: **Velune writes to this table
+directly** (device-id-keyed listener identity, confirmed already
+substantially built in Velune's own `CampaignRepository.kt` this
+session — see that repo's own comments referencing Task 49 Part
+b-b-ii), not through `record_campaign_stream()` at all.
 
-**Real, current blocker found and fixed — not stale documentation.**
-Read `record_campaign_stream()` directly before writing anything:
-it already receives `p_user_id` and `p_listen_duration_seconds` as
-parameters, but never persisted either one for a real listener —
-`p_user_id` was used transiently only to check `user_type = 'seed'`
-(for the seed engine's own cost bookkeeping), and
-`p_listen_duration_seconds` was accepted and silently dropped,
-referenced nowhere in the function body. There was no per-listener,
-per-play record anywhere in the schema for a payout calculation to
-read from — confirmed directly, not inferred from the older "Velune
-investigation" note earlier in this task (which flagged the same
-underlying problem from a different angle, before this exact function
-existed in its current form).
+Migration 027's `CREATE TABLE IF NOT EXISTS` was a silent no-op
+against the real table (harmless by itself), but its
+`record_campaign_stream()` rewrite would have tried to `INSERT` into
+columns (`is_full_listen`, `country_code`) that don't exist in the
+real, already-deployed-elsewhere schema — **if migration 027 had
+actually been applied to the live database, every campaign-play
+recording call across the entire app would have started throwing a
+SQL error.** Confirmed directly with the product owner that it was
+**never run against the live DB** — no production impact occurred.
 
-**New migration 027** (`listener_play_events`):
-- `campaign_id` → `track_campaigns`, `listener_id` → `public.users.id`
-  — the one real identity key this whole app uses (Task 48-b Part c's
-  finding, verified against every real route's code).
-- `is_qualifying_play` is a `GENERATED ALWAYS AS (listen_duration_seconds
-  >= 60) STORED` column — the ≥60s threshold this task's spec
-  repeatedly references, defined in exactly one place rather than
-  duplicated into every future payout query that filters on it.
-- Two partial indexes (`WHERE is_qualifying_play`) on
-  `(listener_id, played_at)` and `(campaign_id, played_at)` — the
-  actual access patterns a NET-50-cycle payout calculation will need
-  (sum qualifying plays per listener within a cycle window, and
-  per-campaign for pro-rata weighting), indexed for directly rather
-  than left to a future sequential scan.
-- RLS enabled, **no** read/write policy for `anon`/`authenticated` —
-  same posture as `payment_sessions`/`wallet_ledger` (migration 006's
-  own header) for money-adjacent tables; a listener's own earnings
-  record is exactly this kind of table. The only writer is
-  `record_campaign_stream()` itself (`SECURITY DEFINER`, unchanged),
-  so Velune's anon-key caller never needs direct table access.
+**Corrected this session:** `supabase_migration_027_listener_play_events.sql`
+deleted outright (never applied, so no live-DB undo migration is
+needed — a fresh clone/deploy today sees no trace of it). Migrations
+028 (`compute_daily_payout_pool`) and 029
+(`credit_listener_earnings_for_date`) were built by later sessions
+directly against migration 019's real schema and are unaffected by
+this correction.
 
-**Reconciled with migration 019, 2026-09-03, before ever being pushed
-live — real bug, caught before deploy, not after.** This migration
-was originally written as a fresh `CREATE TABLE IF NOT EXISTS
-listener_play_events`, same as described above — but migration 019
-(this task's own "Part a — Schema" section, above) had **already
-created a table by that exact name and applied it to the live DB**
-back on 2026-08-30, with a different, incompatible column set
-(`qualifies_for_payment` instead of `is_qualifying_play`; no
-`is_full_listen`/`country_code` at all; an extra `track_url` this
-migration never had). Since this migration was never actually pushed,
-that conflict hadn't caused any real damage yet — but it would have
-the moment it was: `CREATE TABLE IF NOT EXISTS` against an
-already-existing table is a silent no-op, so the live table would have
-stayed on 019's older shape forever, breaking every consumer written
-against this migration's own shape (starting with
-`record_campaign_stream()`'s own new `INSERT` immediately below, which
-references columns that would never have actually existed live).
-Confirmed safe to reconcile via `ALTER` rather than `DROP`+recreate:
-migration 019 never touches `record_campaign_stream()` (no `CREATE OR
-REPLACE FUNCTION` anywhere in that file, checked directly), and
-nothing else in this codebase wrote to this table before this
-migration's own RPC extension — so the live table is guaranteed to
-have zero real rows under either schema, genuinely safe to alter
-freely. This migration's file itself now contains the real fix (an
-`ALTER TABLE`-based reconciliation replacing the original `CREATE
-TABLE`) — see that file's own header comment for the full detail;
-everything described in the bullet points above is still an accurate
-description of the table's **final** shape, just reached via `ALTER`
-now instead of `CREATE`. Verified via `sqlparse`: 15 real statements,
-matching the intended structure exactly; paren balance 62/62. Not run
-against the live DB — same hand-off every migration in this file
-needs.
-
-**`record_campaign_stream()` extended, not replaced** — every existing
-behavior (aggregate counters, `seed_interaction_log`,
-`campaign_daily_metrics`) preserved verbatim; the only addition is one
-new `INSERT INTO listener_play_events`, gated on `v_is_seed IS FALSE`
-specifically (not `NOT v_is_seed`) — deliberate: `v_is_seed` is `NULL`,
-not `FALSE`, when `p_user_id` matches no `public.users` row at all (a
-device-id fallback or last-resort random UUID, per Velune's own
-`MusicService.kt`/`CampaignRepository.kt` caller-side behavior,
-confirmed by reading those files directly this session). `IS FALSE`
-makes the three-way split (real listener / seed persona / no matching
-row) explicit rather than relying on NULL's implicit-falsy behavior to
-happen to do the right thing. No row is written for the unmatched
-case — correct, since there's no real, payable listener to credit for
-a play that can't be tied to a real registered account.
-
-**Verified with concrete cases, not just eyeballed:** a throwaway
-Python script simulating the three-way branch — 6 cases (four
-different real `user_type` values, all correctly writing a row; a
-seed persona, correctly not; an unmatched/anonymous play, correctly
-not) — all 6 passed against the exact logic written into the real
-migration. SQL structure also checked via `sqlparse` (6 statements,
-matching the expected `CREATE TABLE` / 2× `CREATE INDEX` / `ALTER
-TABLE` / `CREATE OR REPLACE FUNCTION` / `GRANT` shape).
-
-**Not verified: this migration hasn't been run against the live DB**
-— same `supabase db push` hand-off every prior migration in this file
-has needed, no credentials to do that from this sandbox.
-
-**Deliberately not done as part of Part a**: the actual payout-pool
-calculation (10% of gross ad-spend, pro-rata by qualifying-play
-count, NET-50 cycle boundaries) — that's Part b, reading from this
-table, not this migration's own job. Also not done: anything on the
-Velune side — this migration only extends the existing
-`record_campaign_stream()` signature-compatible; no Velune code change
-was needed for this specific part, since Velune already passes both
-`p_user_id`/`listenDurationSeconds` today (confirmed by reading
-`MusicService.kt`'s existing call site directly) — they were simply
-never persisted server-side until now.
+**What this means for the actual state of Task 49 Part a:** it was
+already done (migration 019), before this session touched anything.
+Nothing further was needed here — this whole entry exists only to
+document and retract the mistake, not to claim new progress.
 
 ### Part b — split into b-a/b-b per direct instruction; b-a done, b-b not started
 
