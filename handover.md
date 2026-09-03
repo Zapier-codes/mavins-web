@@ -131,7 +131,30 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-09-04, latest of all) — new Task 65 added
+> **Newest note (2026-09-04, latest of all) — new Task 66 added
+> (product owner request): the listener-facing "listen and earn" UI
+> doesn't exist anywhere — no page, no route, nothing a listener could
+> visit to see an accumulating balance. Not started, spec only.**
+> Confirmed directly, not assumed: `/earn` doesn't exist as a route;
+> `/earnings` is a real, pre-existing, but completely unrelated page —
+> the *artist's* campaign wallet dashboard (people who paid to run a
+> promotion, tracking spend/payouts), nothing to do with a listener
+> earning money for listening. Everything Task 49 has built so far is
+> backend-only (Supabase schema + RPCs, Velune's own Kotlin play-
+> recording wiring) — no Mavins-web frontend work has happened for the
+> listener side at all. Lines up with this project's own much-earlier
+> framing that the listen-and-earn feature is its own separate UI,
+> reached via a periodic banner, "architecture still in formation" —
+> explaining why nothing's been built here, not a dropped task.
+> Deliberately scoped separately from Task 49 Part b-ii-ii-b's own
+> payout-destination blocker (no way for a device-only listener to
+> provide real bank details yet) — a listener could see an
+> accumulating balance before "how do they cash out" is resolved, so
+> this doesn't need to wait on that. Full write-up in Task 66's own
+> entry — needs a product decision on the actual UI/route shape before
+> any code gets written, not build-ready yet.
+>
+> **Newest note (2026-09-04, previous) — new Task 65 added
 > (product owner request): editable campaign name, pencil icon near
 > "New Campaign" in `promote/page.tsx`. Not started — needs a product
 > decision before it can be built** (does "the campaign name" mean the
@@ -15923,4 +15946,94 @@ standard" class of decision Task 49's own Q1–Q6 resolution covers.
 Once confirmed, split into schema (if a new column is needed) and UI
 (the input + pencil affordance + save-on-change behavior) as separate
 parts, per this file's own mandatory task-splitting rule.
+
+---
+
+## Task 66 — Build the listener-facing "listen and earn" UI: no page, no route, nothing exists yet [ ]
+
+**Ask, product owner's own words, confirming a finding rather than
+assigning a blind investigation:** "No — `/earn` doesn't exist. I
+checked the routes directly: there's no page anywhere for a
+listen-and-earn UI... Do you want me to write that up as a new task —
+designing and building the actual `/earn` (or whatever route name
+you'd prefer) page — separately from the payout-disbursement
+question, since a listener could at least see their accumulating
+balance even before the "how do they cash out" question gets
+resolved?"
+
+**Not implemented — this is a task assignment only, per direct
+instruction.** No code written this session; this entry exists to
+record the confirmed finding precisely so a future session doesn't
+have to rediscover it, and to scope what building it would actually
+require.
+
+**Confirmed, not assumed — the actual state of the listener-facing
+side of Task 49:**
+- `/earn` does not exist as a route anywhere in this app.
+- `/earnings` **does** exist, but is a completely different,
+  pre-existing feature: the *artist's* campaign wallet dashboard
+  (people who paid to run a promotion campaign, tracking their wallet
+  balance and payouts from that spend) — nothing to do with a listener
+  being paid to listen.
+- Every piece of Task 49 built so far is backend-only: the Supabase
+  schema (`listener_play_events`, `listener_earnings`,
+  `daily_payout_pool`), the payout-pool/withdrawal-request RPCs, and
+  Velune's own Kotlin play-recording + device-listener wiring. No
+  Mavins-web page, route, or component has been built for the
+  listener-facing side of this feature at all — no dashboard, no
+  balance display, nothing a real listener could visit today to see
+  what they've accumulated.
+
+**Why this isn't a surprise gap, and doesn't need re-litigating:**
+lines up with this project's own much-earlier framing (documented
+elsewhere in this file, from before Task 49's current build-out began)
+that the listen-and-earn feature is its own separate UI, reached via a
+periodic banner, and that its "architecture is still in formation, not
+yet complete." Nothing built so far contradicts that — the backend
+groundwork Task 49 has been laying is a genuine prerequisite for this
+UI to eventually read real data from, not evidence the UI itself was
+supposed to already exist.
+
+**Deliberately scoped separately from Task 49 Part b-ii-ii-b's own
+payout-destination blocker** (no way for a device-only, no-login
+listener to provide real bank/payout details exists anywhere yet — see
+that part's own entry) **— this task does not need to wait on that
+one being resolved first.** A listener seeing an accumulating balance
+("you've earned $X so far") is a genuinely separate, buildable piece
+from "how does that balance actually get paid out" — the balance
+display only needs `listener_earnings` to have real rows in it
+(already buildable, backend exists), not a resolved payout mechanism.
+
+**What building this would actually require, sketched but not
+decided — a starting point for whoever picks this up, not a locked
+spec:**
+- **Route/page shape** — `/earn` was the product owner's own
+  placeholder suggestion ("or whatever route name you'd prefer"), not
+  a confirmed final name; worth a quick confirmation rather than
+  assuming it's final, especially given `/earnings` already exists for
+  a different feature and the naming similarity risks confusing the
+  two.
+- **Identity/auth model** — this is the same open question Task 60
+  already surfaced and left genuinely unresolved: Velune's listeners
+  are device-ID-based, not Supabase-Auth accounts. A Mavins-web page
+  (a website, reached however the product owner intends — a link from
+  Velune? a QR code? direct navigation?) needs *some* way to know
+  which device/listener is asking to see their balance. This wasn't
+  answered by Task 60 and isn't answered here either — flagged again
+  rather than guessed at, since a wrong guess here (e.g. assuming
+  Supabase Auth applies) would misdesign the whole page.
+- **Data available to display, once identity is resolved:**
+  `listener_earnings` already has `total_qualifying_plays`,
+  `earnings_cents`, `withdrawn_cents`, and a `status` state machine
+  (`accumulating` / `claimable` / `claimed` / `expired`) per NET-50
+  cycle — enough to build a real balance display against, not
+  placeholder/simulated numbers, once a listener can be identified.
+
+**Recommended next step for whoever picks this up:** confirm the
+identity/auth question above with the product owner first — it's the
+one piece that would misdesign the entire page if guessed wrong,
+unlike the route name (a low-stakes, easily-renamed detail). Once
+confirmed, split into identity resolution and the actual balance-
+display UI as separate parts, per this file's own mandatory
+task-splitting rule.
 
