@@ -97,6 +97,33 @@ Deno.serve(async (req: Request) => {
   // RENDER_BACKEND_URL default, kept as a fallback here too so this
   // still works before that secret is set for the first time.
   const bpayBackendUrl = Deno.env.get('BPAY_BACKEND_URL') || 'https://b-pay-backend.onrender.com';
+  // B-Pay-backend Task 42 Part c-a/c-b (that repo's own handover.md):
+  // POST /api/pay now requires X-Internal-Api-Key, same
+  // shared-secret-not-per-caller pattern as MAVW_WEBHOOK_FORWARD_SECRET
+  // (this file's sibling secret for the reverse direction, Korapay's
+  // gateway calling INTO this function) — same value must be set on
+  // both sides: this Deno secret here, and INTERNAL_API_KEY on
+  // B-Pay-backend's own Render environment. Named for what THIS repo
+  // calls it (the key used to call B-Pay), not copied verbatim as
+  // INTERNAL_API_KEY, to keep the two sides' env var names
+  // self-describing from each repo's own point of view — matches the
+  // MAVW_WEBHOOK_FORWARD_SECRET precedent exactly.
+  const bpayInternalApiKey = Deno.env.get('BPAY_INTERNAL_API_KEY');
+
+  // Fail closed, not open — same posture B-Pay-backend's own
+  // requireInternalApiKey already established for an unset key on its
+  // side ("must never be treated as auth disabled, let everything
+  // through"). Checked here, before the network call, so a missing
+  // secret produces one clear log line and a specific error instead of
+  // an opaque 401 from the other side with no indication why.
+  if (!bpayInternalApiKey) {
+    console.error('initialize-payment: BPAY_INTERNAL_API_KEY is not set — cannot call B-Pay-backend');
+    await supabase
+      .from('payment_sessions')
+      .update({ last_error: 'Server misconfigured (BPAY_INTERNAL_API_KEY not set)', updated_at: new Date().toISOString() })
+      .eq('reference', reference);
+    return jsonResponse({ success: false, error: 'Server misconfigured' }, 500);
+  }
 
   const { data: session, error: fetchError } = await supabase
     .from('payment_sessions')
@@ -162,7 +189,10 @@ Deno.serve(async (req: Request) => {
   try {
     const res = await fetch(`${bpayBackendUrl}/api/pay`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Internal-Api-Key': bpayInternalApiKey,
+      },
       body: JSON.stringify(payload),
     });
     bpayJson = await res.json().catch(() => ({}));

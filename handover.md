@@ -117,6 +117,23 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-02, latest of all) — Task 63 done: urgent
+> cross-repo fix, `initialize-payment` now sends the header
+> B-Pay-backend's `/pay` route requires.** That repo's own Task 42
+> explicitly warned "DO NOT DEPLOY ALONE" — its `/pay` route now
+> requires `X-Internal-Api-Key`, and this was the one missing piece on
+> this repo's side. New Deno secret `BPAY_INTERNAL_API_KEY` (must match
+> B-Pay-backend's own `INTERNAL_API_KEY` exactly, one shared secret,
+> not two), fails closed if unset (a clear 500 before ever attempting
+> the network call, not an opaque 401 from the other side). Confirmed
+> via fresh grep this is the only call site needing it — `korapay.
+> service.ts` no longer exists in this repo at all. **Deploy this
+> alongside B-Pay-backend's own Part c-a/c-b rollout, not after** — see
+> Task 63's own entry for the exact `supabase secrets set` +
+> `functions deploy` commands. `npx tsc --noEmit` clean; not
+> independently verified against a live deployed pair, same standing
+> limitation every Edge Function task here has flagged.
+>
 > **Newest note (2026-09-02, latest of all) — Task 59 fully done, all
 > 16 rounds. Part b-b-b-b (the final piece): `OnlinePlaylistScreen.kt`'s
 > 4 `YouTubeQueue(...)` call sites now carry `genre =
@@ -14639,6 +14656,69 @@ established reason every Velune-touching task in this file has stayed
 that way (no Android build environment in this sandbox) — though in
 this specific case there was nothing to build regardless, since
 there's nothing to remove.
+
+---
+
+## Task 63 — Send `X-Internal-Api-Key` from `initialize-payment` — B-Pay-backend Task 42 Part c-b [x]
+
+**Urgent, cross-repo — B-Pay-backend's own Task 42 flagged this
+explicitly as "DO NOT DEPLOY [that repo's Part c-a] ALONE": that
+repo's `POST /pay` now requires an `X-Internal-Api-Key` header
+(`requireInternalApiKey` middleware), but this repo's
+`initialize-payment` Edge Function — the one confirmed, only real
+caller of that route (B-Pay-backend's own Task 42 Part b-a-i, verified
+independently by fresh clones of both repos) — didn't send it yet.
+Deploying B-Pay-backend's change without this one landing first (or
+alongside it) would mean every real checkout-initialization attempt
+starts failing with 401 immediately.**
+
+**Fixed:** `supabase/functions/initialize-payment/index.ts` now reads
+a new secret, `BPAY_INTERNAL_API_KEY`, and sends it as
+`X-Internal-Api-Key` on the existing `fetch()` call to
+`${bpayBackendUrl}/api/pay`. Named for what THIS repo calls it (the
+key used to call B-Pay), not copied verbatim as `INTERNAL_API_KEY` —
+matches the existing `MAVW_WEBHOOK_FORWARD_SECRET` precedent (same
+shared-secret value, self-describing name on each side, for the
+reverse-direction call this same function already makes). **The value
+must be IDENTICAL to B-Pay-backend's own `INTERNAL_API_KEY` env var on
+Render** — this is one shared secret, not two independent ones.
+**Fails closed, not open**, matching `requireInternalApiKey`'s own
+posture on the other side: if `BPAY_INTERNAL_API_KEY` isn't set, this
+function now returns a `500` with a specific "Server misconfigured"
+error and logs why, *before* ever attempting the network call to
+B-Pay-backend — rather than sending an unauthenticated request that
+would just get an opaque `401` back with no indication of the real
+cause.
+
+**Confirmed via fresh grep that this is the ONLY call site needing
+this change** — `korapay.service.ts` (the file an old comment in this
+same function referenced) no longer exists in this repo at all
+(deleted during Task 33 Part 2a's cleanup), and nothing else under
+`src/` references `RENDER_BACKEND_URL`/`b-pay-backend.onrender.com` —
+`initialize-payment/index.ts` really is the only caller, matching
+B-Pay-backend's own independently-confirmed finding exactly.
+
+**Deploy requirement — both sides, same rollout, not sequential
+guesswork:**
+```
+# In the proot-distro container (see "Supabase CLI workflow" near the
+# top of this file):
+supabase secrets set BPAY_INTERNAL_API_KEY=<same value as B-Pay-backend's own INTERNAL_API_KEY> --project-ref atojskxrxfsbpeefigtm
+supabase functions deploy initialize-payment --project-ref atojskxrxfsbpeefigtm
+```
+Deploy this alongside (or before) B-Pay-backend's own Part c-a/c-b
+rollout — never after, per that repo's own explicit warning. If
+`INTERNAL_API_KEY` doesn't have a value set on B-Pay-backend's Render
+dashboard yet, generate one now and set it on BOTH sides in the same
+sitting, not deferred.
+
+**Verified:** `npx tsc --noEmit` clean across the rest of the repo
+(this file is outside `tsconfig.json`'s scope, same as every Edge
+Function in this project — confirmed via that file's own `exclude`
+list, not an oversight). **Not verified — no way to check from this
+sandbox:** an actual live call against a deployed B-Pay-backend with
+the real shared secret set on both sides. Same standing limitation
+every Edge Function task in this file has flagged.
 
 ---
 
