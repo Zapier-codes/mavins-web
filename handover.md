@@ -131,7 +131,18 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-09-04, latest of all) — closed a real
+> **Newest note (2026-09-04, latest of all) — new Task 65 added
+> (product owner request): editable campaign name, pencil icon near
+> "New Campaign" in `promote/page.tsx`. Not started — needs a product
+> decision before it can be built** (does "the campaign name" mean the
+> YouTube-auto-resolved title, which doesn't exist client-side until
+> after creation today, or a genuinely separate user-supplied name
+> field — these are different features with different schema
+> implications, confirmed via a quick grep that neither exists
+> anywhere in the current flow). Full write-up, including exactly what
+> was checked, at the very end of this file, Task 65's own section.
+>
+> **Newest note (2026-09-04, later still) — closed a real
 > documentation-safety gap: Task 52 (SMM reseller-panel schema, fake-
 > engagement procurement) was declined back on 2026-09-01 (commit
 > `c896945`), but that decision only ever landed in a top-of-file note
@@ -15851,4 +15862,65 @@ the real shared secret set on both sides. Same standing limitation
 every Edge Function task in this file has flagged.
 
 ---
+
+## Task 65 — Editable campaign name: pencil icon next to "New Campaign", editable any time before posting [ ]
+
+**Ask, product owner's own words:** "add another task... where the
+text new campaign is and add a pencil icon so that the users can be
+able to edit the name of the campaign at anytime before posting so
+that the campaign name is editable."
+
+**Not implemented — this is a task assignment only, per direct
+instruction.** A quick investigation was done to ground the task
+precisely rather than leave it vague, but no code was written.
+
+**Where "New Campaign" actually lives:** `src/app/promote/page.tsx`,
+line 883 — a static `<h2>New Campaign</h2>` heading at the top of the
+campaign-creation card, immediately above the `<form>` that collects
+the YouTube URL, genre, geo-targeting, duration, etc. This is
+currently just a section label, not bound to any piece of campaign
+data.
+
+**A real open question, checked rather than assumed: there is
+currently no "campaign name" field or concept anywhere in this flow at
+all.** Grepped the whole promote page and the campaign-creation route
+(`src/app/api/campaigns/create/route.ts`) for
+`campaignName`/`track_title`/`name` — nothing. `track_campaigns` has no
+standalone title/name column of its own; what displays as a track's
+title elsewhere in the app (dashboard, leaderboard) comes from a join
+against `public.tracks.title`, and the creation route itself never
+sets or even references a title at all — meaning that value is
+resolved **server-side, from YouTube's own metadata, at some point
+after creation**, not something the client currently sends or could
+currently edit. This matters for scoping the actual fix, not just
+noting it:
+
+- If "the campaign name" the product owner means is this
+  YouTube-resolved title, an editable field in the creation form would
+  need something to edit *before that title exists yet* — either a
+  genuinely separate, user-supplied name field from the start (its own
+  new column, e.g. `track_campaigns.custom_name` or similar, taking
+  priority over the auto-resolved title wherever it's displayed), or
+  the form would need a "preview" step that resolves and shows the
+  YouTube title client-side before submission so there's something
+  concrete to edit. These are two different features with different
+  scope — **which one is actually wanted needs a real decision, not an
+  assumption**, before this is built.
+- The pencil icon's exact placement also isn't fully specified by the
+  ask alone: next to the static "New Campaign" heading itself (which
+  would be editing a section label, not campaign data — probably not
+  the intent, but worth ruling out explicitly rather than silently
+  assuming) versus next to a new name field placed near that heading
+  (far more likely the actual intent, matching "so that the campaign
+  name is editable").
+
+**Recommended next step for whoever picks this up:** confirm with the
+product owner which of the two shapes above is intended before writing
+any code — this is exactly the kind of product-scope question this
+file's own standing practice treats as worth a direct answer rather
+than a guessed default, unlike the more mechanical "use industry
+standard" class of decision Task 49's own Q1–Q6 resolution covers.
+Once confirmed, split into schema (if a new column is needed) and UI
+(the input + pencil affordance + save-on-change behavior) as separate
+parts, per this file's own mandatory task-splitting rule.
 
