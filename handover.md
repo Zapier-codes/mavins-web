@@ -131,6 +131,20 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-04, even later still) — addendum to the
+> already-closed log-escape task: a 7th instance the closing sessions
+> missed, now fixed (Velune commit `de8afbb`).** While independently
+> re-confirming the task's closure, found one more instance of the
+> same broken `${'$'}{...}` pattern still present — a media-item-
+> resolution error handler interpolating `campaign.songId`, not one of
+> the six original HTTP-status lines this task was scoped around, and
+> not caught by either session that closed Part b. Same one-character
+> fix. Confirmed via grep before fixing: this exact line was still
+> broken on a fresh pull of current origin, not a stale assumption.
+> Grepped again afterward: zero remaining instances of the broken
+> pattern anywhere in the file now. Brace/paren balance verified
+> (99/99, 357/357). **This really is the end of this small task now.**
+>
 > **Newest note (2026-09-04, latest of all) — CampaignRepository.kt's
 > log-escape fix fully closed. Part b-ii (`recordCampaignStream`,
 > Velune commit `222d1a6`) done — the last of the two broken lines Part
