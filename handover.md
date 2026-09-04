@@ -132,16 +132,29 @@ looking like a part was skipped.
 > anything, especially the box below it.**
 >
 > **Newest note (2026-09-04, latest of all) — CampaignRepository.kt's
-> log-escape fix, Part b split i/ii per explicit instruction; Part b-i
-> done, Velune commit `fe732af`.** Of Part b's two remaining broken
-> lines (`ensureDeviceListener`, `recordCampaignStream`), this is
-> `ensureDeviceListener`'s only — `${'$'}{response.code}` corrected to
-> `${response.code}`, mirroring Part a's own already-fixed lines
-> exactly (confirmed by reading one first, not assumed). Single-line
-> diff, brace balance 101/101, not compile-verified (same standing
-> no-Android-SDK limitation). **Next: Part b-ii**
-> (`recordCampaignStream`, same file, same fix) — no other open thread
-> from this small task.
+> log-escape fix fully closed. Part b-ii (`recordCampaignStream`,
+> Velune commit `222d1a6`) done — the last of the two broken lines Part
+> b was split into.** Same one-character fix as every other line this
+> small task touched (`${'$'}{response.code}` → `${response.code}`),
+> confirmed against `fetchActiveCampaigns`'s own already-fixed line
+> before writing it, not assumed from memory. Grepped the whole file
+> afterward: zero remaining instances of the broken pattern anywhere.
+> Brace/paren balance verified (100/100, 357/357). Not compile-
+> verified, no Android SDK/Gradle in this sandbox, same standing
+> limitation as every part of this fix. **This closes the entire task
+> — originally flagged as a small adjacent finding back in Round 10,
+> split into Part a (4 lines, done earlier) and Part b (2 lines, split
+> further into b-i/b-ii, both now done). No other open thread from
+> this task.**
+>
+> **Next: whatever the actual next genuinely-unblocked item is —
+> re-check this box's own older notes below and Task 49's current
+> state directly before assuming; several sessions have landed
+> migrations 029-035 since this box was last fully reconciled top to
+> bottom (Task 49's pool-calculation-through-withdrawal pipeline in
+> particular looks substantially further along than this box's own
+> older notes below still describe — read that task's own current
+> section fresh, don't trust a stale summary here).
 >
 > **Newest note (2026-09-0X, latest of all) — Task 65 fully closed:
 > Part B-ii (display surfaces) done.** Checked the originally-assumed
