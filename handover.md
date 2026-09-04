@@ -16433,6 +16433,57 @@ assume it:
   `Phoenix-Boss` account and `Edges-Enterprise` org this lives under)
   — but (d) below explicitly does not carry the committed-`.env`
   practice into the new fork.
+- **Two more hardcoded secrets found on a later pass, same severity
+  class as the `.env` finding above, not previously flagged — same
+  "product owner's own call, not blocking this task" status, but
+  worth being explicit about the full list rather than letting the
+  `.env` key stand in for "the only one":**
+  - `supabase/functions/lizzysub-proxy/index.ts` — a live Lizzysub API
+    token hardcoded directly in the Edge Function's own source (not an
+    env var), used to authenticate every VTU/data-topup request this
+    app proxies to `lizzysub.com/api/data`. Same exposure class as the
+    committed service-role key — this repo's public git history is
+    effectively that token's public disclosure too, whether or not the
+    key type generally rotates.
+  - `hooks/useVirtualAccount.ts` — a Payscribe **test** key
+    (`ps_pk_test_...` prefix, so lower real-world stakes than a live
+    key) hardcoded directly in a React Native hook — meaning it ships
+    inside the compiled app bundle to every end-user device, not just
+    sitting in source control. Worth noting as a slightly different
+    exposure *mechanism* than the other two (client-bundle exposure,
+    not git-history exposure) even though the practice (hardcode
+    instead of env var) is the same mistake.
+  Whoever executes (d) below (which already plans to stop the
+  committed-`.env` practice) should treat these two the same way —
+  neither should carry into the fork hardcoded, and both should be
+  treated as needing rotation before any real reuse, not just
+  "moved into an env var as-is."
+- **A materially more severe pattern than the "WalletCard balance-sync
+  race condition" (e) already flags below**, found while tracing the
+  actual tag-to-tag transfer flow specifically (not the self-balance
+  refresh (e) describes) — worth its own bullet since it's a different
+  class of risk, not a restatement: `app/(app)/send/success.tsx`'s
+  `processBPayTransfer()` calls `updateUserBalance(recipientId,
+  recipientAmount)` — a plain client-side Supabase `.update()` against
+  **another user's own `profiles.balance` row**, executed from the
+  *sender's* app session, not the recipient's. This isn't just a
+  same-row race condition (read-then-write on your own balance, which
+  is what (e) describes) — it's the sender's own client directly
+  crediting a different account, with no visible server-side
+  authority check gating that write to only the legitimate recipient
+  of a specific, verified transaction. Whether this is actually safe
+  in practice depends entirely on RLS policies not inspectable from
+  this sandbox (no live DB access to the original project) — but the
+  *code pattern itself*, independent of whatever RLS backstop may or
+  may not exist, is exactly the class of client-trusted-for-a-financial-
+  operation logic this whole project's own Task 45 Part 3 ("the charge
+  amount is never trusted from the client") was built specifically to
+  eliminate elsewhere in this codebase. **Whoever builds (e) below
+  should treat this as a hard requirement, not a style preference: the
+  new crediting logic must be a secure, server-side-only path (an
+  atomic RPC, service-role-only, with the caller's authority to credit
+  *that specific* payout verified before the write) — not a port of
+  this original pattern, even adapted to run somewhere more trusted.**
 
 **The decision, direct from the product owner this session:** fork
 that repo into the `Zapier-codes` GitHub org, and reconfigure its
@@ -16522,7 +16573,13 @@ pattern in one spot (`WalletCard`'s own balance-sync logic, read the
 current value then `.update({ balance: newBalance })`) — a real race
 condition risk if copied verbatim (a listener topping up their own
 balance at the same moment Mavins-web credits a payout could silently
-lose one of the two updates). This closes Part b-ii-ii-b for real,
+lose one of the two updates). **A second, more severe instance of the
+same underlying mistake — crediting a *different* user's balance from
+client-side code, not just racing your own — is documented in this
+task's own "Security finding" bullets above
+(`send/success.tsx`'s `processBPayTransfer`); this part's own crediting
+logic must not replicate either pattern, self-race or cross-user
+write.** This closes Part b-ii-ii-b for real,
 **replacing** that part's earlier "call B-Pay-backend's own `/payout`
 → Korapay" plan for listener payouts specifically. That Korapay-via-
 B-Pay-backend path (a genuinely different repo — `Zapier-codes/
