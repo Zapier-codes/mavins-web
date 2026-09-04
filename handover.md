@@ -1916,6 +1916,30 @@ looking like a part was skipped.
 > ```
 > Then `git push origin main` for each repo.
 
+
+
+## 🔍 Verification Required – Tasks Marked Done but Need Reconfirmation
+
+The following tasks have been marked as `[x] (verify)` based on a codebase review.  
+**A future session should double‑check that each is fully implemented in the live codebase and close it definitively.**
+
+- Task 4 – Promote page CSS/mobile overlap
+- Task 6 – Slider design revert
+- Task 13 – RPC auto‑credit wallet balance
+- Task 14 – Admin dashboard hardcoded email fix
+- Task 15 – Admin campaign launch RLS error
+- Task 16 – RLS owner‑only admin actions
+- Task 17 – Complete‑profile page wiring
+- Task 18 – Profile success banner
+- Task 20 – Header wallet pill routing
+- Task 21 – Remove withdrawal ability
+- Task 23 – Promote page country shuffle
+- Task 24 – Korapay endpoint wiring
+- Task 25 – Fund‑wallet page rejection fix
+- Task 40 – Fee arithmetic in Edge Function only
+
+---
+
 ## Task 0 — URGENT: main branch currently fails `npx tsc --noEmit` [x]
 
 **Done in commit `3b24fe7`.** All 7 errors fixed: removed the
@@ -2040,7 +2064,7 @@ from scratch, not fixed.
 
 ---
 
-## Task 4 — Promote page first section: mobile CSS overlap + black
+## Task 4 — Promote page first section: mobile CSS overlap + black [x] (verify)
 screen + category alignment [x]
 
 **Ask:** "The first side of the promote page the CSS is overlapping
@@ -2187,7 +2211,7 @@ landed.
 
 ---
 
-## Task 6 — Slider: revert to previous commit's design, zero
+## Task 6 — Slider: revert to previous commit's design, zero [x] (verify)
 re-render, no effect on cards [x]
 
 **Done in commit `38d6dd0`.** Followed the diagnosis below exactly:
@@ -2423,7 +2447,7 @@ directly on the live DB.
 
 ---
 
-## Task 13 — RPC: auto-credit wallet balance when a deposit webhook
+## Task 13 — RPC: auto-credit wallet balance when a deposit webhook [x] (verify)
 is received [x]
 
 **Ask:** Create an RPC function that updates the user's wallet
@@ -2513,7 +2537,7 @@ end-to-end test payment after applying both migrations.
 
 ---
 
-## Task 14 — Admin dashboard: fix wrong hardcoded email + client-side
+## Task 14 — Admin dashboard: fix wrong hardcoded email + client-side [x] (verify)
 RLS blocking real data [x]
 
 **Ask:** Product owner forwarded a third-party document diagnosing
@@ -2604,7 +2628,7 @@ end-to-end check after deploying this.
 
 ---
 
-## Task 15 — Admin campaign launch throws RLS error; header wallet
+## Task 15 — Admin campaign launch throws RLS error; header wallet [x] (verify)
 balance always shows $0.00 [x] (verify)
 
 **Ask:** Product owner, logged in as the confirmed admin account
@@ -2676,7 +2700,7 @@ this fix doesn't cover (please paste the exact new error text).
 
 ---
 
-## Task 16 — RLS on `track_campaigns` still owner-only; admin actions
+## Task 16 — RLS on `track_campaigns` still owner-only; admin actions [x] (verify)
 silently no-op instead of erroring [x] SQL run against the live DB,
 root cause fully diagnosed (see resolution note below)
 
@@ -2822,7 +2846,7 @@ is fixed before spending time on the frontend for either.
 
 ---
 
-## Task 17 — Complete-profile page exists but isn't wired into the
+## Task 17 — Complete-profile page exists but isn't wired into the [x] (verify)
 real flow [x]
 
 **Ask:** `/complete-profile` isn't actually reached as part of
@@ -2899,7 +2923,7 @@ same.
 
 ---
 
-## Task 18 — Success banner after completing profile shows for every
+## Task 18 — Success banner after completing profile shows for every [x] (verify)
 artist on every login, not just once [x]
 
 **Ask:** Product owner reports a banner/modal opens for every artist
@@ -2995,7 +3019,7 @@ deploying.
 
 ---
 
-## Task 20 — Header wallet pill doesn't route anywhere; should say
+## Task 20 — Header wallet pill doesn't route anywhere; should say [x] (verify)
 "Wallet" not the earnings label [x]
 
 **Done in commit `e8c8b44`.** Header.tsx's wallet pill was a plain
@@ -3039,7 +3063,7 @@ Coordinate with Task 21 so this isn't done twice.
 
 ---
 
-## Task 21 — Remove withdrawal ability entirely (comment out, don't
+## Task 21 — Remove withdrawal ability entirely (comment out, don't [x] (verify)
 delete, in case it's needed later) [x]
 
 **Done in commit `4a62796`.** No withdrawal functionality is
@@ -3175,7 +3199,7 @@ worth confirming that's actually how this project is configured.
 
 ---
 
-## Task 23 — Promote page: shuffle 8-of-25 countries by genre, cap
+## Task 23 — Promote page: shuffle 8-of-25 countries by genre, cap [x] (verify)
 selection at 3 of the shown 8 [x]
 
 **Ask:** The country-targeting pool should be the full 25 countries,
@@ -3240,7 +3264,7 @@ owner's preference before picking one.
 
 ---
 
-## Task 24 — Korapay "Endpoint not found" error — fully wire the render
+## Task 24 — Korapay "Endpoint not found" error — fully wire the render [x] (verify)
 backend proxy [x]
 
 **Ask:** Product owner is seeing a Korapay "Endpoint not found" error.
@@ -3361,7 +3385,7 @@ would show which one 404'd and which one didn't).
 
 ---
 
-## Task 25 — URGENT: fund-wallet page rejects a correctly-entered
+## Task 25 — URGENT: fund-wallet page rejects a correctly-entered [x] (verify)
 email with "Email Address is required" [x]
 
 **Ask:** Product owner reported that on `/fund-wallet`, entering an
@@ -5304,7 +5328,7 @@ for Task 38's debit rewiring, not this).
 
 ---
 
-## Task 40 — Fee arithmetic lives ONLY in the Edge Function; the RPC
+## Task 40 — Fee arithmetic lives ONLY in the Edge Function; the RPC [x] (verify)
 never computes, it only persists [x]
 
 **Status, this session — all three items now done.** The deposit-side
