@@ -131,6 +131,24 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-04, latest of all) — small standalone fix:
+> CampaignRepository.kt's broken HTTP-status log escape, Part a of 2.**
+> Round 10 flagged (never fixed) six log lines writing `${'$'}{response.code}`
+> — Kotlin's literal-dollar-sign escape, meaningful only inside a KDoc
+> comment — inside real string literals, printing the literal text
+> instead of the actual HTTP status. Confirmed via grep before starting:
+> two of the six (`fetchLiveCampaignsForBanner`, `ingestGenreTile`)
+> were already written correctly — only five were actually broken.
+> Split the remaining five in half per the standing splitting rule;
+> this is Part a — `fetchActiveCampaigns`, `fetchNextCampaignForQueueSlot`,
+> `fetchGenreTileMapping` (lines 64/273/363) fixed. Part b
+> (`ensureDeviceListener`, `recordCampaignStream`, lines 519/573) not
+> done. Purely cosmetic — broken debug logging only, nothing
+> functional. Verified via brace/paren balance (102/102, 357/357) —
+> not compile-verified, same standing sandbox limitation. **Next: Part
+> b** (two remaining lines, same file) — no other open thread from
+> this small task.
+>
 > **Newest note (2026-09-04, even later still) — Task 67 Part f split
 > i/ii per explicit instruction (hadn't been split at all); Part f-i
 > done.** Of Task 67's own six parts (a-f), only (f) was buildable
@@ -14612,20 +14630,21 @@ documented "first job" — nothing more:
    rules (non-empty string, ≤200 chars) — not just assumed from memory
    of what such a route probably expects.
 
-**Found, NOT fixed — a real, pre-existing bug across the entirety of
-Velune's `CampaignRepository.kt`, flagged for its own later part, not
-drive-by-fixed here:** all six of that file's HTTP-status warning log
-lines write `${'$'}{response.code}` (Kotlin's literal-dollar-sign
-escape — only meaningful inside a KDoc comment) inside real string
-literals, where it instead prints the literal text `${response.code}`
-to the log rather than the actual value. Caught only because copying
-that file's own established style for this session's one new log line
-would have carried the same bug forward a seventh time — fixed that
-one new line, left the five pre-existing instances alone (outside this
-part's own scope) and flagged in both this file and Velune's own
-`HANDOVER_CAMPAIGN.md` (§11) instead. Purely cosmetic (broken debug
-logging only, nothing functional) — a good small standalone next part
-whenever someone wants it, not urgent.
+**Found, NOT fixed at the time — a real, pre-existing bug across the
+entirety of Velune's `CampaignRepository.kt`, flagged for its own
+later part rather than drive-by-fixed here. Update: 3 of the 5 broken
+instances now fixed — see the small standalone "Part a" entry near
+the top of this box, dated 2026-09-04.** All six of that file's
+HTTP-status warning log lines wrote `${'$'}{response.code}` (Kotlin's
+literal-dollar-sign escape — only meaningful inside a KDoc comment)
+inside real string literals, where it instead prints the literal text
+`${response.code}` to the log rather than the actual value. Caught
+only because copying that file's own established style for this
+session's one new log line would have carried the same bug forward a
+seventh time — fixed that one new line, left the five pre-existing
+instances alone (outside this part's own scope) and flagged in both
+this file and Velune's own `HANDOVER_CAMPAIGN.md` (§11) instead.
+Purely cosmetic (broken debug logging only, nothing functional).
 
 **Still deliberately not touched — same as before this round:** the
 6-file UI/nav genre-threading chain itself, `MusicService.kt`'s
