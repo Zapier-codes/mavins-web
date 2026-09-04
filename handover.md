@@ -131,6 +131,18 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-04, latest of all) — CampaignRepository.kt's
+> log-escape fix, Part b split i/ii per explicit instruction; Part b-i
+> done, Velune commit `fe732af`.** Of Part b's two remaining broken
+> lines (`ensureDeviceListener`, `recordCampaignStream`), this is
+> `ensureDeviceListener`'s only — `${'$'}{response.code}` corrected to
+> `${response.code}`, mirroring Part a's own already-fixed lines
+> exactly (confirmed by reading one first, not assumed). Single-line
+> diff, brace balance 101/101, not compile-verified (same standing
+> no-Android-SDK limitation). **Next: Part b-ii**
+> (`recordCampaignStream`, same file, same fix) — no other open thread
+> from this small task.
+>
 > **Newest note (2026-09-0X, latest of all) — Task 65 fully closed:
 > Part B-ii (display surfaces) done.** Checked the originally-assumed
 > 4-surface inventory directly rather than wiring blind — 2 of 4
