@@ -131,6 +131,29 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-0X, latest of all) — Task 68 added (new);
+> Task 67 supplemented with 3 additional security findings, not a
+> competing task.** Cloned `Edges-Enterprise/B-PAY` independently this
+> session (before discovering Task 67 already existed and had done the
+> same cross-check, more thoroughly) — found real value not already
+> recorded: a **hardcoded Lizzysub API token** in
+> `lizzysub-proxy/index.ts` source (not just the already-flagged
+> committed `.env`), the **Payscribe secret key sent from client-side
+> app code** (bundled into the compiled mobile app, extractable via
+> decompilation regardless of the repo's git history), and a
+> **`resolve_tag/index.ts` bug** (references an undefined `supabase`
+> client — would throw at runtime as currently written). All three
+> appended to Task 67's own section, not written as a duplicate task.
+> **New Task 68**: integrating Lizzysub (VTU) and Juicyway
+> (gap-filling only, whatever Korapay doesn't cover) into
+> `B-Pay-backend`, making it the single source of truth for all
+> payment/utility services — a related but genuinely distinct product-
+> owner instruction from the same conversation as Task 67, kept
+> separate since it depends on B-Pay-backend's own already-confirmed
+> Korapay/Juicyway providers, not on Task 67's parts (a)–(f) landing
+> first. Documentation only — nothing built, five real open questions
+> recorded before this is buildable.
+>
 > **Newest note (2026-09-04, latest of all) — Task 65 Part B split
 > into B-i/B-ii; B-i done.** Click-to-edit campaign name in
 > `promote/page.tsx`'s "New Campaign" heading (pencil icon, 100-char
@@ -16524,4 +16547,113 @@ would call, on whichever surface that turns out to be. Not guessed
 past — same reasoning Task 66 already used to correctly stay open
 rather than build against an assumed platform.
 
+**Additional security findings, this session — supplementing, not
+duplicating, the committed-service-role-key finding already recorded
+above in this task's own "Context" section:**
+- **A hardcoded Lizzysub API token directly in source**, not just in
+  the committed `.env`:
+  `supabase/functions/lizzysub-proxy/index.ts` has
+  `const LIZZYSUB_TOKEN = "b5b39c2645893a318c432507d00a91270f39bd987e5fcc904dc72276a00c"`
+  literally in the file.
+- **The Payscribe secret key is sent from client-side app code**, not
+  just committed to git: `app/(app)/send/success.tsx`'s
+  `executePayscribeTransfer()` sends `PAYSCRIBE_CONFIG.apiKey` as an
+  `Authorization` header directly from the React Native app to
+  Payscribe's own API. That key is bundled into the compiled mobile
+  app itself — extractable via decompilation regardless of the GitHub
+  repo's visibility or whether its `.env` ever gets scrubbed.
+- **`resolve_tag/index.ts` references a `supabase` client that's never
+  imported or instantiated anywhere in that file** — as currently
+  written, this Edge Function would throw a `ReferenceError` at
+  runtime, not a hypothetical concern. Confirmed by reading the whole
+  file, not inferred.
+
+None of these block (a)–(f) above — same standing as the original
+service-role-key finding ("their own repos/orgs, so their call") — but
+worth having recorded precisely, since (d)'s own "fix the committed-
+secret practice while at it" scope should probably extend to not
+inheriting the hardcoded-token pattern into the fork either, and (e)'s
+crediting call should not route through `resolve_tag` as currently
+written without first confirming this specific bug was fixed upstream
+or fixing it in the fork directly.
+
+**A related but distinct piece of work — see new Task 68, below**:
+making `Zapier-codes/B-Pay-backend` (a different repo from this B-PAY
+fork) the single source of truth for VTU/utility payment routing,
+integrating Lizzysub and Juicyway. Came up in the same product-owner
+conversation as this task but has its own separate scope and
+dependencies — kept as its own task rather than folded into this one's
+six-part split, since it depends on B-Pay-backend's own existing
+Korapay/Juicyway providers, not on parts (a)–(f) here landing first.
+
 ---
+
+## Task 68 — Integrate Lizzysub (VTU) into B-Pay-backend; integrate Juicyway for whatever Korapay doesn't already cover — B-Pay-backend becomes the single source of truth for all payment/utility services [ ]
+
+**Direct product-owner instruction, this session.** Once Task 67's
+forked B-Pay replica exists, `Zapier-codes/B-Pay-backend` (the
+existing Node/Express payment backend already used for Mavins' own
+campaign payments and listener payouts — see that repo's own
+`handover.md`, Task 42's extensive history) should absorb **Lizzysub's
+VTU API** (airtime, data, cable, electricity — confirmed real via
+Task 67's own cross-check of B-PAY's `supabase/functions/
+lizzysub-proxy/index.ts` and its `EXPO_PUBLIC_LIZZYSUB_*` env vars),
+making B-Pay-backend the one shared backend for **every**
+payment-adjacent service across the whole Mavins/B-Pay ecosystem, not
+just campaign payments and listener payouts.
+
+**Juicyway integration is explicitly scoped to gap-filling only** —
+"only areas that Korapay doesn't already offer us." B-Pay-backend
+already has a working Juicyway provider file
+(`providers/juicyway.js`, confirmed present this session by listing
+that repo directly, not assumed) alongside its existing Korapay/
+Paystack/Payscribe providers — this task is about *routing decisions*
+(which provider handles which service, per B-Pay-backend's own
+existing per-route pattern already used for `/pay` vs `/payout`), not
+building a new Juicyway integration from scratch.
+
+**Nothing built this session — documentation only**, matching Task
+67's own explicit framing. This entry exists so the plan is recorded
+precisely before anyone starts implementing it, following this
+project's own established convention of speccing real work before
+building it.
+
+### Genuinely open, needs resolving before this is buildable
+
+1. **Lizzysub's real API surface** — this session only confirmed the
+   proxy pattern (`POST https://lizzysub.com/api/data` is the one
+   endpoint B-PAY's own proxy currently forwards to) and that
+   `providers/juicyway.js` exists in B-Pay-backend. Full API
+   documentation for both (available services, request/response
+   shapes, error codes, rate limits) wasn't fetched or reviewed this
+   session — needed before designing B-Pay-backend's own new routes.
+2. **What "VTU" concretely means for B-Pay-backend's own route
+   surface** — new endpoints (`POST /vtu/airtime`, `POST /vtu/data`,
+   etc.), or a single generic passthrough route mirroring B-PAY's own
+   proxy shape? B-Pay-backend's existing `routes.js` convention (one
+   named route per capability: `/pay`, `/payout`, `/verify`, `/banks`)
+   suggests the former, but that's this session's inference from
+   precedent, not a confirmed decision.
+3. **The exact scope of "areas Korapay doesn't already offer"** —
+   needs a real, explicit comparison of Korapay's current product
+   surface (collections, payouts, virtual accounts — per B-Pay-
+   backend's own already-confirmed Korapay integration) against
+   Juicyway's own product surface, not assumed. Not done this session.
+4. **Auth posture for any new routes** — B-Pay-backend's own
+   established convention (that repo's own Task 42 history) is
+   `requireInternalApiKey` on every route reachable from Mavins-web/
+   Velune, server-to-server only, fail-closed if the key is unset. New
+   VTU/Juicyway routes should presumably follow the identical posture,
+   but that's this session's inference from precedent, not a decision
+   explicitly re-confirmed for these specific new routes.
+5. **Whether Lizzysub's credentials move into B-Pay-backend's own
+   environment** (mirroring how Korapay/Paystack/Payscribe secrets
+   already live there) or whether B-Pay-backend calls B-PAY's own
+   existing `lizzysub-proxy` Edge Function instead of talking to
+   Lizzysub directly — the former is more consistent with "B-Pay-
+   backend becomes the single source of truth" (no dependency on a
+   second backend for its own routing decisions), the latter avoids
+   credential duplication across two systems. Not decided here.
+
+---
+
