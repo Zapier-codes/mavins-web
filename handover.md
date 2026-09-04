@@ -16477,6 +16477,40 @@ The router uses a **capability registry** (JSON or DB) to determine which provid
    - Set up environment variables on Render.
    - Deploy and monitor.
 
+
+
+### User Experience Flow & Virtual Account Display Rules
+
+#### Goal
+- The **payer** enters the **recipient’s 10‑digit phone number** (without leading zero) on the B‑Pay checkout page.
+- The system resolves this to the recipient’s virtual account and displays **only** the following:
+  - **Bank Name**: The partner bank (e.g., Wema Bank, Titan Bank, etc.) – **never** the provider name (Korapay, Paystack, etc.).
+  - **Account Name**: The recipient’s **real name** (as registered on B‑Pay) – **never** a generic or provider‑branded name.
+  - **Account Number**: The virtual account number (provided by the partner bank) – but this is shown **only once** during the checkout session, and is not stored for the payer.
+- The payer then opens their banking app and enters the **account number and bank name** to complete the transfer.
+- The recipient **never** sees the virtual account number; they only need to provide their phone number to receive funds.
+
+#### Implementation Details
+- **Phone number mapping**: The B‑Pay backend stores the recipient’s virtual account number and links it to their phone number in the database.
+- **Checkout API**: When a payer initiates a transfer to a phone number, the system:
+  1. Looks up the recipient’s virtual account number.
+  2. Returns the account number, the partner bank name, and the recipient’s name to the front‑end.
+  3. The front‑end displays these details in a branded B‑Pay checkout page.
+- **Account Name**: Set via the provider’s `account_name` (Korapay) or `narration` (Flutterwave) field, always using the recipient’s full name.
+- **Bank Name**: Hardcoded to the partner bank’s name (e.g., "Wema Bank") – this is the only bank name the user ever sees.
+
+#### Why This Works
+- The payer never sees the provider’s name.
+- The payer never needs to remember a virtual account number; they just know the recipient’s phone number.
+- The recipient never sees the virtual account number – it’s managed in the backend.
+- The partner bank name is shown, which is standard for bank transfers and builds trust.
+- The account name shows the recipient’s identity, making it easy for the payer to confirm they are sending to the right person.
+
+#### Limitations & Dependencies
+- This flow requires the payer to use the **B‑Pay checkout page** (web or app) to initiate the transfer – it cannot work directly from the payer’s banking app because banks do not support phone‑number resolution.
+- If the payer prefers to use their banking app directly, they must copy the virtual account number from the B‑Pay checkout page (shown once) – they still see the partner bank name and recipient’s name when they enter the number.
+- B‑Pay must store the virtual account number and map it to the user’s phone number in its database.
+
 ### Dependencies / Blockers
 
 - None – all decisions are resolved. Each provider integration is independent and can be built in parallel.
