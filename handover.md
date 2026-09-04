@@ -16374,6 +16374,45 @@ whether the migration actually applies cleanly against the live
 #### Dependencies / Blockers
 
 - None – all product decisions are now resolved.
+
+**Independently confirmed, this session (2026-09-04) — product owner
+restated this exact architecture directly, unprompted by this task's
+own existing text.** Checked every point against what's already
+written above before adding anything: UI-on-`mavins-web`/Velune-
+read-only, the tap-to-open-player routing, direct-Velune-play-earns-
+nothing, the 60-second "pill" progress UI (the product owner's own
+phrase — "like a pill count button," matching this task's own
+"rewarded ads" framing exactly), the Supabase record write, and the
+must-return-to-web-for-the-next-song rule. **Zero discrepancies
+found** — this task's existing spec is accurate and current, not
+stale; nothing here needed correcting, only confirming.
+
+**Implementation split, formalized this session per explicit
+instruction — documentation only, nothing built:** the 7-step
+"Implementation Tasks" list above splits naturally along the same
+repo boundary this whole project already uses for cross-repo work
+(canonical piece first, consuming piece second):
+
+- **Part a — `mavins-web`-side backend + page (steps 1, 2, 3, 7
+  above):** `POST /api/listener/token`, `GET /api/listener/balance`,
+  the `/earn` page itself (task board + balance, token handoff), and
+  wiring that task board to real campaign data. This is the half a
+  session can build and verify entirely within this repo, with no
+  Velune-side dependency — the natural first chunk.
+- **Part b — Velune-side wiring (steps 4, 5, 6 above):** the deep-
+  link handler that opens Velune from the web's token, the 60-second
+  progress-pill UI itself, and the `reward=true` intent flag Part a's
+  own `/earn` page needs to already be sending for Part b to have
+  anything to receive. **Depends on Part a existing first** — same
+  "prerequisite structural piece before the consuming piece" shape
+  this project has used throughout (Task 59's own B-ii Part a/Part b
+  split is the closest precedent).
+
+**Do only Part a next** — per this session's own explicit instruction
+not to build anything yet regardless. A future implementation session
+should start there; Part b is real, scoped, but genuinely blocked on
+Part a's endpoints/token format existing first, not just ordered
+first for convenience.
 ## Task 67 — Complete B-PAY tag integration, listener routes, and fix security findings (unblocked)
 
 **Status:** ✅ Fully unblocked. All parts are actionable.
