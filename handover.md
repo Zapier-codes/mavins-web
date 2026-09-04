@@ -131,7 +131,27 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-09-04, latest of all) — Task 65 Part A done:
+> **Newest note (2026-09-04, even later still) — Task 67 Part f split
+> i/ii per explicit instruction (hadn't been split at all); Part f-i
+> done.** Of Task 67's own six parts (a-f), only (f) was buildable
+> without a manual GitHub action or real B-Pay dashboard access this
+> sandbox doesn't have — so (f) itself became the target for this
+> session's splitting pass. New migration 034: nullable `bpay_tag
+> TEXT` on `public.users`, stored without a leading `@` (matches
+> B-Pay's own `resolve_tag` Edge Function, confirmed by reading it
+> directly), partial index ready for Part e's future lookup. Verified
+> via `sqlparse` (3 statements) + paren balance (24/24), plus a Python
+> simulation of the `CHECK` constraint's own edge cases — caught a
+> real nuance that way: the constraint validates trimmed length but
+> doesn't rewrite the stored value, so trimming/`@`-stripping is left
+> as the calling application's own job, documented directly in the
+> migration. **Next: Part f-ii** — the actual UI surface (Velune, or
+> folded into the withdrawal-request flow) for a listener to submit
+> their tag, plus the API route that writes it (trimmed, stripped) —
+> the next genuinely buildable piece of this whole task. Full write-up
+> in Task 67's own "Part f" section.
+>
+> **Older note (2026-09-04, latest of all) — Task 65 Part A done:
 > `campaign_name` column + creation-route wiring.** Product owner
 > resolved the open question directly: a genuinely separate,
 > user-supplied label (industry-standard Google/Meta Ads-style
@@ -16330,5 +16350,43 @@ listener to enter/confirm it. Not built yet; genuinely the next
 concrete, low-risk, fully-buildable engineering task once (a)–(e)
 land, and the one part of this whole task that doesn't depend on any
 manual/external action first.
+
+**Split i/ii, per explicit instruction, since it hadn't been split at
+all yet. Part f-i done, commit `db92da1`; Part f-ii not started.**
+
+**Part f-i = the schema.** New migration 034: nullable `bpay_tag TEXT`
+on `public.users`, stored **without** a leading `@` — confirmed by
+reading B-Pay's own `resolve_tag` Edge Function directly, which strips
+the `@` itself before querying (`cleanTag = tag.slice(1)`), so its own
+`profiles.bpay_tag` column never has one either; whatever builds Part
+f-ii should match that convention on the way in, not store it
+inconsistently with what a future lookup (Part e) will actually query
+against. Deliberately not unique (a payout is always computed from one
+specific `listener_id`'s own real listening activity, never pooled
+across rows — nothing to gain by pointing multiple listener identities
+at the same tag). A loose `CHECK` rejects the empty/whitespace-only
+and leading-`@` cases specifically, without attempting to validate
+B-Pay's own real tag-format rules (not confirmed from this sandbox —
+see Part b's own still-open schema-audit note). A partial index
+(`WHERE bpay_tag IS NOT NULL`) is ready for Part e's own future lookup
+pattern. Verified via `sqlparse` (3 statements: `ALTER TABLE ADD
+COLUMN`, `CREATE INDEX`, `COMMENT ON COLUMN`) and paren balance
+(24/24). **One real nuance caught via a Python simulation of the
+`CHECK` constraint's own logic, not left implicit:** the constraint
+validates trimmed length but doesn't rewrite the stored value — a tag
+submitted with surrounding whitespace would pass the `CHECK` but then
+fail a later exact-match lookup. Documented directly in the migration
+as the calling application's own responsibility (trim before insert,
+same place it should already be stripping a leading `@`) — a `CHECK`
+constraint can reject bad input, it can't silently normalize good
+input into a consistent shape. Not run against the live DB — same
+hand-off every migration in this file needs.
+
+**Part f-ii — not started.** The actual UI surface (Velune, or folded
+into the withdrawal-request flow) for a listener to type in and
+confirm their tag, and the API route that writes it into this new
+column (trimming + `@`-stripping on the way in, per the nuance flagged
+above — don't leave that to the database). The next genuinely
+buildable piece of this whole task.
 
 ---
