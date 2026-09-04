@@ -9,6 +9,12 @@ interface CreateCampaignInput {
   genre?: string;
   geographicTier?: string;
   targetCountries?: string[];
+  // Task 65 Part B (handover.md): user-supplied campaign label,
+  // threaded through to api/campaigns/create's own `campaignName`
+  // field (Part A, same task). Optional — omitting it behaves
+  // identically to submitting an empty one server-side (falls back
+  // to the existing resolved-title display).
+  campaignName?: string;
 }
 
 interface CampaignResult {
@@ -84,6 +90,7 @@ export async function createCampaign(
         genre: input.genre,
         geographicTier: input.geographicTier,
         targetCountries: input.targetCountries,
+        campaignName: input.campaignName,
       }),
     });
     const json = await res.json();

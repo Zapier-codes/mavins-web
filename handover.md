@@ -131,6 +131,29 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-04, latest of all) — Task 65 Part B split
+> into B-i/B-ii; B-i done.** Click-to-edit campaign name in
+> `promote/page.tsx`'s "New Campaign" heading (pencil icon, 100-char
+> capped, save on blur/Enter), threaded through to Part A's existing
+> `api/campaigns/create` route via a 2-line addition to
+> `campaign.service.ts` — confirmed that service function already
+> calls that exact route before assuming so. Deliberately not wired
+> into the guest/checkout creation path — that route doesn't insert
+> into `track_campaigns` yet at all (a pre-existing, separately-
+> flagged gap, unrelated to this task). `npx tsc --noEmit` clean.
+> **Also checked, not built: Task 67 Part f-ii-ii turns out to be
+> secretly blocked on the same undecided question Task 66 already
+> flagged** (where the listener-facing UI lives at all — Velune
+> native vs. a website page, and if web, what identity model) — not a
+> small, independently-buildable UI decision the way its own "not
+> started" note implied. Flagged in Task 67's own section rather than
+> guessed past.
+>
+> **Next: Part B-ii** (display surfaces — leaderboard, artist
+> analytics, admin list, success page — not inventoried yet) for this
+> task; separately, Task 67 Part f-ii-ii and Task 66 both still need
+> the same underlying product decision before either is buildable.
+>
 > **Newest note (2026-09-04, latest of all) — small standalone fix:
 > CampaignRepository.kt's broken HTTP-status log escape, Part a of 2.**
 > Round 10 flagged (never fixed) six log lines writing `${'$'}{response.code}`
@@ -16004,7 +16027,7 @@ every Edge Function task in this file has flagged.
 
 ---
 
-## Task 65 — Editable campaign name: pencil icon next to "New Campaign", editable any time before posting [Part A done, Part B not started]
+## Task 65 — Editable campaign name: pencil icon next to "New Campaign", editable any time before posting [Part A done, Part B-i done, Part B-ii not started]
 
 **Ask, product owner's own words:** "add another task... where the
 text new campaign is and add a pencil icon so that the users can be
@@ -16130,15 +16153,54 @@ parens-balance sanity check on the migration file. **Not applied to
 the live DB** — same `supabase db push` hand-off every prior migration
 in this file has needed.
 
-**Part B — UI, not started.** The pencil icon + editable input near
-"New Campaign" in `promote/page.tsx` (sending the new `campaignName`
-field this part just added server-side support for), plus displaying
-`campaign_name` wherever campaign stats currently show — falling back
-to the existing resolved-title display whenever a campaign has none.
-"Wherever the stats show it" needs its own quick inventory before
-building (leaderboard, artist analytics dashboard, admin campaigns
-list, the success/confirmation page) — not enumerated or checked this
-session, Part A's own scope stopped at persistence.
+**Part B split into B-i (the input UI) / B-ii (display surfaces) this
+session (2026-09-04), per explicit instruction — genuinely two
+different kinds of work (a form input vs. inventorying and updating
+however many read-side surfaces), not one. B-i done, B-ii not
+started.**
+
+### Part B-i — the input UI, done this session
+
+`promote/page.tsx`'s "New Campaign" heading is now click-to-edit: a
+pencil icon next to the (still-default) "New Campaign" label; clicking
+either turns it into a text input (100-char capped client-side too,
+matching migration 033's own `CHECK`), auto-focused, saved on blur or
+Enter. Untouched, it keeps showing "New Campaign" exactly as before
+this task — no behavior change for an artist who never interacts with
+it.
+
+Threaded through the actual submission path: `CreateCampaignInput`
+(campaign.service.ts) gained `campaignName?: string`; its
+`createCampaign()` — confirmed by reading it directly, not assumed —
+already calls `POST /api/campaigns/create` (Part A's own route), so
+this was a two-line addition (the interface field, the fetch body
+key), not new plumbing. `handleSubmit` passes
+`campaignName.trim() || undefined`, matching Part A's own
+empty-string-normalizes-to-null handling server-side — an untouched
+field and an all-whitespace one behave identically.
+
+**Deliberately NOT threaded through `goDirectPayCampaign`/
+`goStraightToCheckout`** (the guest and insufficient-funds-checkout
+paths, both routing through `initialize-campaign/route.ts`) — that
+route doesn't insert into `track_campaigns` at all yet (its own
+"Part 2" is a pre-existing, separately-flagged gap, confirmed again
+this session, unchanged from Part A's own finding) — there is nothing
+there yet for a `campaignName` to reach. Flagging this explicitly
+rather than silently leaving those two paths without it: whoever
+eventually builds that route's own missing piece should thread
+`campaignName` through then, reading it from the same `metadata` JSONB
+bag Part A's write-up already pointed at.
+
+**Verified, this session:** `npx tsc --noEmit` clean.
+
+### Part B-ii — display surfaces, not started
+
+Displaying `campaign_name` wherever campaign stats currently show —
+falling back to the existing resolved-title display whenever a
+campaign has none. "Wherever the stats show it" needs its own quick
+inventory before building (leaderboard, artist analytics dashboard,
+admin campaigns list, the success/confirmation page) — not enumerated
+or checked this session either, same as Part A's own note.
 
 ---
 
@@ -16445,5 +16507,21 @@ folded into the withdrawal-request flow) for a listener to type in and
 confirm their tag, calling this new route. Not built this session —
 this route existing is what makes that UI buildable next, not the
 other way around.
+
+**Checked, same session as Task 65 Part B-i (2026-09-04) — this part
+is not the small, independently-buildable UI decision its own "not
+started" note above implies.** "Velune, or folded into the withdrawal-
+request flow" turns out to be the exact same open question Task 66
+already flagged and correctly left unbuilt: where does any
+listener-facing UI live at all — native (Velune) or a website page —
+and if a website page, what identity model does an unauthenticated
+website even use to know which device/listener is asking (Task 60's
+own still-open gap)? Checked `request_listener_withdrawal` (Part
+b-ii-ii-a) directly: it's RPC-only, no UI anywhere on either side yet
+— "folded into the withdrawal-request flow already built" doesn't
+mean an existing UI to fold into, it means an existing RPC a future UI
+would call, on whichever surface that turns out to be. Not guessed
+past — same reasoning Task 66 already used to correctly stay open
+rather than build against an assumed platform.
 
 ---

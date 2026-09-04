@@ -22,7 +22,7 @@ import {
   Rocket, Link2, TrendingUp, Globe, DollarSign,
   ShieldCheck, Zap, ChevronRight, Play, PauseCircle,
   BarChart3, Music, Sparkles, MapPin, Wand2, Map, Mail,
-  AlertCircle, Loader2, UserPlus
+  AlertCircle, Loader2, UserPlus, Pencil, Check
 } from 'lucide-react';
 
 const PublicAnalyticsShowcase = dynamic(
@@ -401,6 +401,16 @@ function PromoteContent() {
   const [sourceUrl, setSourceUrl] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('');
   const [guestEmail, setGuestEmail] = useState('');
+  // Task 65 Part B — user-supplied campaign label (industry-standard
+  // ad-platform naming convention, confirmed by the product owner —
+  // see Task 65's own section for the direct quote). Empty by
+  // default: an untouched campaign keeps showing the plain "New
+  // Campaign" heading, exactly as before this task, and the trimmed
+  // value going out empty behaves identically to omitting the field
+  // entirely (Part A's own server-side normalization already handles
+  // that — nothing extra needed here).
+  const [campaignName, setCampaignName] = useState('');
+  const [isEditingCampaignName, setIsEditingCampaignName] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [campaigns, setCampaigns] = useState<any[]>([]);
   // Task 51 (handover.md): the authenticated success path used to set
@@ -761,6 +771,7 @@ function PromoteContent() {
     const result = await createCampaign({
       sourceUrl: sourceUrl.trim(), viewCount, artistId: user.id,
       genre: selectedGenre || undefined, geographicTier, targetCountries,
+      campaignName: campaignName.trim() || undefined,
     }, isAdmin);
     setIsSubmitting(false);
 
@@ -875,16 +886,49 @@ function PromoteContent() {
           ) : (
           <>
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-[#1db954]/10 border border-[#1db954]/20 flex items-center justify-center">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <div className="w-8 h-8 rounded-lg bg-[#1db954]/10 border border-[#1db954]/20 flex items-center justify-center flex-shrink-0">
                 <Rocket className="w-4 h-4 text-[#1db954]" />
               </div>
-              <div>
-                <h2 className="font-bold text-sm">New Campaign</h2>
+              <div className="min-w-0 flex-1">
+                {isEditingCampaignName ? (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      value={campaignName}
+                      onChange={(e) => setCampaignName(e.target.value.slice(0, 100))}
+                      onBlur={() => setIsEditingCampaignName(false)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); setIsEditingCampaignName(false); }
+                      }}
+                      placeholder="New Campaign"
+                      autoFocus
+                      maxLength={100}
+                      className="font-bold text-sm bg-transparent border-b border-[#1db954]/40 focus:border-[#1db954] outline-none min-w-0 flex-1"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingCampaignName(false)}
+                      className="p-1 rounded-md hover:bg-white/10 flex-shrink-0"
+                      aria-label="Done naming campaign"
+                    >
+                      <Check className="w-3.5 h-3.5 text-[#1db954]" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingCampaignName(true)}
+                    className="flex items-center gap-1.5 group min-w-0 text-left"
+                  >
+                    <h2 className="font-bold text-sm truncate">{campaignName.trim() || 'New Campaign'}</h2>
+                    <Pencil className="w-3 h-3 text-[var(--subtle-foreground)] group-hover:text-[#1db954] transition-colors flex-shrink-0" />
+                  </button>
+                )}
                 <p className="text-[11px] text-[var(--subtle-foreground)]">{currentTier.label} Tier</p>
               </div>
             </div>
-            <span className={cn('text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border bg-gradient-to-r text-white', currentTier.color)}>
+            <span className={cn('text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border bg-gradient-to-r text-white flex-shrink-0', currentTier.color)}>
               {currentTier.label}
             </span>
           </div>
