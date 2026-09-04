@@ -213,7 +213,36 @@ looking like a part was skipped.
 > numbered task through 64 is now `[x]` or correctly blocked; nothing
 > else is currently known-open.
 >
-> **Newest note (2026-09-04, later still) — found a real, previously
+> **Newest note (2026-09-04, even later) — resolved the bank-details
+> blocker directly with the product owner, and documented the
+> complete fix as new Task 67 (further down this file), not built
+> yet.** The real payout destination was never a bank account — it's
+> a listener's existing B-Pay wallet, credited via their `@bpay_tag`.
+> Cloned and read `Edges-Enterprise/B-PAY` (the real consumer wallet
+> app) directly to confirm the mechanism (`resolve_tag` Edge Function,
+> `profiles.bpay_tag`/`profiles.balance`) rather than assume it. Found
+> and flagged (not used) a live, unredacted Supabase service-role key
+> committed to that repo's `.env` — confirmed acceptable to the
+> product owner (their own repos/orgs) but not carried into the plan.
+> **The decision:** fork that app into `Zapier-codes`, reconfigure it
+> onto Mavins-web's own Supabase project instead of the original one —
+> makes Part b-ii-ii-b's actual crediting call a same-project write,
+> no cross-org credential sharing needed. Task 67 has the full 6-part
+> breakdown (a: fork the repo — manual, outside any sandbox's reach;
+> b: audit the real schema first, the original repo's own migration
+> file is empty; c: namespace the ported tables; d: reconfigure config
+> + fix the committed-secret practice; e: wire the actual crediting
+> call, atomic increment not read-then-overwrite; f: give a listener
+> somewhere to submit their own tag). Build one part at a time, per
+> this file's own mandatory splitting rule — **f is the one part that
+> doesn't depend on any manual/external action first**, worth
+> prioritizing whenever this gets picked up. (Note: originally drafted
+> as "Task 65" before this same merge found that number had since been
+> taken by an unrelated "editable campaign name" task — renumbered to
+> 67, the next actually-free number, before this note was ever
+> committed.)
+>
+> **Older note (2026-09-04, later still) — found a real, previously
 > unflagged blocker on Part b-ii-ii-b before writing any disbursement
 > code: there is currently no way for a listener to ever provide a
 > payout bank account.** Multiple sessions' own "no remaining known
@@ -11004,6 +11033,20 @@ B-Pay-backend, already confirmed live and reachable) is the easy,
 already-scoped part; the actual blocker is that the payload it would
 send has no real data source yet.
 
+**Resolved, direct from the product owner, later this same day
+(2026-09-04) — the destination was never a bank account at all.**
+Q1–Q3 above are moot: the real destination is a listener's existing
+B-Pay wallet, credited via their `@bpay_tag` — no bank details, no
+KYC burden on this project's own side at all. Full investigation
+(cloned and read the real B-Pay app's own code to confirm the
+mechanism directly) and the complete task breakdown for building this
+live in the new **Task 65**, further down this file. This section's
+own "Part b-ii-ii-b" is superseded by Task 65's own part (e) — the
+`POST /payout` → B-Pay-backend → Korapay path described in the
+paragraph just above stays exactly as-is for **artist-side campaign
+payments** (a different, already-working flow, unrelated to this) but
+is no longer the plan for **listener payouts** specifically.
+
 
 **A session earlier today created migration 027, a NEW
 `listener_play_events` table plus a `record_campaign_stream()`
@@ -16136,3 +16179,156 @@ confirmed, split into identity resolution and the actual balance-
 display UI as separate parts, per this file's own mandatory
 task-splitting rule.
 
+
+## Task 67 — Fork B-Pay into Zapier-codes, reconfigure onto Mavins-web's own Supabase project as a dedicated disbursement app [ ]
+
+**Context — why this exists, and what it replaces.** Task 49 Part
+b-ii-ii-b (listener payout disbursement) was flagged in this file as
+blocked: no schema/UI anywhere collects a listener's real-world payout
+destination, and a Korapay bank disbursement needs one. **Corrected
+this session, directly from the product owner:** the real destination
+isn't a bank account at all — it's a listener's existing B-Pay wallet,
+credited via their `@bpay_tag`. Cloned and read
+`github.com/Edges-Enterprise/B-PAY` (the actual consumer wallet app,
+React Native/Expo) to confirm the mechanism directly rather than
+assume it:
+- `supabase/functions/resolve_tag/index.ts` resolves a `@tag` →
+  `profiles.id`/`full_name` (querying `profiles.bpay_tag`).
+- The real, live wallet balance lives on `profiles.balance` itself
+  (confirmed via `components/home/WalletCard/index.tsx`, the actual
+  UI component a B-Pay user's balance renders from) — **not** the
+  separate `wallet` table the repo's own Lizzysub refund-webhook
+  (`supabase/functions/webhook/index.tsx`) uses, which appears to be a
+  legacy or parallel table, not the one the real UI reads. This
+  ambiguity is real and needs resolving during (b) below, not assumed
+  either way.
+- That original app runs on its **own, separate** Supabase project
+  (`xinpapspoqoepckuvdbl.supabase.co`, confirmed via its own
+  `config/supabase.ts` + `.env`) — genuinely different from
+  Mavins-web's own (`atojskxrxfsbpeefigtm.supabase.co`), no existing
+  DB link between them. A second, unrelated project reference
+  (`arewaprojecturl` / `omvktdziswsyhavknhom.supabase.co`) also sits in
+  that same `.env` file but isn't referenced anywhere in the app's own
+  client code — flagged as probably-unused, not investigated further,
+  out of scope here.
+- **Security finding, flagged directly to the product owner this
+  session, their own repos/orgs so their call, not blocking this
+  task:** that original repo's committed `.env` contains a live,
+  unredacted Supabase **service-role key** (full read/write, bypasses
+  RLS) for its own production project — exposed in that repo's public
+  git history. Not used for anything this session. Confirmed
+  acceptable to proceed regardless (product owner controls both the
+  `Phoenix-Boss` account and `Edges-Enterprise` org this lives under)
+  — but (d) below explicitly does not carry the committed-`.env`
+  practice into the new fork.
+
+**The decision, direct from the product owner this session:** fork
+that repo into the `Zapier-codes` GitHub org, and reconfigure its
+Supabase config to point at **Mavins-web's own project** instead of
+the original one — a fully separate, Mavins-web-controlled app,
+editable freely, decoupled from the real B-Pay app's actual production
+data. Since it'll then share Mavins-web's own Supabase project, Part
+b-ii-ii-b's crediting mechanism becomes a plain same-project write
+from Mavins-web's own backend (already has service-role access) —
+no cross-org credential exchange needed at all, a real simplification
+over the original "share a scoped credential" framing this replaces.
+
+**Documentation only this session, per explicit instruction — nothing
+below is built.** Six sub-parts, in dependency order; build one at a
+time per this project's own mandatory task-splitting rule, not all at
+once:
+
+### a — Fork the repo (manual GitHub action, outside any sandbox's reach) [ ]
+`Edges-Enterprise/B-PAY` → a new repo under the `Zapier-codes` org.
+Naming not decided here — keep "B-PAY," or rename to reflect its new,
+narrower disbursement-only purpose (e.g. `mavins-disbursement`)? — a
+product decision, not an engineering one, needs the product owner's
+own call whenever this part is picked up. No Claude session can create
+a GitHub fork/repo directly; this part is a human action this
+handover can only point at, not execute.
+
+### b — Schema audit: confirm the real current B-Pay schema before porting anything [ ]
+The original repo's own committed migration file
+(`supabase/migrations/20250614120836_remote_schema.sql`) is **empty**
+— that project's real schema was managed via Supabase's dashboard, not
+tracked in version control. Everything in this task's own "Context"
+section above about `profiles`'s real columns was inferred purely from
+scattered TypeScript usage across the app (`WalletCard`,
+`resolve_tag`, the Lizzysub webhook) — a reasonable starting sketch,
+confirmed self-consistent across every file it appears in, but **not**
+a substitute for the real thing. Whoever has actual dashboard access
+to the original B-Pay Supabase project should export the real schema
+first (Supabase's own Table Editor/Database page, or `pg_dump
+--schema-only` given a direct connection string) — in particular,
+resolving the one real ambiguity this session flagged and could not
+settle from code alone: is `profiles.balance` or the separate
+`wallet.balance` (keyed by `user_email`) the actual authoritative
+balance column? (This session's own reading points to `profiles`,
+since that's what the real UI component renders from — but a live
+schema export settles it for certain instead of leaving it inferred.)
+
+### c — Namespace the ported tables before creating them [ ]
+Confirmed via `supabase_schema.sql`: Mavins-web has no table literally
+named `profiles` today, so no direct collision — but it does already
+have its own, semantically **different** `wallet_ledger` (an artist's
+campaign-spending wallet) and `users` tables. Recommend porting the
+B-Pay tables under a distinct prefix (`bpay_profiles`, `bpay_wallet`,
+`bpay_transactions`, matching whatever (b)'s real audit finds) rather
+than the bare original names — so nothing in this codebase ever
+confuses "a listener's B-Pay disbursement wallet" with "an artist's
+Mavins-web campaign wallet," two genuinely unrelated concepts that
+happen to share the word "wallet." Author as a new Mavins-web
+migration continuing this repo's own numbering (next free number:
+**033**, following migration 032) even though the forked app's own
+code is what actually reads/writes these tables — same precedent
+already established for `track_campaigns`/`listener_play_events`,
+whose migrations live in this repo despite Velune (a different app
+entirely) being their real reader/writer.
+
+### d — Reconfigure the fork's Supabase config, and fix the committed-secret practice while at it [ ]
+Point the forked app at Mavins-web's own project
+(`atojskxrxfsbpeefigtm.supabase.co`), using credentials Mavins-web
+already has issued and already uses server-side (`createAdminClient()`
+callers across this repo's own `src/app/api/` routes) — no new
+credential provisioning needed, unlike the original cross-org-sharing
+plan this whole task replaces. **While reconfiguring: stop committing
+`.env` to the fork at all.** The original repo's own practice (a real,
+committed service-role key, flagged above) is not something to carry
+forward — match the build-time-secret pattern this project's other two
+repos already use (Velune's `local.properties → env → default`
+fallback in `build.gradle.kts`; this repo's own `.env`, gitignored,
+never committed) instead of repeating it in the fork.
+
+### e — Wire Task 49 Part b-ii-ii-b's actual crediting call [ ]
+Now genuinely simple, once (a)–(d) land: Mavins-web's own backend
+(already has service-role access to this now-shared project) resolves
+a listener's stored `bpay_tag`, then performs an **atomic increment**
+(`balance = balance + amount`) on the ported wallet-balance column —
+explicitly **not** a read-then-overwrite. Worth calling out because
+the original app's own client-side code does exactly that unsafe
+pattern in one spot (`WalletCard`'s own balance-sync logic, read the
+current value then `.update({ balance: newBalance })`) — a real race
+condition risk if copied verbatim (a listener topping up their own
+balance at the same moment Mavins-web credits a payout could silently
+lose one of the two updates). This closes Part b-ii-ii-b for real,
+**replacing** that part's earlier "call B-Pay-backend's own `/payout`
+→ Korapay" plan for listener payouts specifically. That Korapay-via-
+B-Pay-backend path (a genuinely different repo — `Zapier-codes/
+B-Pay-backend`, fork of `Phoenix-Boss/B-PAY-backend`, an Express-style
+backend service, not this React Native app) stays exactly as-is —
+it's for artist-side campaign payments, unrelated to this.
+
+### f — Listener still needs to submit their own `@bpay_tag` somewhere [ ]
+Much simpler than the original bank-details blocker this replaces —
+no bank details, no KYC burden on Mavins-web's side at all, since
+B-Pay's own product already owns that on its end; a listener just
+needs to type in a tag they already have. Needs: a new column on
+Mavins-web's own `public.users` (e.g. `bpay_tag TEXT`), and a UI
+surface — in Velune, or folded into the withdrawal-request flow
+already built (Task 49 Part b-ii-ii-a's state machine) — for a
+listener to enter/confirm it. Not built yet; genuinely the next
+concrete, low-risk, fully-buildable engineering task once (a)–(e)
+land, and the one part of this whole task that doesn't depend on any
+manual/external action first.
+
+---
