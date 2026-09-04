@@ -11563,7 +11563,8 @@ too, not something to bolt onto this task as a partial fix.
 
 ---
 
-## Task 52 — Growth Metrics Seeding Package: services table + daily shuffle RPC [✅ DONE]
+## Task 52 — Growth Metrics Seeding Package: services table + daily shuffle RPC [DECLINED — do not build]
+
 > **⚠️ DECLINED, confirmed by a later session (2026-09-01, commit
 > `c896945`) — not a status this file's own top orientation box
 > currently surfaces, since that decision only ever landed in a
@@ -12341,7 +12342,8 @@ See the top orientation box for the corrected pointer.
 ---
 
 
-## Task 55 — Give seed users their own visible campaigns for the leaderboard: real-celebrity-identity finding, confirmed decision, and mitigation methods for whoever builds this [✅ Done]
+## Task 55 — Give seed users their own visible campaigns for the leaderboard: real-celebrity-identity finding, confirmed decision, and mitigation methods for whoever builds this [x]
+
 **Continues Task 54, item 3's leaderboard investigation — this is the
 "what did the actual seed data turn out to contain, and what did the
 product owner decide once they saw it" follow-up. Spec/findings only,
@@ -16315,168 +16317,490 @@ whether the migration actually applies cleanly against the live
 
 ---
 
-## Task 66 — Build the listener-facing "listen and earn" UI (unblocked)
+## Task 66 — Build the listener-facing "listen and earn" UI: no page, no route, nothing exists yet [ ]
 
-**Status:** ✅ Fully specified and actionable.
+**Ask, product owner's own words, confirming a finding rather than
+assigning a blind investigation:** "No — `/earn` doesn't exist. I
+checked the routes directly: there's no page anywhere for a
+listen-and-earn UI... Do you want me to write that up as a new task —
+designing and building the actual `/earn` (or whatever route name
+you'd prefer) page — separately from the payout-disbursement
+question, since a listener could at least see their accumulating
+balance even before the "how do they cash out" question gets
+resolved?"
 
-#### Core Decision Summary
+**Not implemented — this is a task assignment only, per direct
+instruction.** No code written this session; this entry exists to
+record the confirmed finding precisely so a future session doesn't
+have to rediscover it, and to scope what building it would actually
+require.
 
-- **Listen-and-Earn is a listener-side feature** (not artist-facing). No campaign-count gate.
-- **UI location**: Task board, enrollment, and balance display live on `mavins-web` (`/earn` page). Velune handles playback and 60‑second tracking only (read‑only for campaigns).
-- **Identity model**: Fully anonymous – device ID only. Real identity (email, KYC) deferred until withdrawal. No login, no password, no Supabase Auth dependency.
-- **Reward model**: Points (like Sweatcoin), not cash. Cash conversion deferred to redemption step.
-- **Viewing balance on the web**: Signed token handoff from Velune to browser (HMAC‑signed device ID, short expiry). No account creation needed.
-- **Earning flow**:
-  1. User browses task board on `mavins-web` → selects a song → web opens Velune with a `reward=true` intent.
-  2. Velune plays the song; if played directly from Velune (without the intent), **no reward**.
-  3. Velune displays a 60‑second progress pill (like rewarded ads).
-  4. After 60 seconds, Velune records the qualifying play in `listener_sessions` (`is_qualifying_play = true`) and updates `listener_earnings` for the device ID.
-  5. User **must** return to the web to select the next song – cannot chain plays inside Velune.
+**Confirmed, not assumed — the actual state of the listener-facing
+side of Task 49:**
+- `/earn` does not exist as a route anywhere in this app.
+- `/earnings` **does** exist, but is a completely different,
+  pre-existing feature: the *artist's* campaign wallet dashboard
+  (people who paid to run a promotion campaign, tracking their wallet
+  balance and payouts from that spend) — nothing to do with a listener
+  being paid to listen.
+- Every piece of Task 49 built so far is backend-only: the Supabase
+  schema (`listener_play_events`, `listener_earnings`,
+  `daily_payout_pool`), the payout-pool/withdrawal-request RPCs, and
+  Velune's own Kotlin play-recording + device-listener wiring. No
+  Mavins-web page, route, or component has been built for the
+  listener-facing side of this feature at all — no dashboard, no
+  balance display, nothing a real listener could visit today to see
+  what they've accumulated.
 
-#### Implementation Tasks (Priority Order)
+**Why this isn't a surprise gap, and doesn't need re-litigating:**
+lines up with this project's own much-earlier framing (documented
+elsewhere in this file, from before Task 49's current build-out began)
+that the listen-and-earn feature is its own separate UI, reached via a
+periodic banner, and that its "architecture is still in formation, not
+yet complete." Nothing built so far contradicts that — the backend
+groundwork Task 49 has been laying is a genuine prerequisite for this
+UI to eventually read real data from, not evidence the UI itself was
+supposed to already exist.
 
-1. Build `POST /api/listener/token` – issues HMAC‑signed token for device ID.
-2. Build `GET /api/listener/balance?token=...` – verifies token, returns balance.
-3. Build the `/earn` page on `mavins-web` – shows task board + balance (with token handoff).
-4. Add deep‑link handler in Velune – opens web with token.
-5. Add 60‑second progress pill UI in Velune for reward‑eligible plays.
-6. Wire the web‑to‑app intent with the `reward=true` flag.
-7. Connect the task board to actual campaign data (reward‑eligible songs).
+**Deliberately scoped separately from Task 49 Part b-ii-ii-b's own
+payout-destination blocker** (no way for a device-only, no-login
+listener to provide real bank/payout details exists anywhere yet — see
+that part's own entry) **— this task does not need to wait on that
+one being resolved first.** A listener seeing an accumulating balance
+("you've earned $X so far") is a genuinely separate, buildable piece
+from "how does that balance actually get paid out" — the balance
+display only needs `listener_earnings` to have real rows in it
+(already buildable, backend exists), not a resolved payout mechanism.
 
-#### Database
+**What building this would actually require, sketched but not
+decided — a starting point for whoever picks this up, not a locked
+spec:**
+- **Route/page shape** — `/earn` was the product owner's own
+  placeholder suggestion ("or whatever route name you'd prefer"), not
+  a confirmed final name; worth a quick confirmation rather than
+  assuming it's final, especially given `/earnings` already exists for
+  a different feature and the naming similarity risks confusing the
+  two.
+- **Identity/auth model** — this is the same open question Task 60
+  already surfaced and left genuinely unresolved: Velune's listeners
+  are device-ID-based, not Supabase-Auth accounts. A Mavins-web page
+  (a website, reached however the product owner intends — a link from
+  Velune? a QR code? direct navigation?) needs *some* way to know
+  which device/listener is asking to see their balance. This wasn't
+  answered by Task 60 and isn't answered here either — flagged again
+  rather than guessed at, since a wrong guess here (e.g. assuming
+  Supabase Auth applies) would misdesign the whole page.
+- **Data available to display, once identity is resolved:**
+  `listener_earnings` already has `total_qualifying_plays`,
+  `earnings_cents`, `withdrawn_cents`, and a `status` state machine
+  (`accumulating` / `claimable` / `claimed` / `expired`) per NET-50
+  cycle — enough to build a real balance display against, not
+  placeholder/simulated numbers, once a listener can be identified.
 
-- `listener_sessions` and `listener_earnings` tables already exist (migration 030). No new schema changes required.
+**Recommended next step for whoever picks this up:** confirm the
+identity/auth question above with the product owner first — it's the
+one piece that would misdesign the entire page if guessed wrong,
+unlike the route name (a low-stakes, easily-renamed detail). Once
+confirmed, split into identity resolution and the actual balance-
+display UI as separate parts, per this file's own mandatory
+task-splitting rule.
 
-#### Dependencies / Blockers
 
-- None – all product decisions are now resolved.
-## Task 67 — Complete B-PAY tag integration, listener routes, and fix security findings (unblocked)
+## Task 67 — Fork B-Pay into Zapier-codes, reconfigure onto Mavins-web's own Supabase project as a dedicated disbursement app [ ]
 
-**Status:** ✅ Fully unblocked. All parts are actionable.
+**Context — why this exists, and what it replaces.** Task 49 Part
+b-ii-ii-b (listener payout disbursement) was flagged in this file as
+blocked: no schema/UI anywhere collects a listener's real-world payout
+destination, and a Korapay bank disbursement needs one. **Corrected
+this session, directly from the product owner:** the real destination
+isn't a bank account at all — it's a listener's existing B-Pay wallet,
+credited via their `@bpay_tag`. Cloned and read
+`github.com/Edges-Enterprise/B-PAY` (the actual consumer wallet app,
+React Native/Expo) to confirm the mechanism directly rather than
+assume it:
+- `supabase/functions/resolve_tag/index.ts` resolves a `@tag` →
+  `profiles.id`/`full_name` (querying `profiles.bpay_tag`).
+- The real, live wallet balance lives on `profiles.balance` itself
+  (confirmed via `components/home/WalletCard/index.tsx`, the actual
+  UI component a B-Pay user's balance renders from) — **not** the
+  separate `wallet` table the repo's own Lizzysub refund-webhook
+  (`supabase/functions/webhook/index.tsx`) uses, which appears to be a
+  legacy or parallel table, not the one the real UI reads. This
+  ambiguity is real and needs resolving during (b) below, not assumed
+  either way.
+- That original app runs on its **own, separate** Supabase project
+  (`xinpapspoqoepckuvdbl.supabase.co`, confirmed via its own
+  `config/supabase.ts` + `.env`) — genuinely different from
+  Mavins-web's own (`atojskxrxfsbpeefigtm.supabase.co`), no existing
+  DB link between them. A second, unrelated project reference
+  (`arewaprojecturl` / `omvktdziswsyhavknhom.supabase.co`) also sits in
+  that same `.env` file but isn't referenced anywhere in the app's own
+  client code — flagged as probably-unused, not investigated further,
+  out of scope here.
+- **Security finding, flagged directly to the product owner this
+  session, their own repos/orgs so their call, not blocking this
+  task:** that original repo's committed `.env` contains a live,
+  unredacted Supabase **service-role key** (full read/write, bypasses
+  RLS) for its own production project — exposed in that repo's public
+  git history. Not used for anything this session. Confirmed
+  acceptable to proceed regardless (product owner controls both the
+  `Phoenix-Boss` account and `Edges-Enterprise` org this lives under)
+  — but (d) below explicitly does not carry the committed-`.env`
+  practice into the new fork.
+- **Two more hardcoded secrets found on a later pass, same severity
+  class as the `.env` finding above, not previously flagged — same
+  "product owner's own call, not blocking this task" status, but
+  worth being explicit about the full list rather than letting the
+  `.env` key stand in for "the only one":**
+  - `supabase/functions/lizzysub-proxy/index.ts` — a live Lizzysub API
+    token hardcoded directly in the Edge Function's own source (not an
+    env var), used to authenticate every VTU/data-topup request this
+    app proxies to `lizzysub.com/api/data`. Same exposure class as the
+    committed service-role key — this repo's public git history is
+    effectively that token's public disclosure too, whether or not the
+    key type generally rotates.
+  - `hooks/useVirtualAccount.ts` — a Payscribe **test** key
+    (`ps_pk_test_...` prefix, so lower real-world stakes than a live
+    key) hardcoded directly in a React Native hook — meaning it ships
+    inside the compiled app bundle to every end-user device, not just
+    sitting in source control. Worth noting as a slightly different
+    exposure *mechanism* than the other two (client-bundle exposure,
+    not git-history exposure) even though the practice (hardcode
+    instead of env var) is the same mistake.
+  Whoever executes (d) below (which already plans to stop the
+  committed-`.env` practice) should treat these two the same way —
+  neither should carry into the fork hardcoded, and both should be
+  treated as needing rotation before any real reuse, not just
+  "moved into an env var as-is."
+- **A materially more severe pattern than the "WalletCard balance-sync
+  race condition" (e) already flags below**, found while tracing the
+  actual tag-to-tag transfer flow specifically (not the self-balance
+  refresh (e) describes) — worth its own bullet since it's a different
+  class of risk, not a restatement: `app/(app)/send/success.tsx`'s
+  `processBPayTransfer()` calls `updateUserBalance(recipientId,
+  recipientAmount)` — a plain client-side Supabase `.update()` against
+  **another user's own `profiles.balance` row**, executed from the
+  *sender's* app session, not the recipient's. This isn't just a
+  same-row race condition (read-then-write on your own balance, which
+  is what (e) describes) — it's the sender's own client directly
+  crediting a different account, with no visible server-side
+  authority check gating that write to only the legitimate recipient
+  of a specific, verified transaction. Whether this is actually safe
+  in practice depends entirely on RLS policies not inspectable from
+  this sandbox (no live DB access to the original project) — but the
+  *code pattern itself*, independent of whatever RLS backstop may or
+  may not exist, is exactly the class of client-trusted-for-a-financial-
+  operation logic this whole project's own Task 45 Part 3 ("the charge
+  amount is never trusted from the client") was built specifically to
+  eliminate elsewhere in this codebase. **Whoever builds (e) below
+  should treat this as a hard requirement, not a style preference: the
+  new crediting logic must be a secure, server-side-only path (an
+  atomic RPC, service-role-only, with the caller's authority to credit
+  *that specific* payout verified before the write) — not a port of
+  this original pattern, even adapted to run somewhere more trusted.**
 
-### Parts Summary
+**The decision, direct from the product owner this session:** fork
+that repo into the `Zapier-codes` GitHub org, and reconfigure its
+Supabase config to point at **Mavins-web's own project** instead of
+the original one — a fully separate, Mavins-web-controlled app,
+editable freely, decoupled from the real B-Pay app's actual production
+data. Since it'll then share Mavins-web's own Supabase project, Part
+b-ii-ii-b's crediting mechanism becomes a plain same-project write
+from Mavins-web's own backend (already has service-role access) —
+no cross-org credential exchange needed at all, a real simplification
+over the original "share a scoped credential" framing this replaces.
 
-| Part | Status | Description |
-|------|--------|-------------|
-| Part f-i | ✅ Done | `POST /api/listener/bpay-tag/route.ts` |
-| Part f-ii-i | ✅ Done | Additional B‑PAY tag functionality |
-| Part f-ii-ii | ✅ Unblocked | Previously blocked on Task 66; now resolved (listen-and-earn UI lives on `mavins-web`). |
-| Security Fixes | 🔴 To Do | Three issues documented below. |
+**Documentation only this session, per explicit instruction — nothing
+below is built.** Six sub-parts, in dependency order; build one at a
+time per this project's own mandatory task-splitting rule, not all at
+once:
 
-### Security Findings (To Be Fixed)
+### a — Fork the repo (manual GitHub action, outside any sandbox's reach) [ ]
+`Edges-Enterprise/B-PAY` → a new repo under the `Zapier-codes` org.
+Naming not decided here — keep "B-PAY," or rename to reflect its new,
+narrower disbursement-only purpose (e.g. `mavins-disbursement`)? — a
+product decision, not an engineering one, needs the product owner's
+own call whenever this part is picked up. No Claude session can create
+a GitHub fork/repo directly; this part is a human action this
+handover can only point at, not execute.
 
-1. **Hardcoded Lizzysub API token** in `lizzysub-proxy/index.ts`
-   - **Fix:** Move token to environment variable (`LIZZYSUB_API_KEY`). Remove hardcoded value.
-   - **File:** `Edges-Enterprise/B-PAY/lizzysub-proxy/index.ts`
+### b — Schema audit: confirm the real current B-Pay schema before porting anything [ ]
+The original repo's own committed migration file
+(`supabase/migrations/20250614120836_remote_schema.sql`) is **empty**
+— that project's real schema was managed via Supabase's dashboard, not
+tracked in version control. Everything in this task's own "Context"
+section above about `profiles`'s real columns was inferred purely from
+scattered TypeScript usage across the app (`WalletCard`,
+`resolve_tag`, the Lizzysub webhook) — a reasonable starting sketch,
+confirmed self-consistent across every file it appears in, but **not**
+a substitute for the real thing. Whoever has actual dashboard access
+to the original B-Pay Supabase project should export the real schema
+first (Supabase's own Table Editor/Database page, or `pg_dump
+--schema-only` given a direct connection string) — in particular,
+resolving the one real ambiguity this session flagged and could not
+settle from code alone: is `profiles.balance` or the separate
+`wallet.balance` (keyed by `user_email`) the actual authoritative
+balance column? (This session's own reading points to `profiles`,
+since that's what the real UI component renders from — but a live
+schema export settles it for certain instead of leaving it inferred.)
 
-2. **Payscribe secret key sent from client-side app code** (bundled into compiled mobile app)
-   - **Fix:** Move secret to server-side only. The client should never have access to the secret; instead, call a server endpoint that uses the secret.
-   - **File:** Identify the client-side file that references `PAYSCRIBE_SECRET` and replace with a server call.
+### c — Namespace the ported tables before creating them [ ]
+Confirmed via `supabase_schema.sql`: Mavins-web has no table literally
+named `profiles` today, so no direct collision — but it does already
+have its own, semantically **different** `wallet_ledger` (an artist's
+campaign-spending wallet) and `users` tables. Recommend porting the
+B-Pay tables under a distinct prefix (`bpay_profiles`, `bpay_wallet`,
+`bpay_transactions`, matching whatever (b)'s real audit finds) rather
+than the bare original names — so nothing in this codebase ever
+confuses "a listener's B-Pay disbursement wallet" with "an artist's
+Mavins-web campaign wallet," two genuinely unrelated concepts that
+happen to share the word "wallet." Author as a new Mavins-web
+migration continuing this repo's own numbering (next free number:
+**033**, following migration 032) even though the forked app's own
+code is what actually reads/writes these tables — same precedent
+already established for `track_campaigns`/`listener_play_events`,
+whose migrations live in this repo despite Velune (a different app
+entirely) being their real reader/writer.
 
-3. **`resolve_tag/index.ts` bug** – references undefined `supabase` client
-   - **Fix:** Import and initialize Supabase client correctly. Ensure the function has access to a valid Supabase instance.
-   - **File:** `Edges-Enterprise/B-PAY/resolve_tag/index.ts`
+### d — Reconfigure the fork's Supabase config, and fix the committed-secret practice while at it [ ]
+Point the forked app at Mavins-web's own project
+(`atojskxrxfsbpeefigtm.supabase.co`), using credentials Mavins-web
+already has issued and already uses server-side (`createAdminClient()`
+callers across this repo's own `src/app/api/` routes) — no new
+credential provisioning needed, unlike the original cross-org-sharing
+plan this whole task replaces. **While reconfiguring: stop committing
+`.env` to the fork at all.** The original repo's own practice (a real,
+committed service-role key, flagged above) is not something to carry
+forward — match the build-time-secret pattern this project's other two
+repos already use (Velune's `local.properties → env → default`
+fallback in `build.gradle.kts`; this repo's own `.env`, gitignored,
+never committed) instead of repeating it in the fork.
 
-### Implementation Tasks
+### e — Wire Task 49 Part b-ii-ii-b's actual crediting call [ ]
+Now genuinely simple, once (a)–(d) land: Mavins-web's own backend
+(already has service-role access to this now-shared project) resolves
+a listener's stored `bpay_tag`, then performs an **atomic increment**
+(`balance = balance + amount`) on the ported wallet-balance column —
+explicitly **not** a read-then-overwrite. Worth calling out because
+the original app's own client-side code does exactly that unsafe
+pattern in one spot (`WalletCard`'s own balance-sync logic, read the
+current value then `.update({ balance: newBalance })`) — a real race
+condition risk if copied verbatim (a listener topping up their own
+balance at the same moment Mavins-web credits a payout could silently
+lose one of the two updates). **A second, more severe instance of the
+same underlying mistake — crediting a *different* user's balance from
+client-side code, not just racing your own — is documented in this
+task's own "Security finding" bullets above
+(`send/success.tsx`'s `processBPayTransfer`); this part's own crediting
+logic must not replicate either pattern, self-race or cross-user
+write.** This closes Part b-ii-ii-b for real,
+**replacing** that part's earlier "call B-Pay-backend's own `/payout`
+→ Korapay" plan for listener payouts specifically. That Korapay-via-
+B-Pay-backend path (a genuinely different repo — `Zapier-codes/
+B-Pay-backend`, fork of `Phoenix-Boss/B-PAY-backend`, an Express-style
+backend service, not this React Native app) stays exactly as-is —
+it's for artist-side campaign payments, unrelated to this.
 
-1. Move Lizzysub API key to environment variable (server-side).
-2. Remove Payscribe secret from client code; create a server endpoint to handle Payscribe operations.
-3. Fix the Supabase client import/initialization in `resolve_tag/index.ts`.
-4. Test each fix with a local run and ensure no regressions.
-5. Update the B‑PAY repo documentation to reflect any new environment variables.
+### f — Listener still needs to submit their own `@bpay_tag` somewhere [ ]
+Much simpler than the original bank-details blocker this replaces —
+no bank details, no KYC burden on Mavins-web's side at all, since
+B-Pay's own product already owns that on its end; a listener just
+needs to type in a tag they already have. Needs: a new column on
+Mavins-web's own `public.users` (e.g. `bpay_tag TEXT`), and a UI
+surface — in Velune, or folded into the withdrawal-request flow
+already built (Task 49 Part b-ii-ii-a's state machine) — for a
+listener to enter/confirm it. Not built yet; genuinely the next
+concrete, low-risk, fully-buildable engineering task once (a)–(e)
+land, and the one part of this whole task that doesn't depend on any
+manual/external action first.
 
-### Dependencies / Blockers
+**Split i/ii, per explicit instruction, since it hadn't been split at
+all yet. Part f-i done, commit `db92da1`; Part f-ii not started.**
 
-- None – all fixes are straightforward and do not require external input.
-## Task 68 — Build the Unified Payment Engine (B-Pay) – Full Provider Integration, Custom Checkout, Documentation Portal (unblocked)
+**Part f-i = the schema.** New migration 034: nullable `bpay_tag TEXT`
+on `public.users`, stored **without** a leading `@` — confirmed by
+reading B-Pay's own `resolve_tag` Edge Function directly, which strips
+the `@` itself before querying (`cleanTag = tag.slice(1)`), so its own
+`profiles.bpay_tag` column never has one either; whatever builds Part
+f-ii should match that convention on the way in, not store it
+inconsistently with what a future lookup (Part e) will actually query
+against. Deliberately not unique (a payout is always computed from one
+specific `listener_id`'s own real listening activity, never pooled
+across rows — nothing to gain by pointing multiple listener identities
+at the same tag). A loose `CHECK` rejects the empty/whitespace-only
+and leading-`@` cases specifically, without attempting to validate
+B-Pay's own real tag-format rules (not confirmed from this sandbox —
+see Part b's own still-open schema-audit note). A partial index
+(`WHERE bpay_tag IS NOT NULL`) is ready for Part e's own future lookup
+pattern. Verified via `sqlparse` (3 statements: `ALTER TABLE ADD
+COLUMN`, `CREATE INDEX`, `COMMENT ON COLUMN`) and paren balance
+(24/24). **One real nuance caught via a Python simulation of the
+`CHECK` constraint's own logic, not left implicit:** the constraint
+validates trimmed length but doesn't rewrite the stored value — a tag
+submitted with surrounding whitespace would pass the `CHECK` but then
+fail a later exact-match lookup. Documented directly in the migration
+as the calling application's own responsibility (trim before insert,
+same place it should already be stripping a leading `@`) — a `CHECK`
+constraint can reject bad input, it can't silently normalize good
+input into a consistent shape. Not run against the live DB — same
+hand-off every migration in this file needs.
 
-**Status:** ✅ Fully unblocked. Design, architecture, and implementation plan finalized.
+**Part f-ii split into i/ii per explicit instruction ("split into a
+and b... add i and ii, do only i"), since it hadn't been split at all
+yet. Part f-ii-i done; f-ii-ii not started.**
 
-### Vision
+**Part f-ii-i = the API route.** New `POST
+/api/listener/bpay-tag/route.ts` — the first Next.js route this whole
+listener-earnings feature has (confirmed via grep before writing this:
+every prior piece, migrations 019/030/031/032, is SQL/RPC only, no
+existing sibling route to mirror). Auth pattern carried over from this
+codebase's general convention for a user mutating their own row
+server-side (`api/campaigns/cancel/route.ts`'s own
+`createServerSupabaseClient()` + `auth.getUser()` shape), not a
+listener-specific one that didn't exist yet to copy.
 
-B-Pay-backend becomes the **single payment infrastructure** for all transactions processed by the Mavin ecosystem. Developers and end‑users interact exclusively with B-Pay's unified API and custom‑branded checkout pages. The backend intelligently routes each transaction to the appropriate provider (Korapay, Paystack, Wise, Flutterwave, Lizzysub, Juicyway, TransFi, Dodopay, etc.) based on transaction parameters. All providers are **fully integrated** (real API calls, not stubs) and all webhooks are implemented mirroring the Korapay pattern. The system is operational only when the required API keys are set via environment variables (on Render). Duplicate providers (those overlapping Korapay) are fully integrated and kept on standby for easy primary provider switching.
+Normalizes exactly per Part f-i's own documented requirement — trims,
+strips a leading `@` — mirroring migration 034's `CHECK` constraint
+(`length(trim(bpay_tag)) > 0 AND bpay_tag NOT LIKE '@%'`) rather than
+leaving normalization to the database, same nuance that migration's
+own comment already flagged (a `CHECK` rejects bad input, it doesn't
+normalize good input). Verified via `npx tsc --noEmit` (clean) and a
+standalone functional test of the normalization logic against the
+real `CHECK` semantics, 8 cases — including the edge case a bare `@`
+normalizes to an empty string, and confirming the route's own
+pre-check catches that *before* it reaches the database (a raw
+constraint-violation error would otherwise leak through with a less
+useful message than the route's own `'tag cannot be empty'`).
 
-### Core Principles
+**Part f-ii-ii — not started.** The actual UI surface (Velune, or
+folded into the withdrawal-request flow) for a listener to type in and
+confirm their tag, calling this new route. Not built this session —
+this route existing is what makes that UI buildable next, not the
+other way around.
 
-1. **All providers are fully integrated** – each adapter implements the complete API of the respective provider (pay‑in, pay‑out, verification, refund, webhooks).
-2. **Operational only when keys are set** – the system checks for the presence of each provider's required environment variables; if missing, that provider is disabled gracefully.
-3. **All webhooks fully set up** – every provider's webhook endpoints are implemented with signature verification, idempotency, and logging, following the same pattern as Korapay.
-4. **Duplicate providers on standby** – providers that overlap with Korapay (Paystack, Flutterwave, etc.) are fully integrated and can be swapped in as primary by toggling a config flag.
-5. **Custom checkout pages** – users of B-Pay see a branded B-Pay checkout UI (hosted on `mavins-web` or a dedicated front‑end). The backend creates a checkout session and returns session data; the front‑end renders the appropriate payment method UI (cards, bank transfers, etc.) without revealing the underlying provider.
-6. **Documentation portal** – a front‑end (e.g., `/docs`) where developers can read the B-Pay API reference, test endpoints, and understand how to integrate payments, payouts, and subscriptions without ever knowing which provider is used.
+**Checked, same session as Task 65 Part B-i (2026-09-04) — this part
+is not the small, independently-buildable UI decision its own "not
+started" note above implies.** "Velune, or folded into the withdrawal-
+request flow" turns out to be the exact same open question Task 66
+already flagged and correctly left unbuilt: where does any
+listener-facing UI live at all — native (Velune) or a website page —
+and if a website page, what identity model does an unauthenticated
+website even use to know which device/listener is asking (Task 60's
+own still-open gap)? Checked `request_listener_withdrawal` (Part
+b-ii-ii-a) directly: it's RPC-only, no UI anywhere on either side yet
+— "folded into the withdrawal-request flow already built" doesn't
+mean an existing UI to fold into, it means an existing RPC a future UI
+would call, on whichever surface that turns out to be. Not guessed
+past — same reasoning Task 66 already used to correctly stay open
+rather than build against an assumed platform.
 
-### Provider List & Their Specific Roles
+**Additional security findings, this session — supplementing, not
+duplicating, the committed-service-role-key finding already recorded
+above in this task's own "Context" section:**
+- **A hardcoded Lizzysub API token directly in source**, not just in
+  the committed `.env`:
+  `supabase/functions/lizzysub-proxy/index.ts` has
+  `const LIZZYSUB_TOKEN = "b5b39c2645893a318c432507d00a91270f39bd987e5fcc904dc72276a00c"`
+  literally in the file.
+- **The Payscribe secret key is sent from client-side app code**, not
+  just committed to git: `app/(app)/send/success.tsx`'s
+  `executePayscribeTransfer()` sends `PAYSCRIBE_CONFIG.apiKey` as an
+  `Authorization` header directly from the React Native app to
+  Payscribe's own API. That key is bundled into the compiled mobile
+  app itself — extractable via decompilation regardless of the GitHub
+  repo's visibility or whether its `.env` ever gets scrubbed.
+- **`resolve_tag/index.ts` references a `supabase` client that's never
+  imported or instantiated anywhere in that file** — as currently
+  written, this Edge Function would throw a `ReferenceError` at
+  runtime, not a hypothetical concern. Confirmed by reading the whole
+  file, not inferred.
 
-| Provider | Core Capabilities | Role / Gap Filled |
-|----------|-------------------|-------------------|
-| **Korapay** | Pay‑in, pay‑out, bank transfers, mobile money, bill payments (Africa) | Primary default |
-| **Paystack** | Cards, bank transfers, USSD, recurring payments | Standby / duplicate |
-| **Wise** | International transfers (multi‑currency payouts) | Gap: outside Africa |
-| **Remita** | Government payments, taxes, bills | Gap: specific bills |
-| **Flutterwave** | Cards, bank transfers, mobile money, crypto (Barter) | Standby / duplicate |
-| **Payscribe** | To be assessed; integrated if unique | Gap |
-| **Lizzysub** | VTU (airtime, data, utility bills) | Gap: Korapay doesn't offer VTU |
-| **Juicyway** | Crypto‑to‑fiat, cross‑border crypto | Gap |
-| **TransFi** | Stablecoin conversions, on‑/off‑ramp | Gap |
-| **Xixapay** | To be assessed; integrated if unique | Gap |
-| **Dodopay** | Digital assets, revenue‑like subscriptions (similar to RevenueCat) | Gap: subscriptions |
-| **Presmit** | To be assessed; integrated if unique | Gap |
+None of these block (a)–(f) above — same standing as the original
+service-role-key finding ("their own repos/orgs, so their call") — but
+worth having recorded precisely, since (d)'s own "fix the committed-
+secret practice while at it" scope should probably extend to not
+inheriting the hardcoded-token pattern into the fork either, and (e)'s
+crediting call should not route through `resolve_tag` as currently
+written without first confirming this specific bug was fixed upstream
+or fixing it in the fork directly.
 
-### Routing Logic (Fixed, Deterministic)
+**A related but distinct piece of work — see new Task 68, below**:
+making `Zapier-codes/B-Pay-backend` (a different repo from this B-PAY
+fork) the single source of truth for VTU/utility payment routing,
+integrating Lizzysub and Juicyway. Came up in the same product-owner
+conversation as this task but has its own separate scope and
+dependencies — kept as its own task rather than folded into this one's
+six-part split, since it depends on B-Pay-backend's own existing
+Korapay/Juicyway providers, not on parts (a)–(f) here landing first.
 
-The router uses a **capability registry** (JSON or DB) to determine which provider to use for a given transaction. The registry stores supported `transaction_type`, `currency`, `country`, `payment_method`. If Korapay supports it → route to Korapay. If not, route to the specific gap‑filling provider.
+---
 
-**Examples:**
-- `type='payin'`, `currency='NGN'`, `country='NG'` → Korapay.
-- `type='payout'`, `currency='USD'`, `country='US'` → Wise.
-- `type='vtus'`, `currency='NGN'` → Lizzysub.
-- `type='crypto_payout'`, `currency='USDC'` → Juicyway or TransFi.
-- `type='subscription'`, `currency='USD'`, `digital_asset=true` → Dodopay.
+## Task 68 — Integrate Lizzysub (VTU) into B-Pay-backend; integrate Juicyway for whatever Korapay doesn't already cover — B-Pay-backend becomes the single source of truth for all payment/utility services [ ]
 
-### Webhook Implementation (All Providers)
+**Direct product-owner instruction, this session.** Once Task 67's
+forked B-Pay replica exists, `Zapier-codes/B-Pay-backend` (the
+existing Node/Express payment backend already used for Mavins' own
+campaign payments and listener payouts — see that repo's own
+`handover.md`, Task 42's extensive history) should absorb **Lizzysub's
+VTU API** (airtime, data, cable, electricity — confirmed real via
+Task 67's own cross-check of B-PAY's `supabase/functions/
+lizzysub-proxy/index.ts` and its `EXPO_PUBLIC_LIZZYSUB_*` env vars),
+making B-Pay-backend the one shared backend for **every**
+payment-adjacent service across the whole Mavins/B-Pay ecosystem, not
+just campaign payments and listener payouts.
 
-- Each provider has its own webhook endpoint: `/webhooks/{provider}/`.
-- The handler parses the provider‑specific payload, verifies the signature, extracts the relevant transaction ID, and updates the internal order/transaction status.
-- **Idempotency** is enforced (using a unique `webhook_id` or provider‑provided idempotency key).
-- All webhook events are logged with full request/response for debugging.
-- The webhook endpoints are **secured** (via a shared secret or signature verification) and are accessible to the provider's callback URLs (configured in the provider's dashboard).
+**Juicyway integration is explicitly scoped to gap-filling only** —
+"only areas that Korapay doesn't already offer us." B-Pay-backend
+already has a working Juicyway provider file
+(`providers/juicyway.js`, confirmed present this session by listing
+that repo directly, not assumed) alongside its existing Korapay/
+Paystack/Payscribe providers — this task is about *routing decisions*
+(which provider handles which service, per B-Pay-backend's own
+existing per-route pattern already used for `/pay` vs `/payout`), not
+building a new Juicyway integration from scratch.
 
-### Custom Checkout Flow
+**Nothing built this session — documentation only**, matching Task
+67's own explicit framing. This entry exists so the plan is recorded
+precisely before anyone starts implementing it, following this
+project's own established convention of speccing real work before
+building it.
 
-1. The caller (front‑end) sends a request to `/api/checkout` with `amount`, `currency`, `payment_method`, `customer_email`, etc.
-2. The backend determines the provider (via routing) and calls that provider's API to create a checkout session/order.
-3. The backend returns a **unified response** with the checkout session ID, a `redirect_url` (if needed), and any provider‑specific data (e.g., payment intent client secret).
-4. The front‑end renders the **B-Pay branded checkout page** (cards, bank transfer details, etc.) using the returned data.
-5. The user completes payment on B-Pay's page (the provider's page is **never** shown to the user).
-6. The provider sends a webhook to B-Pay; B-Pay updates the order status and can optionally notify the front‑end via polling or WebSocket.
+### Genuinely open, needs resolving before this is buildable
 
-### Implementation Plan (Phased)
+1. **Lizzysub's real API surface** — this session only confirmed the
+   proxy pattern (`POST https://lizzysub.com/api/data` is the one
+   endpoint B-PAY's own proxy currently forwards to) and that
+   `providers/juicyway.js` exists in B-Pay-backend. Full API
+   documentation for both (available services, request/response
+   shapes, error codes, rate limits) wasn't fetched or reviewed this
+   session — needed before designing B-Pay-backend's own new routes.
+2. **What "VTU" concretely means for B-Pay-backend's own route
+   surface** — new endpoints (`POST /vtu/airtime`, `POST /vtu/data`,
+   etc.), or a single generic passthrough route mirroring B-PAY's own
+   proxy shape? B-Pay-backend's existing `routes.js` convention (one
+   named route per capability: `/pay`, `/payout`, `/verify`, `/banks`)
+   suggests the former, but that's this session's inference from
+   precedent, not a confirmed decision.
+3. **The exact scope of "areas Korapay doesn't already offer"** —
+   needs a real, explicit comparison of Korapay's current product
+   surface (collections, payouts, virtual accounts — per B-Pay-
+   backend's own already-confirmed Korapay integration) against
+   Juicyway's own product surface, not assumed. Not done this session.
+4. **Auth posture for any new routes** — B-Pay-backend's own
+   established convention (that repo's own Task 42 history) is
+   `requireInternalApiKey` on every route reachable from Mavins-web/
+   Velune, server-to-server only, fail-closed if the key is unset. New
+   VTU/Juicyway routes should presumably follow the identical posture,
+   but that's this session's inference from precedent, not a decision
+   explicitly re-confirmed for these specific new routes.
+5. **Whether Lizzysub's credentials move into B-Pay-backend's own
+   environment** (mirroring how Korapay/Paystack/Payscribe secrets
+   already live there) or whether B-Pay-backend calls B-PAY's own
+   existing `lizzysub-proxy` Edge Function instead of talking to
+   Lizzysub directly — the former is more consistent with "B-Pay-
+   backend becomes the single source of truth" (no dependency on a
+   second backend for its own routing decisions), the latter avoids
+   credential duplication across two systems. Not decided here.
 
-1. **Phase 1 – Core Router & Capability Registry**
-   - Design the registry (JSON or DB schema).
-   - Implement the deterministic router.
-   - Write unit tests for routing logic.
+---
 
-2. **Phase 2 – Korapay Adapter (Full Integration)**
-   - Implement all Korapay endpoints: pay‑in, pay‑out, bill payment, verification.
-   - Implement webhook handler with signature verification.
-
-3. **Phase 3 – All Other Providers (Full Integration)**
-   - Implement each adapter following the same pattern.
-   - Implement webhook handlers for each.
-
-4. **Phase 4 – Unified Checkout API**
-   - Build `/api/checkout` and `/api/checkout/status` endpoints.
-   - Build the front‑end checkout UI (on `mavins-web`).
-
-5. **Phase 5 – Documentation Portal**
-   - Build `/docs` on `mavins-web` with API reference, guides, and interactive testing (using API keys generated in the B-Pay dashboard).
-
-6. **Phase 6 – Testing & Deployment**
-   - Write integration tests for each provider (with test keys).
-   - Set up environment variables on Render.
-   - Deploy and monitor.
-
-### Dependencies / Blockers
-
-- None – all decisions are resolved. Each provider integration is independent and can be built in parallel.
