@@ -163,11 +163,23 @@ looking like a part was skipped.
 > real nuance that way: the constraint validates trimmed length but
 > doesn't rewrite the stored value, so trimming/`@`-stripping is left
 > as the calling application's own job, documented directly in the
-> migration. **Next: Part f-ii** — the actual UI surface (Velune, or
-> folded into the withdrawal-request flow) for a listener to submit
-> their tag, plus the API route that writes it (trimmed, stripped) —
-> the next genuinely buildable piece of this whole task. Full write-up
-> in Task 67's own "Part f" section.
+> migration. **Next: Part f-ii-i (API route, done below), then
+> f-ii-ii.**
+>
+> **Newest note (2026-09-04, even even later still) — Task 67 Part
+> f-ii split into i/ii per explicit instruction; Part f-ii-i done.**
+> New `POST /api/listener/bpay-tag/route.ts` — the first Next.js route
+> this whole listener-earnings feature has (confirmed via grep: every
+> prior piece is SQL/RPC only). Normalizes exactly per Part f-i's own
+> documented requirement (trim, strip leading `@`), mirroring migration
+> 034's `CHECK` constraint rather than leaving normalization to the
+> database. Verified via `npx tsc --noEmit` (clean) + a standalone
+> functional test, 8 cases, all passing — including the edge case a
+> bare `@` normalizes to empty, confirmed the route's own pre-check
+> catches that before it reaches the database. **Next: Part f-ii-ii**
+> — the actual UI surface (Velune, or the withdrawal-request flow) that
+> calls this new route. Full write-up in Task 67's own "Part f"
+> section.
 >
 > **Older note (2026-09-04, latest of all) — Task 65 Part A done:
 > `campaign_name` column + creation-route wiring.** Product owner
@@ -16401,11 +16413,37 @@ constraint can reject bad input, it can't silently normalize good
 input into a consistent shape. Not run against the live DB — same
 hand-off every migration in this file needs.
 
-**Part f-ii — not started.** The actual UI surface (Velune, or folded
-into the withdrawal-request flow) for a listener to type in and
-confirm their tag, and the API route that writes it into this new
-column (trimming + `@`-stripping on the way in, per the nuance flagged
-above — don't leave that to the database). The next genuinely
-buildable piece of this whole task.
+**Part f-ii split into i/ii per explicit instruction ("split into a
+and b... add i and ii, do only i"), since it hadn't been split at all
+yet. Part f-ii-i done; f-ii-ii not started.**
+
+**Part f-ii-i = the API route.** New `POST
+/api/listener/bpay-tag/route.ts` — the first Next.js route this whole
+listener-earnings feature has (confirmed via grep before writing this:
+every prior piece, migrations 019/030/031/032, is SQL/RPC only, no
+existing sibling route to mirror). Auth pattern carried over from this
+codebase's general convention for a user mutating their own row
+server-side (`api/campaigns/cancel/route.ts`'s own
+`createServerSupabaseClient()` + `auth.getUser()` shape), not a
+listener-specific one that didn't exist yet to copy.
+
+Normalizes exactly per Part f-i's own documented requirement — trims,
+strips a leading `@` — mirroring migration 034's `CHECK` constraint
+(`length(trim(bpay_tag)) > 0 AND bpay_tag NOT LIKE '@%'`) rather than
+leaving normalization to the database, same nuance that migration's
+own comment already flagged (a `CHECK` rejects bad input, it doesn't
+normalize good input). Verified via `npx tsc --noEmit` (clean) and a
+standalone functional test of the normalization logic against the
+real `CHECK` semantics, 8 cases — including the edge case a bare `@`
+normalizes to an empty string, and confirming the route's own
+pre-check catches that *before* it reaches the database (a raw
+constraint-violation error would otherwise leak through with a less
+useful message than the route's own `'tag cannot be empty'`).
+
+**Part f-ii-ii — not started.** The actual UI surface (Velune, or
+folded into the withdrawal-request flow) for a listener to type in and
+confirm their tag, calling this new route. Not built this session —
+this route existing is what makes that UI buildable next, not the
+other way around.
 
 ---
