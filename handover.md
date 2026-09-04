@@ -131,6 +131,20 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-0X, latest of all) — Task 65 fully closed:
+> Part B-ii (display surfaces) done.** Checked the originally-assumed
+> 4-surface inventory directly rather than wiring blind — 2 of 4
+> turned out inapplicable: `get_leaderboard()` is a per-artist
+> aggregate with no per-campaign row to name at all, and the admin
+> dashboard route already receives `campaign_name` but its frontend
+> doesn't render a campaigns list anywhere (new scope, not attempted).
+> The 2 real surfaces: analytics page (was showing the raw
+> `source_url`, not a resolved title as earlier assumed — now
+> `campaign_name || source_url`, needed a real migration since
+> `get_artist_dashboard()`'s JSONB never included the field) and the
+> success page (no migration needed, just a display row). `npx tsc
+> --noEmit` clean; migration 035 statement-count/balance verified.
+>
 > **Newest note (2026-09-0X, latest of all) — Task 68 added (new);
 > Task 67 supplemented with 3 additional security findings, not a
 > competing task.** Cloned `Edges-Enterprise/B-PAY` independently this
@@ -16050,7 +16064,7 @@ every Edge Function task in this file has flagged.
 
 ---
 
-## Task 65 — Editable campaign name: pencil icon next to "New Campaign", editable any time before posting [Part A done, Part B-i done, Part B-ii not started]
+## Task 65 — Editable campaign name: pencil icon next to "New Campaign", editable any time before posting [x]
 
 **Ask, product owner's own words:** "add another task... where the
 text new campaign is and add a pencil icon so that the users can be
@@ -16216,14 +16230,51 @@ bag Part A's write-up already pointed at.
 
 **Verified, this session:** `npx tsc --noEmit` clean.
 
-### Part B-ii — display surfaces, not started
+### Part B-ii — display surfaces, done this session (2026-09-0X)
 
-Displaying `campaign_name` wherever campaign stats currently show —
-falling back to the existing resolved-title display whenever a
-campaign has none. "Wherever the stats show it" needs its own quick
-inventory before building (leaderboard, artist analytics dashboard,
-admin campaigns list, the success/confirmation page) — not enumerated
-or checked this session either, same as Part A's own note.
+**The originally-assumed inventory (leaderboard, artist analytics,
+admin campaigns list, success page) was checked directly, not wired in
+blind — 2 of the 4 turned out not to be real, applicable surfaces:**
+
+- **`get_leaderboard()` (migration 003) is a per-ARTIST aggregate**
+  (`SUM(tc.total_streams)`, `COUNT(tc.id)` across every campaign an
+  artist has) — traced its actual `SELECT`, confirmed directly. There
+  is no individual campaign row anywhere in its output to attach a
+  name to. Not touched — not an oversight, structurally inapplicable.
+- **The admin dashboard route already receives `campaign_name` with
+  zero query changes** (`src/app/api/admin/dashboard/route.ts` does a
+  bare `select('*')` against `track_campaigns`) — but
+  `src/app/admin/page.tsx`'s own frontend doesn't render an individual
+  campaigns list anywhere at all currently (grepped the whole file for
+  any campaign-rendering code: zero matches). Building that list from
+  scratch is new scope beyond "wire `campaign_name` into an existing
+  surface" — not attempted here, flagged as its own separate gap.
+
+**The 2 real surfaces, both fixed:**
+
+- **Artist analytics** (`src/app/analytics/page.tsx`) — was
+  displaying the raw `c.source_url` (the YouTube link itself) as each
+  campaign's label, not a resolved title as Part A's own investigation
+  had assumed. Now `c.campaign_name || c.source_url` — falls back to
+  exactly the prior behavior when unset. Required a real migration
+  (**035**), not just a frontend change: `get_artist_dashboard()`'s
+  per-campaign `JSONB_BUILD_OBJECT` never included `campaign_name` at
+  all, so the data wasn't reaching the client regardless of what the
+  frontend did with it.
+- **Success page** (`src/app/campaign-live/page.tsx`, Task 51) —
+  needed no migration; `getCampaignById()` already does `select('*')`,
+  so `campaign_name` was already reaching the client. Added a
+  "Campaign Name" row to the summary card, shown only when actually
+  set — an untouched campaign's success page looks exactly as it did
+  before this task.
+
+**Verified:** `npx tsc --noEmit` clean. Migration 035: dollar-quote-
+aware statement count (2, exactly as intended — the function, the
+grant), paren balance 0. **Not verified — no live DB in this sandbox:**
+whether the migration actually applies cleanly against the live
+`get_artist_dashboard()`, or a real render of either updated page.
+
+**Task 65 now fully closed** — Part A, B-i, and B-ii all done.
 
 ---
 

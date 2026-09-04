@@ -264,7 +264,7 @@ export default function AnalyticsPage() {
                 >
                   <div className="flex items-center justify-between">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{c.source_url}</p>
+                      <p className="text-sm font-medium truncate">{c.campaign_name || c.source_url}</p>
                       <p className="text-xs text-[var(--subtle-foreground)] mt-0.5">
                         {formatNumber(c.streams)} streams · {formatCents(c.spent_cents)} spent
                       </p>

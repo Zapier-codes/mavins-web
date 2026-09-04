@@ -368,6 +368,7 @@ BEGIN
         'campaigns', JSONB_AGG(JSONB_BUILD_OBJECT(
             'id', tc.id,
             'source_url', tc.source_url,
+            'campaign_name', tc.campaign_name,
             'stage', tc.current_stage,
             'streams', tc.total_streams,
             'saves', tc.save_count,

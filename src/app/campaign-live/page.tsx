@@ -277,6 +277,9 @@ function CampaignLiveContent() {
             <h2 className="font-bold text-sm">Campaign Summary</h2>
           </div>
           <div className="mt-3">
+            {campaign.campaign_name && (
+              <SummaryRow label="Campaign Name" value={campaign.campaign_name} />
+            )}
             <SummaryRow
               label="Song"
               value={
