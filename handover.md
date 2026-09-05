@@ -16467,6 +16467,77 @@ not to build anything yet regardless. A future implementation session
 should start there; Part b is real, scoped, but genuinely blocked on
 Part a's endpoints/token format existing first, not just ordered
 first for convenience.
+
+**Part a further split into i/ii, per explicit instruction — sub-part
+i done, this session (2026-09-04).** Part a's own 4 steps (1: token
+route, 2: balance route, 3: `/earn` page, 7: wire to real campaign
+data) split along the same "backend before frontend" line this whole
+project already uses: **i = steps 1+2 (the two API routes, self-
+contained, testable with no UI at all)**, ii = steps 3+7 (the `/earn`
+page + campaign-data wiring, needs i's endpoints to exist first).
+
+**Sub-part i — built:**
+- **`src/app/api/listener/token/route.ts`** — `POST`, body
+  `{ deviceId: string }` (a UUID). Confirmed by reading migration 028
+  directly (not assumed) that the device UUID *is*
+  `public.users.id` directly — `ensure_device_listener(p_device_id)`
+  upserts that row (idempotent, `ON CONFLICT DO NOTHING`), called here
+  via the admin client since this identity model has no Supabase Auth
+  session at all, by this feature's own explicit design. Issues a
+  minimal, hand-rolled signed token (no existing HMAC precedent
+  anywhere in this codebase, confirmed via grep, so a small hand-
+  rolled format rather than a new JWT dependency for something this
+  size): `${base64url(JSON.stringify({deviceId,exp}))}.${base64url(HMAC-SHA256(...))}`.
+  15-minute expiry — a judgment call, not a number Task 66's own text
+  specifies, chosen to comfortably cover "return from a Velune play and
+  check the balance" without needing a fresh token per page view.
+- **`src/app/api/listener/balance/route.ts`** — `GET
+  ?token=...`. Verifies the HMAC signature (constant-time compare via
+  `crypto.timingSafeEqual`, matching this codebase's own established
+  webhook-signature-verification standard) and expiry before trusting
+  the `deviceId` the token carries — never re-derived from a query
+  param or anything else a caller could independently supply. Returns
+  both `currentCycle` (the presently-`'accumulating'` row, `null` for
+  a brand-new device with no `listener_earnings` row yet — expected,
+  not an error) and `lifetimeEarningsCents` (summed across every past
+  cycle) rather than guessing which single framing of "balance" a
+  not-yet-built `/earn` page will actually want.
+- **Requires a new env var, `LISTENER_TOKEN_SECRET`**, not previously
+  used anywhere in this codebase — must be set in the deployment
+  environment before either route works at all; this sandbox cannot
+  set it for a live deployment.
+
+**A real, separate discrepancy found and flagged, not reconciled —
+out of this sub-part's own scope:** the one existing sibling route,
+`api/listener/bpay-tag/route.ts` (Task 67), uses a genuine Supabase
+Auth session (`createServerSupabaseClient().auth.getUser()`) —
+directly
+contradicting Task 66's own "no Supabase Auth dependency" spec for
+this same `listener` namespace. Not fixed here; Task 49's own "real
+identity deferred until withdrawal" framing suggests these may
+legitimately belong to two different points in the same listener's
+lifecycle (anonymous while earning, authenticated only once money
+needs to move) rather than one being simply wrong — but that's a real
+open question for whoever eventually reconciles the two routes, not
+assumed settled by this note.
+
+**Verified:** `npx tsc --noEmit` clean across both new files. A
+throwaway Node script (deleted after use, not committed) exercised the
+full sign→verify round trip against 5 cases — a valid unexpired token,
+an expired one, a tampered payload (signature correctly rejects it), a
+wrong signing secret, and a malformed/no-dot token — all 5 behaved
+correctly. **Not verified — no way to check this from a sandbox:** an
+actual live request against a deployed instance with
+`LISTENER_TOKEN_SECRET` set, or a real `ensure_device_listener` call
+against a live DB.
+
+**Not done — sub-part ii, next:** the `/earn` page itself (task board
++ balance display, calling these two routes) and wiring that task
+board to real campaign data (step 7) — genuinely needs sub-part i's
+endpoints to exist first, which they now do.
+
+--- 
+
 ## Task 67 — Complete B-PAY tag integration, listener routes, and fix security findings (unblocked)
 
 **Status:** ✅ Fully unblocked. All parts are actionable.
