@@ -22,6 +22,23 @@ copy, Velune's `HANDOVER_CAMPAIGN.md`, and B-Pay-backend's own
 copy the same edit into the other two in the same session** (same rule
 this project already applies to any "cross-repo status" note).
 
+**New standing rule, added this session, per direct instruction —
+remove fully completed tasks from this file, going forward, always.**
+A task is "fully completed" only when every part/sub-part of it is
+checked `[x]` **and** nothing elsewhere in this file still cross-
+references it as an open dependency, a "see Task N's own note" pointer,
+or a still-relevant precedent — grep for the task's own number before
+removing it, not just its own checkbox state. When in doubt (a
+cross-reference exists but looks stale/no-longer-relevant), leave the
+task in place rather than guess — an over-cautious file is recoverable,
+a wrongly-deleted piece of project history is not. This rule doesn't
+license a one-time mass purge of this file's current backlog in a
+single sitting — apply it going forward, and to individual tasks a
+session directly finishes or directly verifies as complete, not as a
+mechanical sweep across a file this size in one pass (this file's own
+"structural corruption" warnings near its own top exist precisely
+because large mechanical edits to this file have gone wrong before).
+
 **Added to this file for the first time this session (2026-08-30) —
 this repo's own `handover.md` didn't have this section at all until
 now, discovered while cross-referencing Velune's copy for an unrelated
@@ -214,6 +231,66 @@ looking like a part was skipped.
 > Grepped again afterward: zero remaining instances of the broken
 > pattern anywhere in the file now. Brace/paren balance verified
 > (99/99, 357/357). **This really is the end of this small task now.**
+>
+> **Older note (2026-09-04) — the previous entry
+> below (pointing at "B-Pay-backend Task 43") is now stale — that
+> patch was never actually applied; a different session's own
+> unrelated work landed as Task 43 there instead.** The real
+> Lizzysub/Juicyway findings currently exist nowhere in the live
+> B-Pay-backend repo. Reserved as **Task 44** there (a stub only, full
+> findings not yet re-written — documentation-only session, split into
+> two parts, this was Part A). **Also found and flagged this
+> session**: Task 70 (this file, fork B-Pay for listener disbursement —
+> renumbered from an earlier draft of this same note that used "Task
+> 67," which collided with a different, unrelated Task 67 another
+> session independently created in this same file; see that
+> renumbering's own note further below) and B-Pay-backend's own Task
+> 43 (fork the same app as its general payment-engine architecture)
+> are a *third* instance of this same cross-repo duplication pattern —
+> same fork target, two independently-written purposes, genuinely
+> unclear whether they're one effort or two, **still not confirmed
+> resolved by the Task 67 (this file's own, unrelated Task 67 —
+> B-PAY tag integration, not the fork task) security-fix update above,
+> which addressed a different task's secrets, not this overlap
+> question**. Flagged in both tasks' own entries — needs the product
+> owner's answer before either is built. **Next: either get that Task
+> 70/43 overlap answered, or pick up B-Pay-backend's own Task 44 Part
+> B** (re-writing the actual detailed Lizzysub/Juicyway findings — the
+> content itself, not just this pointer fix).
+>
+> **Older note (2026-09-04, previous) — Task 71 (Lizzysub/
+> Juicyway into B-Pay-backend — renumbered from an earlier draft's
+> "Task 68," which collided with a different, unrelated Task 68
+> another session independently created in this same file) reconciled
+> with a duplicate another session wrote independently in
+> B-Pay-backend's own `handover.md` (Task 43), same day, neither
+> seeing the other's work.** Task 43 stays canonical (the actual
+> implementation lives in that repo) — Task 71 here is now a short
+> pointer, not a second full write-up. One factual correction folded
+> in: this session's own original draft wrongly assumed the existing
+> `providers/juicyway.js` only needed a routing decision — Task 43's
+> own investigation found 3 real, confirmed bugs in that file against
+> Juicyway's actual API (auth header, endpoint path, payload shape),
+> so it needs a genuine fix, not just routing. This session's own 5
+> open questions were merged into Task 43's own entry rather than
+> duplicated here. **(Superseded by the note above — that Task 43
+> pointer turned out stale.)**
+>
+> **Numbering correction, added while merging this session's own work
+> against a divergent `origin/main` — read if either "Task 67" or
+> "Task 68" above looks confusing.** This file now has an unrelated
+> Task 67 ("Complete B-PAY tag integration...") and Task 68 ("Build
+> the Unified Payment Engine...") that another session created
+> independently, colliding with numbers this session's own two notes
+> above originally used for a *different* pair of tasks (the B-Pay
+> disbursement fork, and the Lizzysub/Juicyway B-Pay-backend
+> integration). Resolved by renumbering this session's own two tasks
+> to **Task 70** and **Task 71** respectively — their own section
+> headers further below already reflect this; the two notes above
+> still read "Task 67"/"Task 68" in a few spots purely as a record of
+> what was written in the moment, annotated rather than silently
+> rewritten. Any *other* mention of "Task 67" or "Task 68" elsewhere in
+> this file refers to the other session's own tasks, not these two.
 >
 > **Newest note (2026-09-04, latest of all) — CampaignRepository.kt's
 > log-escape fix fully closed. Part b-ii (`recordCampaignStream`,
@@ -16550,6 +16627,477 @@ The router uses a **capability registry** (JSON or DB) to determine which provid
 ### Dependencies / Blockers
 
 - None – all decisions are resolved. Each provider integration is independent and can be built in parallel.
+**Not implemented — this is a task assignment only, per direct
+instruction.** No code written this session; this entry exists to
+record the confirmed finding precisely so a future session doesn't
+have to rediscover it, and to scope what building it would actually
+require.
+
+**Confirmed, not assumed — the actual state of the listener-facing
+side of Task 49:**
+- `/earn` does not exist as a route anywhere in this app.
+- `/earnings` **does** exist, but is a completely different,
+  pre-existing feature: the *artist's* campaign wallet dashboard
+  (people who paid to run a promotion campaign, tracking their wallet
+  balance and payouts from that spend) — nothing to do with a listener
+  being paid to listen.
+- Every piece of Task 49 built so far is backend-only: the Supabase
+  schema (`listener_play_events`, `listener_earnings`,
+  `daily_payout_pool`), the payout-pool/withdrawal-request RPCs, and
+  Velune's own Kotlin play-recording + device-listener wiring. No
+  Mavins-web page, route, or component has been built for the
+  listener-facing side of this feature at all — no dashboard, no
+  balance display, nothing a real listener could visit today to see
+  what they've accumulated.
+
+**Why this isn't a surprise gap, and doesn't need re-litigating:**
+lines up with this project's own much-earlier framing (documented
+elsewhere in this file, from before Task 49's current build-out began)
+that the listen-and-earn feature is its own separate UI, reached via a
+periodic banner, and that its "architecture is still in formation, not
+yet complete." Nothing built so far contradicts that — the backend
+groundwork Task 49 has been laying is a genuine prerequisite for this
+UI to eventually read real data from, not evidence the UI itself was
+supposed to already exist.
+
+**Deliberately scoped separately from Task 49 Part b-ii-ii-b's own
+payout-destination blocker** (no way for a device-only, no-login
+listener to provide real bank/payout details exists anywhere yet — see
+that part's own entry) **— this task does not need to wait on that
+one being resolved first.** A listener seeing an accumulating balance
+("you've earned $X so far") is a genuinely separate, buildable piece
+from "how does that balance actually get paid out" — the balance
+display only needs `listener_earnings` to have real rows in it
+(already buildable, backend exists), not a resolved payout mechanism.
+
+**What building this would actually require, sketched but not
+decided — a starting point for whoever picks this up, not a locked
+spec:**
+- **Route/page shape** — `/earn` was the product owner's own
+  placeholder suggestion ("or whatever route name you'd prefer"), not
+  a confirmed final name; worth a quick confirmation rather than
+  assuming it's final, especially given `/earnings` already exists for
+  a different feature and the naming similarity risks confusing the
+  two.
+- **Identity/auth model** — this is the same open question Task 60
+  already surfaced and left genuinely unresolved: Velune's listeners
+  are device-ID-based, not Supabase-Auth accounts. A Mavins-web page
+  (a website, reached however the product owner intends — a link from
+  Velune? a QR code? direct navigation?) needs *some* way to know
+  which device/listener is asking to see their balance. This wasn't
+  answered by Task 60 and isn't answered here either — flagged again
+  rather than guessed at, since a wrong guess here (e.g. assuming
+  Supabase Auth applies) would misdesign the whole page.
+- **Data available to display, once identity is resolved:**
+  `listener_earnings` already has `total_qualifying_plays`,
+  `earnings_cents`, `withdrawn_cents`, and a `status` state machine
+  (`accumulating` / `claimable` / `claimed` / `expired`) per NET-50
+  cycle — enough to build a real balance display against, not
+  placeholder/simulated numbers, once a listener can be identified.
+
+**Recommended next step for whoever picks this up:** confirm the
+identity/auth question above with the product owner first — it's the
+one piece that would misdesign the entire page if guessed wrong,
+unlike the route name (a low-stakes, easily-renamed detail). Once
+confirmed, split into identity resolution and the actual balance-
+display UI as separate parts, per this file's own mandatory
+task-splitting rule.
+
+
+## Task 70 — Fork B-Pay into Zapier-codes, reconfigure onto Mavins-web's own Supabase project as a dedicated disbursement app [ ]
+
+**Cross-repo overlap found this session, flagged not resolved — read
+before continuing this task.** B-Pay-backend's own `handover.md` has
+its own, separately-written Task 43: fork the same app
+(`Edges-Enterprise/bpay` — same repo, different casing than this
+task's own `B-PAY`) with a **different** stated purpose — point the
+whole Bpay app at B-Pay-backend as its one payment/payout engine,
+architecturally, not specifically for Mavins-web listener disbursement.
+Neither session that wrote these two tasks was aware of the other.
+Genuinely unclear, not decided here, whether these are: (a) the same
+effort described two ways (one fork, serving both this task's
+listener-payout mechanism *and* B-Pay-backend's own payment-engine
+role for the app), or (b) two different intended forks/uses that need
+explicit reconciling with the product owner before either is built —
+picking (a) by default without confirmation risks building against an
+assumption that turns out wrong. **Whoever picks this task up next
+should read B-Pay-backend's own Task 43 first** and get that question
+answered rather than proceeding on either task's own text alone.
+
+**Context — why this exists, and what it replaces.** Task 49 Part
+b-ii-ii-b (listener payout disbursement) was flagged in this file as
+blocked: no schema/UI anywhere collects a listener's real-world payout
+destination, and a Korapay bank disbursement needs one. **Corrected
+this session, directly from the product owner:** the real destination
+isn't a bank account at all — it's a listener's existing B-Pay wallet,
+credited via their `@bpay_tag`. Cloned and read
+`github.com/Edges-Enterprise/B-PAY` (the actual consumer wallet app,
+React Native/Expo) to confirm the mechanism directly rather than
+assume it:
+- `supabase/functions/resolve_tag/index.ts` resolves a `@tag` →
+  `profiles.id`/`full_name` (querying `profiles.bpay_tag`).
+- The real, live wallet balance lives on `profiles.balance` itself
+  (confirmed via `components/home/WalletCard/index.tsx`, the actual
+  UI component a B-Pay user's balance renders from) — **not** the
+  separate `wallet` table the repo's own Lizzysub refund-webhook
+  (`supabase/functions/webhook/index.tsx`) uses, which appears to be a
+  legacy or parallel table, not the one the real UI reads. This
+  ambiguity is real and needs resolving during (b) below, not assumed
+  either way.
+- That original app runs on its **own, separate** Supabase project
+  (`xinpapspoqoepckuvdbl.supabase.co`, confirmed via its own
+  `config/supabase.ts` + `.env`) — genuinely different from
+  Mavins-web's own (`atojskxrxfsbpeefigtm.supabase.co`), no existing
+  DB link between them. A second, unrelated project reference
+  (`arewaprojecturl` / `omvktdziswsyhavknhom.supabase.co`) also sits in
+  that same `.env` file but isn't referenced anywhere in the app's own
+  client code — flagged as probably-unused, not investigated further,
+  out of scope here.
+- **Security finding, flagged directly to the product owner this
+  session, their own repos/orgs so their call, not blocking this
+  task:** that original repo's committed `.env` contains a live,
+  unredacted Supabase **service-role key** (full read/write, bypasses
+  RLS) for its own production project — exposed in that repo's public
+  git history. Not used for anything this session. Confirmed
+  acceptable to proceed regardless (product owner controls both the
+  `Phoenix-Boss` account and `Edges-Enterprise` org this lives under)
+  — but (d) below explicitly does not carry the committed-`.env`
+  practice into the new fork.
+- **Two more hardcoded secrets found on a later pass, same severity
+  class as the `.env` finding above, not previously flagged — same
+  "product owner's own call, not blocking this task" status, but
+  worth being explicit about the full list rather than letting the
+  `.env` key stand in for "the only one":**
+  - `supabase/functions/lizzysub-proxy/index.ts` — a live Lizzysub API
+    token hardcoded directly in the Edge Function's own source (not an
+    env var), used to authenticate every VTU/data-topup request this
+    app proxies to `lizzysub.com/api/data`. Same exposure class as the
+    committed service-role key — this repo's public git history is
+    effectively that token's public disclosure too, whether or not the
+    key type generally rotates.
+  - `hooks/useVirtualAccount.ts` — a Payscribe **test** key
+    (`ps_pk_test_...` prefix, so lower real-world stakes than a live
+    key) hardcoded directly in a React Native hook — meaning it ships
+    inside the compiled app bundle to every end-user device, not just
+    sitting in source control. Worth noting as a slightly different
+    exposure *mechanism* than the other two (client-bundle exposure,
+    not git-history exposure) even though the practice (hardcode
+    instead of env var) is the same mistake.
+  Whoever executes (d) below (which already plans to stop the
+  committed-`.env` practice) should treat these two the same way —
+  neither should carry into the fork hardcoded, and both should be
+  treated as needing rotation before any real reuse, not just
+  "moved into an env var as-is."
+- **A materially more severe pattern than the "WalletCard balance-sync
+  race condition" (e) already flags below**, found while tracing the
+  actual tag-to-tag transfer flow specifically (not the self-balance
+  refresh (e) describes) — worth its own bullet since it's a different
+  class of risk, not a restatement: `app/(app)/send/success.tsx`'s
+  `processBPayTransfer()` calls `updateUserBalance(recipientId,
+  recipientAmount)` — a plain client-side Supabase `.update()` against
+  **another user's own `profiles.balance` row**, executed from the
+  *sender's* app session, not the recipient's. This isn't just a
+  same-row race condition (read-then-write on your own balance, which
+  is what (e) describes) — it's the sender's own client directly
+  crediting a different account, with no visible server-side
+  authority check gating that write to only the legitimate recipient
+  of a specific, verified transaction. Whether this is actually safe
+  in practice depends entirely on RLS policies not inspectable from
+  this sandbox (no live DB access to the original project) — but the
+  *code pattern itself*, independent of whatever RLS backstop may or
+  may not exist, is exactly the class of client-trusted-for-a-financial-
+  operation logic this whole project's own Task 45 Part 3 ("the charge
+  amount is never trusted from the client") was built specifically to
+  eliminate elsewhere in this codebase. **Whoever builds (e) below
+  should treat this as a hard requirement, not a style preference: the
+  new crediting logic must be a secure, server-side-only path (an
+  atomic RPC, service-role-only, with the caller's authority to credit
+  *that specific* payout verified before the write) — not a port of
+  this original pattern, even adapted to run somewhere more trusted.**
+
+**The decision, direct from the product owner this session:** fork
+that repo into the `Zapier-codes` GitHub org, and reconfigure its
+Supabase config to point at **Mavins-web's own project** instead of
+the original one — a fully separate, Mavins-web-controlled app,
+editable freely, decoupled from the real B-Pay app's actual production
+data. Since it'll then share Mavins-web's own Supabase project, Part
+b-ii-ii-b's crediting mechanism becomes a plain same-project write
+from Mavins-web's own backend (already has service-role access) —
+no cross-org credential exchange needed at all, a real simplification
+over the original "share a scoped credential" framing this replaces.
+
+**Documentation only this session, per explicit instruction — nothing
+below is built.** Six sub-parts, in dependency order; build one at a
+time per this project's own mandatory task-splitting rule, not all at
+once:
+
+### a — Fork the repo (manual GitHub action, outside any sandbox's reach) [ ]
+`Edges-Enterprise/B-PAY` → a new repo under the `Zapier-codes` org.
+Naming not decided here — keep "B-PAY," or rename to reflect its new,
+narrower disbursement-only purpose (e.g. `mavins-disbursement`)? — a
+product decision, not an engineering one, needs the product owner's
+own call whenever this part is picked up. No Claude session can create
+a GitHub fork/repo directly; this part is a human action this
+handover can only point at, not execute.
+
+### b — Schema audit: confirm the real current B-Pay schema before porting anything [ ]
+The original repo's own committed migration file
+(`supabase/migrations/20250614120836_remote_schema.sql`) is **empty**
+— that project's real schema was managed via Supabase's dashboard, not
+tracked in version control. Everything in this task's own "Context"
+section above about `profiles`'s real columns was inferred purely from
+scattered TypeScript usage across the app (`WalletCard`,
+`resolve_tag`, the Lizzysub webhook) — a reasonable starting sketch,
+confirmed self-consistent across every file it appears in, but **not**
+a substitute for the real thing. Whoever has actual dashboard access
+to the original B-Pay Supabase project should export the real schema
+first (Supabase's own Table Editor/Database page, or `pg_dump
+--schema-only` given a direct connection string) — in particular,
+resolving the one real ambiguity this session flagged and could not
+settle from code alone: is `profiles.balance` or the separate
+`wallet.balance` (keyed by `user_email`) the actual authoritative
+balance column? (This session's own reading points to `profiles`,
+since that's what the real UI component renders from — but a live
+schema export settles it for certain instead of leaving it inferred.)
+
+### c — Namespace the ported tables before creating them [ ]
+Confirmed via `supabase_schema.sql`: Mavins-web has no table literally
+named `profiles` today, so no direct collision — but it does already
+have its own, semantically **different** `wallet_ledger` (an artist's
+campaign-spending wallet) and `users` tables. Recommend porting the
+B-Pay tables under a distinct prefix (`bpay_profiles`, `bpay_wallet`,
+`bpay_transactions`, matching whatever (b)'s real audit finds) rather
+than the bare original names — so nothing in this codebase ever
+confuses "a listener's B-Pay disbursement wallet" with "an artist's
+Mavins-web campaign wallet," two genuinely unrelated concepts that
+happen to share the word "wallet." Author as a new Mavins-web
+migration continuing this repo's own numbering (next free number:
+**033**, following migration 032) even though the forked app's own
+code is what actually reads/writes these tables — same precedent
+already established for `track_campaigns`/`listener_play_events`,
+whose migrations live in this repo despite Velune (a different app
+entirely) being their real reader/writer.
+
+### d — Reconfigure the fork's Supabase config, and fix the committed-secret practice while at it [ ]
+Point the forked app at Mavins-web's own project
+(`atojskxrxfsbpeefigtm.supabase.co`), using credentials Mavins-web
+already has issued and already uses server-side (`createAdminClient()`
+callers across this repo's own `src/app/api/` routes) — no new
+credential provisioning needed, unlike the original cross-org-sharing
+plan this whole task replaces. **While reconfiguring: stop committing
+`.env` to the fork at all.** The original repo's own practice (a real,
+committed service-role key, flagged above) is not something to carry
+forward — match the build-time-secret pattern this project's other two
+repos already use (Velune's `local.properties → env → default`
+fallback in `build.gradle.kts`; this repo's own `.env`, gitignored,
+never committed) instead of repeating it in the fork.
+
+### e — Wire Task 49 Part b-ii-ii-b's actual crediting call [ ]
+Now genuinely simple, once (a)–(d) land: Mavins-web's own backend
+(already has service-role access to this now-shared project) resolves
+a listener's stored `bpay_tag`, then performs an **atomic increment**
+(`balance = balance + amount`) on the ported wallet-balance column —
+explicitly **not** a read-then-overwrite. Worth calling out because
+the original app's own client-side code does exactly that unsafe
+pattern in one spot (`WalletCard`'s own balance-sync logic, read the
+current value then `.update({ balance: newBalance })`) — a real race
+condition risk if copied verbatim (a listener topping up their own
+balance at the same moment Mavins-web credits a payout could silently
+lose one of the two updates). **A second, more severe instance of the
+same underlying mistake — crediting a *different* user's balance from
+client-side code, not just racing your own — is documented in this
+task's own "Security finding" bullets above
+(`send/success.tsx`'s `processBPayTransfer`); this part's own crediting
+logic must not replicate either pattern, self-race or cross-user
+write.** This closes Part b-ii-ii-b for real,
+**replacing** that part's earlier "call B-Pay-backend's own `/payout`
+→ Korapay" plan for listener payouts specifically. That Korapay-via-
+B-Pay-backend path (a genuinely different repo — `Zapier-codes/
+B-Pay-backend`, fork of `Phoenix-Boss/B-PAY-backend`, an Express-style
+backend service, not this React Native app) stays exactly as-is —
+it's for artist-side campaign payments, unrelated to this.
+
+### f — Listener still needs to submit their own `@bpay_tag` somewhere [ ]
+Much simpler than the original bank-details blocker this replaces —
+no bank details, no KYC burden on Mavins-web's side at all, since
+B-Pay's own product already owns that on its end; a listener just
+needs to type in a tag they already have. Needs: a new column on
+Mavins-web's own `public.users` (e.g. `bpay_tag TEXT`), and a UI
+surface — in Velune, or folded into the withdrawal-request flow
+already built (Task 49 Part b-ii-ii-a's state machine) — for a
+listener to enter/confirm it. Not built yet; genuinely the next
+concrete, low-risk, fully-buildable engineering task once (a)–(e)
+land, and the one part of this whole task that doesn't depend on any
+manual/external action first.
+
+**Split i/ii, per explicit instruction, since it hadn't been split at
+all yet. Part f-i done, commit `db92da1`; Part f-ii not started.**
+
+**Part f-i = the schema.** New migration 034: nullable `bpay_tag TEXT`
+on `public.users`, stored **without** a leading `@` — confirmed by
+reading B-Pay's own `resolve_tag` Edge Function directly, which strips
+the `@` itself before querying (`cleanTag = tag.slice(1)`), so its own
+`profiles.bpay_tag` column never has one either; whatever builds Part
+f-ii should match that convention on the way in, not store it
+inconsistently with what a future lookup (Part e) will actually query
+against. Deliberately not unique (a payout is always computed from one
+specific `listener_id`'s own real listening activity, never pooled
+across rows — nothing to gain by pointing multiple listener identities
+at the same tag). A loose `CHECK` rejects the empty/whitespace-only
+and leading-`@` cases specifically, without attempting to validate
+B-Pay's own real tag-format rules (not confirmed from this sandbox —
+see Part b's own still-open schema-audit note). A partial index
+(`WHERE bpay_tag IS NOT NULL`) is ready for Part e's own future lookup
+pattern. Verified via `sqlparse` (3 statements: `ALTER TABLE ADD
+COLUMN`, `CREATE INDEX`, `COMMENT ON COLUMN`) and paren balance
+(24/24). **One real nuance caught via a Python simulation of the
+`CHECK` constraint's own logic, not left implicit:** the constraint
+validates trimmed length but doesn't rewrite the stored value — a tag
+submitted with surrounding whitespace would pass the `CHECK` but then
+fail a later exact-match lookup. Documented directly in the migration
+as the calling application's own responsibility (trim before insert,
+same place it should already be stripping a leading `@`) — a `CHECK`
+constraint can reject bad input, it can't silently normalize good
+input into a consistent shape. Not run against the live DB — same
+hand-off every migration in this file needs.
+
+**Part f-ii split into i/ii per explicit instruction ("split into a
+and b... add i and ii, do only i"), since it hadn't been split at all
+yet. Part f-ii-i done; f-ii-ii not started.**
+
+**Part f-ii-i = the API route.** New `POST
+/api/listener/bpay-tag/route.ts` — the first Next.js route this whole
+listener-earnings feature has (confirmed via grep before writing this:
+every prior piece, migrations 019/030/031/032, is SQL/RPC only, no
+existing sibling route to mirror). Auth pattern carried over from this
+codebase's general convention for a user mutating their own row
+server-side (`api/campaigns/cancel/route.ts`'s own
+`createServerSupabaseClient()` + `auth.getUser()` shape), not a
+listener-specific one that didn't exist yet to copy.
+
+Normalizes exactly per Part f-i's own documented requirement — trims,
+strips a leading `@` — mirroring migration 034's `CHECK` constraint
+(`length(trim(bpay_tag)) > 0 AND bpay_tag NOT LIKE '@%'`) rather than
+leaving normalization to the database, same nuance that migration's
+own comment already flagged (a `CHECK` rejects bad input, it doesn't
+normalize good input). Verified via `npx tsc --noEmit` (clean) and a
+standalone functional test of the normalization logic against the
+real `CHECK` semantics, 8 cases — including the edge case a bare `@`
+normalizes to an empty string, and confirming the route's own
+pre-check catches that *before* it reaches the database (a raw
+constraint-violation error would otherwise leak through with a less
+useful message than the route's own `'tag cannot be empty'`).
+
+**Part f-ii-ii — not started.** The actual UI surface (Velune, or
+folded into the withdrawal-request flow) for a listener to type in and
+confirm their tag, calling this new route. Not built this session —
+this route existing is what makes that UI buildable next, not the
+other way around.
+
+**Checked, same session as Task 65 Part B-i (2026-09-04) — this part
+is not the small, independently-buildable UI decision its own "not
+started" note above implies.** "Velune, or folded into the withdrawal-
+request flow" turns out to be the exact same open question Task 66
+already flagged and correctly left unbuilt: where does any
+listener-facing UI live at all — native (Velune) or a website page —
+and if a website page, what identity model does an unauthenticated
+website even use to know which device/listener is asking (Task 60's
+own still-open gap)? Checked `request_listener_withdrawal` (Part
+b-ii-ii-a) directly: it's RPC-only, no UI anywhere on either side yet
+— "folded into the withdrawal-request flow already built" doesn't
+mean an existing UI to fold into, it means an existing RPC a future UI
+would call, on whichever surface that turns out to be. Not guessed
+past — same reasoning Task 66 already used to correctly stay open
+rather than build against an assumed platform.
+
+**Additional security findings, this session — supplementing, not
+duplicating, the committed-service-role-key finding already recorded
+above in this task's own "Context" section:**
+- **A hardcoded Lizzysub API token directly in source**, not just in
+  the committed `.env`:
+  `supabase/functions/lizzysub-proxy/index.ts` has
+  `const LIZZYSUB_TOKEN = "b5b39c2645893a318c432507d00a91270f39bd987e5fcc904dc72276a00c"`
+  literally in the file.
+- **The Payscribe secret key is sent from client-side app code**, not
+  just committed to git: `app/(app)/send/success.tsx`'s
+  `executePayscribeTransfer()` sends `PAYSCRIBE_CONFIG.apiKey` as an
+  `Authorization` header directly from the React Native app to
+  Payscribe's own API. That key is bundled into the compiled mobile
+  app itself — extractable via decompilation regardless of the GitHub
+  repo's visibility or whether its `.env` ever gets scrubbed.
+- **`resolve_tag/index.ts` references a `supabase` client that's never
+  imported or instantiated anywhere in that file** — as currently
+  written, this Edge Function would throw a `ReferenceError` at
+  runtime, not a hypothetical concern. Confirmed by reading the whole
+  file, not inferred.
+
+None of these block (a)–(f) above — same standing as the original
+service-role-key finding ("their own repos/orgs, so their call") — but
+worth having recorded precisely, since (d)'s own "fix the committed-
+secret practice while at it" scope should probably extend to not
+inheriting the hardcoded-token pattern into the fork either, and (e)'s
+crediting call should not route through `resolve_tag` as currently
+written without first confirming this specific bug was fixed upstream
+or fixing it in the fork directly.
+
+**A related but distinct piece of work — see new Task 71, below**:
+making `Zapier-codes/B-Pay-backend` (a different repo from this B-PAY
+fork) the single source of truth for VTU/utility payment routing,
+integrating Lizzysub and Juicyway. Came up in the same product-owner
+conversation as this task but has its own separate scope and
+dependencies — kept as its own task rather than folded into this one's
+six-part split, since it depends on B-Pay-backend's own existing
+Korapay/Juicyway providers, not on parts (a)–(f) here landing first.
+
+---
+
+## Task 71 — Integrate Lizzysub (VTU) into B-Pay-backend; integrate Juicyway for whatever Korapay doesn't already cover — B-Pay-backend becomes the single source of truth for all payment/utility services [ ] — canonical write-up moved to B-Pay-backend's own `handover.md`, Task 44 (corrected — see note below)
+
+**Correction, this session — this pointer previously said "Task 43,"
+now wrong.** The patch containing that Task 43 write-up (auth-header/
+endpoint/payload bug findings in `providers/juicyway.js`, the
+hardcoded-Lizzysub-token blocker, the merged open questions) was
+generated but never actually applied to B-Pay-backend's real
+`origin/main` — a different session's own unrelated work
+(`Zapier-codes/bpay` fork architecture direction) landed as Task 43
+there instead in the meantime. **That detailed content currently
+exists nowhere in the live repo** — this session reserved **Task 44**
+for it there, but did not yet re-write the full findings (documentation
+only, split into two natural parts, per direct instruction — Part A
+this session was the cross-repo reconciliation this note itself is;
+Part B, restoring the actual detailed findings, is the next session's
+job, not done here). Read B-Pay-backend's own Task 44 stub for the
+current status before assuming the old content still exists — it
+doesn't yet.
+
+**This was independently spec'd twice, same day, in two different
+repos, before either session saw the other's work — reconciled this
+session, not left as two conflicting write-ups.** The actual
+implementation lives in `Zapier-codes/B-Pay-backend`, so that repo's
+own `handover.md` (Task 44, once Part B lands) is meant to be the
+canonical entry.
+
+**One correction worth knowing regardless of where the content ends up
+written**: this task's own original text (an earlier session, before
+any reconciliation) claimed integrating Juicyway was "about routing
+decisions... not building a new integration from scratch," reasoning
+from `providers/juicyway.js` merely existing, without reading it. That
+was wrong — the file has 3 real, confirmed bugs against Juicyway's
+actual API (a wrong auth header prefix, a wrong endpoint path, an
+incomplete request payload), cross-checked directly against a
+Termux-verified reference doc the product owner supplied. This task
+needs a real fix to existing code, not just a routing decision layered
+on top of already-working code — restated here since the detailed
+write-up itself isn't currently live anywhere to read this from
+directly.
+
+This session's own five open questions (Lizzysub's real API surface;
+what "VTU" means for B-Pay-backend's own route surface; the exact
+Korapay-vs-Juicyway scoping comparison; auth posture for new routes;
+where Lizzysub's credentials should live) still apply — not
+re-detailed here a second time, but not to be lost either; whoever
+writes Task 44's own Part B should reconstruct or re-derive these
+rather than skip them.
 
 ---
 
