@@ -131,6 +131,21 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-05, latest of all) — Task 67's security
+> fixes marked done (were already committed to the fork,
+> `Zapier-codes/B-PAY` commit `712825f`, by a prior session/turn —
+> this update just brings the handover's own status table in line
+> with reality, plus flags two follow-ups: rotate the two exposed live
+> secrets, and open the actual PR to upstream `Edges-Enterprise/B-PAY`
+> — manual GitHub action, can't be done from this sandbox).** Also:
+> started building Task 66 Part a-i independently this session before
+> discovering another session had already built the identical routes
+> (`cec21cf`) using a cleaner approach (`ensure_device_listener()`,
+> migration 028 — provisions a real `public.users` row per device ID
+> directly, rather than a separate mapping table) — verified theirs is
+> sound, discarded my own duplicate/superseded work entirely rather
+> than commit a conflicting second identity scheme.
+>
 > **Newest note (2026-09-04, latest of all) — correction to Task 65,
 > already marked fully closed: two real display surfaces were still
 > missing.** A `git am` attempt for an independently-produced patch
@@ -16549,33 +16564,69 @@ endpoints to exist first, which they now do.
 | Part f-i | ✅ Done | `POST /api/listener/bpay-tag/route.ts` |
 | Part f-ii-i | ✅ Done | Additional B‑PAY tag functionality |
 | Part f-ii-ii | ✅ Unblocked | Previously blocked on Task 66; now resolved (listen-and-earn UI lives on `mavins-web`). |
-| Security Fixes | 🔴 To Do | Three issues documented below. |
+| Security Fixes | ✅ Done | Three issues, all fixed on `Zapier-codes/B-PAY` (the fork) — commit `712825f`. See below. |
 
-### Security Findings (To Be Fixed)
+### Security Findings — FIXED, this session, on the fork (`Zapier-codes/B-PAY`, not yet PR'd to upstream `Edges-Enterprise/B-PAY`)
 
-1. **Hardcoded Lizzysub API token** in `lizzysub-proxy/index.ts`
-   - **Fix:** Move token to environment variable (`LIZZYSUB_API_KEY`). Remove hardcoded value.
-   - **File:** `Edges-Enterprise/B-PAY/lizzysub-proxy/index.ts`
+**Applied to the fork per explicit correction this session: these
+fixes belong on `Zapier-codes/B-PAY`, which will PR them upstream to
+`Edges-Enterprise/B-PAY` — not applied to the upstream repo directly.**
+Opening that PR itself is a manual step this sandbox can't perform (no
+authenticated GitHub access to create a PR on the product owner's
+behalf) — the fix is committed and ready
+(`https://github.com/Zapier-codes/B-PAY/pull/new/main`), but the PR
+itself needs to be opened manually. Worth deciding before opening it:
+a straight `main`-to-`main` PR would also carry the fork's other,
+already-diverged commits (a CI build swap, a few earlier vague-
+message ones) — if only the security fix should reach upstream, a
+PR built from just that one commit onto a point matching upstream's
+current `main` is cleaner than a full branch compare.
 
-2. **Payscribe secret key sent from client-side app code** (bundled into compiled mobile app)
-   - **Fix:** Move secret to server-side only. The client should never have access to the secret; instead, call a server endpoint that uses the secret.
-   - **File:** Identify the client-side file that references `PAYSCRIBE_SECRET` and replace with a server call.
+1. **Hardcoded Lizzysub API token** in `lizzysub-proxy/index.ts` —
+   **Fixed.** Now reads `Deno.env.get('LIZZYSUB_API_KEY')`, a
+   server-only env var, with a fail-closed guard if unset.
+2. **Payscribe secret key sent from client-side app code** — **Fixed,
+   and worse than originally flagged**: this wasn't just a `.env`
+   exposure, it was a **live secret key hardcoded directly in
+   TypeScript source** (`app/(app)/send/success.tsx`'s
+   `PAYSCRIBE_CONFIG.apiKey`, a real `ps_pk_live_...` value). New
+   `supabase/functions/payscribe-transfer/index.ts` Edge Function
+   holds the real secret server-side now (`PAYSCRIBE_SECRET_KEY` env
+   var); the client calls this via `supabase.functions.invoke()`
+   instead of fetching Payscribe directly.
+3. **`resolve_tag/index.ts` bug** — undefined `supabase` client —
+   **Fixed.** Added the missing import/instantiation, matching this
+   repo's own established pattern (`delete-account/index.ts`).
 
-3. **`resolve_tag/index.ts` bug** – references undefined `supabase` client
-   - **Fix:** Import and initialize Supabase client correctly. Ensure the function has access to a valid Supabase instance.
-   - **File:** `Edges-Enterprise/B-PAY/resolve_tag/index.ts`
+**Still needs doing, not part of the code fix**: rotating both live
+secrets that were exposed (the Lizzysub token, the Payscribe live
+key) and setting the new `LIZZYSUB_API_KEY`/`PAYSCRIBE_SECRET_KEY` env
+vars on the actual Supabase deployment — code changes alone don't
+invalidate credentials already committed to git history.
+
+**Verified:** brace/paren balance on all 4 touched/created files
+(0/0 each). The two Deno Edge Functions can't be type-checked by
+`tsc` (Deno-only import syntax) — sanity-checked their `serve()` entry
+points and import structure directly instead. **Not verified:** an
+actual deployed run of either Edge Function, or a live device/
+emulator exercising the updated transfer flow.
 
 ### Implementation Tasks
 
-1. Move Lizzysub API key to environment variable (server-side).
-2. Remove Payscribe secret from client code; create a server endpoint to handle Payscribe operations.
-3. Fix the Supabase client import/initialization in `resolve_tag/index.ts`.
-4. Test each fix with a local run and ensure no regressions.
-5. Update the B‑PAY repo documentation to reflect any new environment variables.
+1. ✅ Move Lizzysub API key to environment variable (server-side). Done.
+2. ✅ Remove Payscribe secret from client code; server endpoint built (`payscribe-transfer` Edge Function). Done.
+3. ✅ Fix the Supabase client import/initialization in `resolve_tag/index.ts`. Done.
+4. **Not done — genuinely can't be from this sandbox:** test each fix with a local run. No Deno/Supabase CLI or live deployment access here; verification was brace/paren balance + structural review + `tsc` on the client file only.
+5. **Not done:** update the B‑PAY repo's own documentation for the two new env vars (`LIZZYSUB_API_KEY`, `PAYSCRIBE_SECRET_KEY`) — a real, separate follow-up.
 
 ### Dependencies / Blockers
 
-- None – all fixes are straightforward and do not require external input.
+- Code fixes need no further input. **Two real follow-ups remain,
+  outside code**: rotate both exposed live secrets (they're
+  compromised regardless of the code fix — anyone who ever viewed the
+  repo or decompiled the app already has them), and open the PR from
+  `Zapier-codes/B-PAY` to `Edges-Enterprise/B-PAY` (manual GitHub
+  action, can't be done from this sandbox).
 ## Task 68 — Build the Unified Payment Engine (B-Pay) – Full Provider Integration, Custom Checkout, Documentation Portal (unblocked)
 
 **Status:** ✅ Fully unblocked. Design, architecture, and implementation plan finalized.
