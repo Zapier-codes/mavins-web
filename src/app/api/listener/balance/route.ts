@@ -28,58 +28,19 @@
  * qualifying play recorded yet (no `listener_earnings` row exists at
  * all until Part b's own crediting function first runs for them) --
  * a real, expected state for a brand-new listener, not an error.
+ *
+ * Token verification extracted to `lib/listener/token.ts` this
+ * session (Task 67's own bpay-tag route needed the identical logic —
+ * see that shared file's own header comment for why duplicating it a
+ * second time would have been the wrong fix).
  */
 import { NextRequest, NextResponse } from 'next/server';
-import crypto from 'crypto';
 import { createAdminClient } from '@/lib/supabase/admin';
-
-function getSecret(): string | null {
-  return process.env.LISTENER_TOKEN_SECRET || null;
-}
-
-function base64url(input: Buffer | string): string {
-  return Buffer.from(input).toString('base64url');
-}
-
-/**
- * Verifies signature + expiry, returns the trusted deviceId or an
- * error code. Constant-time signature comparison (crypto.timingSafeEqual)
- * -- same defensive standard this codebase already uses for the
- * Korapay/Paystack webhook signature checks, matched here rather than
- * a plain `===` string comparison.
- */
-function verifyToken(token: string, secret: string): { deviceId: string } | { error: string } {
-  const parts = token.split('.');
-  if (parts.length !== 2) return { error: 'malformed_token' };
-  const [payload, signature] = parts;
-
-  const expectedSignature = base64url(crypto.createHmac('sha256', secret).update(payload).digest());
-  const sigBuffer = Buffer.from(signature);
-  const expectedBuffer = Buffer.from(expectedSignature);
-  if (sigBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
-    return { error: 'invalid_signature' };
-  }
-
-  let decoded: { deviceId?: unknown; exp?: unknown };
-  try {
-    decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-  } catch {
-    return { error: 'malformed_payload' };
-  }
-
-  if (typeof decoded.deviceId !== 'string' || typeof decoded.exp !== 'number') {
-    return { error: 'malformed_payload' };
-  }
-  if (decoded.exp < Math.floor(Date.now() / 1000)) {
-    return { error: 'token_expired' };
-  }
-
-  return { deviceId: decoded.deviceId };
-}
+import { getListenerTokenSecret, verifyListenerToken } from '@/lib/listener/token';
 
 export async function GET(request: NextRequest) {
   try {
-    const secret = getSecret();
+    const secret = getListenerTokenSecret();
     if (!secret) {
       console.error('GET /api/listener/balance: LISTENER_TOKEN_SECRET is not set');
       return NextResponse.json({ success: false, error: 'Server not configured' }, { status: 500 });
@@ -90,7 +51,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'token is required' }, { status: 400 });
     }
 
-    const verified = verifyToken(token, secret);
+    const verified = verifyListenerToken(token, secret);
     if ('error' in verified) {
       // 401, not 400 -- an expired/invalid/tampered token is an auth
       // failure, not a malformed request; matters for how a future

@@ -148,6 +148,22 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-05, latest of all) — Task 67 Part f-ii-i's
+> auth model corrected: a second real, verified bug, not just the
+> already-known one.** That route's own `auth.getUser()` bug (Velune
+> has no session — Task 60) was fixed, but the obvious "just accept a
+> raw `listenerId`" fix would itself have been wrong: Task 66's own
+> spec puts listener UI on an anonymous `mavins-web` browser, not the
+> trusted Velune app, so a bare device UUID in a request body is not a
+> credential. Fixed to verify the same signed HMAC token
+> `balance/route.ts` already uses — extracted into a new shared
+> `lib/listener/token.ts` so both routes verify identically instead of
+> duplicating the logic. `bpay-tag/route.ts` now takes `{ token, tag }`,
+> never a raw id. `npx tsc --noEmit` clean; a throwaway 5-case
+> sign→verify round-trip script (deleted, not committed) passed. Not
+> verified live — no way to from this sandbox. **Part f-ii-ii (the
+> actual UI calling this route) is next, not started.**
+>
 > **Newest note (2026-09-05, latest of all) — a real spec discrepancy
 > found in ii-b-i, not fixed by adding a fourth competing
 > implementation.** Started building the exact same sub-part
@@ -16336,29 +16352,43 @@ page + campaign-data wiring, needs i's endpoints to exist first).
   environment before either route works at all; this sandbox cannot
   set it for a live deployment.
 
-**A real, separate discrepancy found and flagged, not reconciled —
-out of this sub-part's own scope:** the one existing sibling route,
-`api/listener/bpay-tag/route.ts` (Task 67), uses a genuine Supabase
+**Discrepancy found earlier this same day, resolved this session, not
+left "flagged, not reconciled":** the one existing sibling route,
+`api/listener/bpay-tag/route.ts` (Task 67), used a genuine Supabase
 Auth session (`createServerSupabaseClient().auth.getUser()`) —
-directly
-contradicting Task 66's own "no Supabase Auth dependency" spec for
-this same `listener` namespace. Not fixed here; Task 49's own "real
-identity deferred until withdrawal" framing suggests these may
-legitimately belong to two different points in the same listener's
-lifecycle (anonymous while earning, authenticated only once money
-needs to move) rather than one being simply wrong — but that's a real
-open question for whoever eventually reconciles the two routes, not
-assumed settled by this note.
+directly contradicting Task 66's own "no Supabase Auth dependency"
+spec for this same `listener` namespace. Traced why rather than just
+picking a fix: this wasn't actually a case of "two legitimately
+different points in the listener lifecycle" (the alternative this note
+originally floated) — Task 66's own "Core Decision Summary" puts
+*all* listener-facing UI, including tag submission, on `mavins-web`
+itself, reached from an anonymous browser with no session of any kind,
+ever, at any lifecycle stage. `auth.getUser()` could never succeed for
+a real caller; the route was simply unreachable as written. Fixed by
+switching it to the same signed-token verification this section just
+built — extracted into a new shared `lib/listener/token.ts` (this
+route and `balance/route.ts` now both import
+`getListenerTokenSecret()`/`verifyListenerToken()` from one place,
+rather than duplicating the HMAC logic a second time) — so
+`bpay-tag/route.ts` now accepts `{ token, tag }` and trusts the
+`deviceId` a verified token carries, never a client-supplied id. This
+also closes a second, independent gap the naive "just accept a raw
+`listenerId`" fix would have left open: an anonymous web request
+presenting a bare device UUID is not a credential, and would have let
+anyone who saw or guessed another listener's id hijack their
+`bpay_tag`.
 
-**Verified:** `npx tsc --noEmit` clean across both new files. A
-throwaway Node script (deleted after use, not committed) exercised the
-full sign→verify round trip against 5 cases — a valid unexpired token,
-an expired one, a tampered payload (signature correctly rejects it), a
-wrong signing secret, and a malformed/no-dot token — all 5 behaved
-correctly. **Not verified — no way to check this from a sandbox:** an
-actual live request against a deployed instance with
-`LISTENER_TOKEN_SECRET` set, or a real `ensure_device_listener` call
-against a live DB.
+**Verified:** `npx tsc --noEmit` clean across all four touched/new
+files (`lib/listener/token.ts`, `balance/route.ts`, `bpay-tag/route.ts`,
+plus confirming no other call site anywhere assumes either route's old
+shape). A throwaway Node script (deleted after use, not committed)
+exercised the full sign→verify round trip against 5 cases — a valid
+unexpired token, an expired one, a tampered payload (signature
+correctly rejects it), a wrong signing secret, and a malformed/no-dot
+token — all 5 behaved correctly. **Not verified — no way to check this
+from a sandbox:** an actual live request against a deployed instance
+with `LISTENER_TOKEN_SECRET` set, or a real `ensure_device_listener`
+call against a live DB.
 
 **Not done — sub-part ii, next:** the `/earn` page itself (task board
 + balance display, calling these two routes) and wiring that task
@@ -16486,8 +16516,8 @@ than re-deriving or re-missing it independently.
 | Part | Status | Description |
 |------|--------|-------------|
 | Part f-i | ✅ Done | `POST /api/listener/bpay-tag/route.ts` |
-| Part f-ii-i | ✅ Done | Additional B‑PAY tag functionality |
-| Part f-ii-ii | ✅ Unblocked | Previously blocked on Task 66; now resolved (listen-and-earn UI lives on `mavins-web`). |
+| Part f-ii-i | ✅ Done, auth model corrected | Route existed but was unreachable by any real caller (`auth.getUser()` — Velune listeners have no session). Fixed to verify a signed listener token instead (`lib/listener/token.ts`, shared with `balance/route.ts`) — see Task 66 Part a-i's own "Discrepancy... resolved" note for the full write-up. |
+| Part f-ii-ii | ⬜ Not started | Unblocked (listen-and-earn UI lives on `mavins-web`) — needs an actual `/earn`-adjacent UI element calling the now-corrected f-ii-i route with a valid token. |
 | Security Fixes | ✅ Done | Three issues, all fixed on `Zapier-codes/B-PAY` (the fork) — commit `712825f`. See below. |
 
 ### Security Findings — FIXED, this session, on the fork (`Zapier-codes/B-PAY`, not yet PR'd to upstream `Edges-Enterprise/B-PAY`)

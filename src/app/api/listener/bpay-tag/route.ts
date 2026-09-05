@@ -3,30 +3,46 @@
  * POST /api/listener/bpay-tag
  *
  * Task 67 Part f — split into f-i (schema, migration 034, done) and
- * f-ii (this route + a UI surface, not yet built). Further split per
- * explicit instruction into f-ii-i (this route) and f-ii-ii (the UI
- * that calls it, not built this session) — the route is the smaller,
- * self-contained, independently-testable half; the UI depends on this
- * existing, not the other way around.
+ * f-ii (this route + a UI surface). Further split into f-ii-i (this
+ * route) and f-ii-ii (the UI that calls it, not built this session) —
+ * the route is the smaller, self-contained, independently-testable
+ * half; the UI depends on this existing, not the other way around.
  *
- * Lets an authenticated listener store the B-Pay wallet tag their
- * eventual earnings payout should be credited to (Task 67's own
- * "Context" section — the real payout destination is a B-Pay wallet,
- * not a bank account). This is the first Next.js API route this whole
- * listener-earnings feature has — everything up to this point
- * (migrations 019/030/031/032) is SQL/RPC only, confirmed via grep
- * before writing this (no existing sibling `/api/listener*` or
- * `/api/earn*` route to mirror), so the auth pattern below is carried
- * over from this codebase's general convention for a user mutating
- * their own row server-side (`api/campaigns/cancel/route.ts`'s own
- * `createServerSupabaseClient()` + `auth.getUser()` shape), not a
- * listener-specific one that didn't exist yet to copy.
+ * Lets a listener store the B-Pay wallet tag their eventual earnings
+ * payout should be credited to (Task 67's own "Context" section — the
+ * real payout destination is a B-Pay wallet, not a bank account).
  *
- * Body: { tag: string }
+ * **Auth model — two real bugs found and fixed this session, not one.**
+ *
+ * 1. The original version used `createServerSupabaseClient()` +
+ *    `auth.getUser()`, copied from `api/campaigns/cancel/route.ts`'s
+ *    own pattern for a genuinely authenticated web user (an artist
+ *    logged into the site). Velune listeners have no Supabase Auth
+ *    session at all — Task 60's own confirmed device-based, no-login
+ *    design — so no real caller could ever have successfully called
+ *    this route; every request would 401.
+ * 2. The obvious fix — accept a plain `listenerId` in the body instead
+ *    — would itself have been wrong once Task 66's own "Core Decision
+ *    Summary" is taken into account: listener-facing UI (including
+ *    this tag-submission step, Part f-ii-ii) lives on `mavins-web`
+ *    itself, reached from an anonymous browser — NOT called directly
+ *    from the trusted Velune app the way `record_campaign_stream`/
+ *    `ensure_device_listener`/`request_listener_withdrawal` are. An
+ *    anonymous web request presenting a bare device UUID is not a
+ *    credential; anyone who saw or guessed another listener's id could
+ *    have hijacked their `bpay_tag`. `api/listener/balance/route.ts`
+ *    (Task 66 Part a-i) already solved this correctly for the exact
+ *    same problem — a signed, expiring HMAC token, never a raw id —
+ *    so this route now verifies the same kind of token instead,
+ *    reusing `lib/listener/token.ts` (extracted this session
+ *    specifically so both routes share one verification
+ *    implementation, not two).
+ *
+ * Body: { token: string, tag: string }
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { getListenerTokenSecret, verifyListenerToken } from '@/lib/listener/token';
 
 // Migration 034's own CHECK constraint, mirrored here exactly rather
 // than left to the database to reject: `bpay_tag IS NULL OR
@@ -45,14 +61,28 @@ function normalizeTag(raw: string): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createServerSupabaseClient();
-    const { data: { user: authUser } } = await supabase.auth.getUser();
-    if (!authUser) {
-      return NextResponse.json({ success: false, error: 'Not authenticated' }, { status: 401 });
+    const secret = getListenerTokenSecret();
+    if (!secret) {
+      console.error('POST /api/listener/bpay-tag: LISTENER_TOKEN_SECRET is not set');
+      return NextResponse.json({ success: false, error: 'Server not configured' }, { status: 500 });
     }
 
     const body = await request.json().catch(() => null);
+    const token = body?.token;
     const rawTag = body?.tag;
+
+    if (typeof token !== 'string' || token.trim() === '') {
+      return NextResponse.json({ success: false, error: 'token is required' }, { status: 400 });
+    }
+
+    const verified = verifyListenerToken(token, secret);
+    if ('error' in verified) {
+      // 401, not 400 -- matching balance/route.ts's own distinction:
+      // an expired/invalid/tampered token is an auth failure, not a
+      // malformed request.
+      return NextResponse.json({ success: false, error: verified.error }, { status: 401 });
+    }
+    const { deviceId } = verified;
 
     if (typeof rawTag !== 'string') {
       return NextResponse.json({ success: false, error: 'tag is required' }, { status: 400 });
@@ -68,18 +98,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'tag cannot be empty' }, { status: 400 });
     }
 
-    // Admin client — same reasoning as every other route in this repo
-    // that writes a caller's own row after verifying their identity
-    // server-side (api/campaigns/cancel/route.ts, etc.): the write
-    // itself uses service_role, but only ever targets `authUser.id`,
-    // never a client-supplied id, so there's no privilege-escalation
-    // surface even though the client itself never touches this table
-    // directly.
+    // Admin client, targeting the token-verified deviceId -- never a
+    // client-supplied id (see header comment for why that distinction
+    // is the entire point of this route's fix).
     const admin = createAdminClient();
     const { error: updateError } = await admin
       .from('users')
       .update({ bpay_tag: tag })
-      .eq('id', authUser.id);
+      .eq('id', deviceId);
 
     if (updateError) {
       // Migration 034's own CHECK constraint is the one realistic way
