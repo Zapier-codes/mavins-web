@@ -218,6 +218,23 @@ export default function AdminCampaignsPage() {
                     <td className="px-4 py-3">
                       <div className="font-medium">{c.artist?.artist_name || 'Unknown'}</div>
                       <div className="text-xs text-[var(--subtle-foreground)]">{c.artist?.email}</div>
+                      {/* Task 65 Part B-ii (handover.md) — shown only
+                          when the artist actually named this campaign;
+                          helps an admin tell apart multiple campaigns
+                          from the same artist, which this column
+                          previously couldn't do at all. Note: this is
+                          `admin/campaigns/page.tsx` (a dedicated,
+                          real per-campaign list, confirmed by reading
+                          this file directly) — distinct from
+                          `admin/page.tsx`, a different, more general
+                          page an earlier pass on this same task
+                          checked instead and concluded (for that
+                          different file) no individual-campaigns list
+                          existed to update. Both things are true; they
+                          are not the same file. */}
+                      {c.campaign_name && (
+                        <div className="text-xs text-[#1db954] mt-0.5 truncate max-w-[180px]">{c.campaign_name}</div>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span className={cn(

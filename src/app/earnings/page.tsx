@@ -24,6 +24,7 @@ interface EarningsEntry {
   campaign?: {
     resolved_song_id: string;
     source_url: string;
+    campaign_name?: string | null;
   };
 }
 
@@ -103,13 +104,17 @@ export default function EarningsPage() {
     // Campaign earnings
     const { data: campaigns } = await supabase
       .from('track_campaigns')
-      .select('id, resolved_song_id, source_url, total_streams, spent_cents, total_budget_cents, is_active, is_paused')
+      .select('id, campaign_name, resolved_song_id, source_url, total_streams, spent_cents, total_budget_cents, is_active, is_paused')
       .eq('artist_id', user.id)
       .order('created_at', { ascending: false });
 
     const earnings = (campaigns || []).map((campaign: any) => ({
       campaignId: campaign.id,
-      songTitle: campaign.resolved_song_id || 'Untitled Track',
+      // Task 65 Part B-ii (handover.md) — a user-assigned campaign_name
+      // now takes priority over the raw resolved_song_id fallback,
+      // matching this task's own point directly: once an artist names
+      // a campaign, that's what should show, not an auto-derived value.
+      songTitle: campaign.campaign_name || campaign.resolved_song_id || 'Untitled Track',
       totalEarned: campaign.spent_cents || 0,
       streams: campaign.total_streams || 0,
       status: campaign.is_paused ? 'paused' : campaign.is_active ? 'active' : 'completed',

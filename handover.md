@@ -131,6 +131,23 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-04, latest of all) — correction to Task 65,
+> already marked fully closed: two real display surfaces were still
+> missing.** A `git am` attempt for an independently-produced patch
+> covering this same part failed to apply (origin had already moved
+> past its base) — rather than force a conflicting merge, checked what
+> had actually shipped first. Found: (1) `earnings/page.tsx` was never
+> in either session's own inventory, a genuine omission from the
+> start, not something correctly ruled out; (2) the earlier "no
+> individual-campaigns list exists" finding checked `admin/page.tsx`
+> — a different file from `admin/campaigns/page.tsx`, which does have
+> one and had already been updated by an earlier pass on this same
+> task. Both fixed now: `earnings/page.tsx` gained `campaign_name` in
+> its select + display priority; `admin/campaigns/page.tsx` gained the
+> display line (data was already there, just never rendered). `npx tsc
+> --noEmit` clean. See Task 65's own "Correction" entry for full
+> detail.
+>
 > **Newest note (2026-09-04, even later still) — addendum to the
 > already-closed log-escape task: a 7th instance the closing sessions
 > missed, now fixed (Velune commit `de8afbb`).** While independently
@@ -16336,6 +16353,43 @@ whether the migration actually applies cleanly against the live
 `get_artist_dashboard()`, or a real render of either updated page.
 
 **Task 65 now fully closed** — Part A, B-i, and B-ii all done.
+
+**Correction, a later session, same day (2026-09-04) — two real
+surfaces were still missing, not a re-litigation of anything above.**
+The `git am` attempt to apply an earlier, independently-produced patch
+for this exact part failed outright (origin had already moved past
+its base — this commit) — rather than forcing a conflicting merge,
+checked what had actually shipped here first, confirmed two things:
+
+1. **`earnings/page.tsx` was never checked by either session** — not
+   in this entry's own inventory above (leaderboard, artist analytics,
+   admin campaigns list, success page), and not in the original
+   4-surface list this task opened with either. A real omission from
+   the start, not something either session considered and correctly
+   ruled out. Confirmed directly: this page shows an artist's own
+   per-campaign earnings list, `songTitle: campaign.resolved_song_id
+   || 'Untitled Track'` — genuinely displays individual campaigns,
+   genuinely never got `campaign_name`.
+2. **"Admin campaigns list... no individual-campaigns list exists"
+   above checked the wrong file.** `admin/page.tsx` (checked here) and
+   `admin/campaigns/page.tsx` (a separate, dedicated route this task's
+   own earlier Part B-ii pass had already found and updated, before
+   this same-day patch failed to apply) are two different pages — the
+   second one does render a real, individual `campaigns.map(...)`
+   list. Both findings above are true of the file they each actually
+   checked; they just weren't the same file, and the one that matters
+   for this task got missed.
+
+Both fixed, this session: `earnings/page.tsx` gained `campaign_name`
+in its select and `campaign.campaign_name || campaign.resolved_song_id
+|| 'Untitled Track'` (same priority-order reasoning as every other
+surface in this task); `admin/campaigns/page.tsx` gained a
+`campaign_name` line under the artist's name/email, shown only when
+set — already present in that page's own data
+(`useAdminDashboardData()` → `select('*')`, no query change needed,
+confirmed directly), just never rendered.
+
+**Verified:** `npx tsc --noEmit` clean.
 
 ---
 
