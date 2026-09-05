@@ -131,7 +131,20 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-09-05, latest of all) — Task 67's security
+> **Newest note (2026-09-05, even later still) — Task 66 Part a
+> sub-part ii split a/b per explicit instruction (hadn't been split
+> at all yet); Part ii-a done.** New `src/app/earn/page.tsx` — the
+> page shell + balance display, calling sub-part i's two already-built
+> routes (`/api/listener/token`, `/api/listener/balance`) in sequence.
+> Task board is an honest empty state, not mock data — wiring it to
+> real reward-eligible campaigns and the `reward=true` Velune handoff
+> is **Part ii-b, next**, deliberately not started. Flagged a real,
+> unresolved discrepancy along the way: this task's own spec says
+> "points, not cash," but the API/schema it calls is cents-
+> denominated — displayed as points, not resolved either way. `npx
+> tsc --noEmit` clean. Full write-up in Task 66's own section.
+>
+> **Older note (2026-09-05, latest of all) — Task 67's security
 > fixes marked done (were already committed to the fork,
 > `Zapier-codes/B-PAY` commit `712825f`, by a prior session/turn —
 > this update just brings the handover's own status table in line
@@ -16564,6 +16577,46 @@ against a live DB.
 + balance display, calling these two routes) and wiring that task
 board to real campaign data (step 7) — genuinely needs sub-part i's
 endpoints to exist first, which they now do.
+
+**Sub-part ii split a/b, per explicit instruction, since it hadn't
+been split at all yet. Part ii-a done, this session (2026-09-05).**
+Same "self-contained piece first, data-dependent piece second" line
+this whole project already uses: **ii-a = the `/earn` page shell +
+balance display** (this commit); **ii-b = wiring the task board to
+real reward-eligible campaigns and the actual `reward=true` handoff
+to Velune**, not started.
+
+**Sub-part ii-a — built:** new `src/app/earn/page.tsx`, a standalone
+page (no shared layout wrapper, matching `login/page.tsx`/
+`fund-wallet/page.tsx`'s own convention — confirmed neither has a
+per-route `layout.tsx` before copying that shape). Identity:
+`crypto.randomUUID()` (already used elsewhere in this codebase for
+reference generation, confirmed via grep rather than adding a uuid
+dependency), persisted in `localStorage` — needs to survive across
+days, not just one tab session, unlike `sessionStorage`. Calls `POST
+/api/listener/token` then `GET /api/listener/balance` in sequence,
+matching those two routes' own documented contracts exactly (read
+both files directly before writing this page, not assumed from this
+task's own text alone). The task-board section is an honest empty
+state ("Nothing to show yet") — not mock campaign data standing in
+for sub-part ii-b's own real work.
+
+**A real discrepancy flagged, not resolved:** this task's own "Core
+Decision Summary" above says the reward model is "Points (like
+Sweatcoin), not cash" — but the actual API/schema this page calls
+names the field `earningsCents` (`listener_earnings.earnings_cents`),
+a cents-denominated shape. The page divides by 100 and labels
+everything "points," deliberately **not** reusing this codebase's own
+`formatCents()` (`src/lib/campaign/pricing.ts`), since that formatter
+prefixes a `$` and would misrepresent this as real currency —
+documented as an open question in the page's own header comment, not
+silently resolved either way.
+
+Verified: `npx tsc --noEmit` clean. Confirmed the visual classes used
+(`glass-card`, `animate-ambient`/`animate-ambient-slow`, the
+`--accent`/`--background` CSS variables) actually exist in
+`globals.css` before using them, rather than assuming they did from
+copying `login/page.tsx`'s own structure.
 
 --- 
 
