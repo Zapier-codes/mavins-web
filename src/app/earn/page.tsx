@@ -7,11 +7,13 @@
  * the page itself, and wiring it to real campaign data — and hadn't
  * been split at all yet). This is **ii-a: the page shell + balance
  * display**, using sub-part i's two already-built routes
- * (`/api/listener/token`, `/api/listener/balance`). **ii-b (step 7 —
- * wiring the task board to real reward-eligible campaigns, and the
- * actual `reward=true` handoff to Velune) is deliberately NOT built
- * here** — the task board below is an honest empty state, not mock
- * data standing in for it.
+ * (`/api/listener/token`, `/api/listener/balance`). Sub-part ii-b was
+ * further split into ii-b-i/ii-b-ii per this project's own mandatory
+ * task-splitting rule: **ii-b-i (real campaign data on the task
+ * board) is now built, this session** — `ii-b-ii` (the actual
+ * `reward=true` deep-link handoff to Velune) is still NOT built; each
+ * card below is marked "coming soon" rather than wired to a broken
+ * link.
  *
  * Identity model, exactly as Task 66's own "Core Decision Summary"
  * specifies: fully anonymous, device-ID only, no login, no Supabase
@@ -35,7 +37,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, Sparkles, RefreshCw } from 'lucide-react';
+import { Loader2, Sparkles, RefreshCw, Play, Music2 } from 'lucide-react';
 
 const DEVICE_ID_KEY = 'mavins_listener_device_id';
 
@@ -48,6 +50,14 @@ interface BalanceResponse {
   } | null;
   lifetimeEarningsCents: number;
   error?: string;
+}
+
+interface ListenerCampaign {
+  campaignId: string;
+  trackTitle: string;
+  artistName: string;
+  coverUrl: string | null;
+  sourceUrl: string;
 }
 
 function getOrCreateDeviceId(): string {
@@ -72,6 +82,28 @@ export default function EarnPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [balance, setBalance] = useState<BalanceResponse | null>(null);
+  // Task 66 sub-part ii-b-i — independent of the balance load above:
+  // the task board doesn't need a device token to display (it's
+  // public campaign metadata, same trust level as the home banner),
+  // so a failure loading balance shouldn't also blank out the task
+  // board, and vice versa.
+  const [campaigns, setCampaigns] = useState<ListenerCampaign[] | null>(null);
+  const [campaignsError, setCampaignsError] = useState<string | null>(null);
+
+  const loadCampaigns = useCallback(async () => {
+    setCampaignsError(null);
+    try {
+      const res = await fetch('/api/listener/campaigns');
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || 'Failed to load songs');
+      }
+      setCampaigns(json.campaigns);
+    } catch (err: any) {
+      setCampaignsError(err?.message || 'Failed to load songs');
+      setCampaigns([]);
+    }
+  }, []);
 
   const loadBalance = useCallback(async () => {
     setLoading(true);
@@ -104,7 +136,8 @@ export default function EarnPage() {
 
   useEffect(() => {
     loadBalance();
-  }, [loadBalance]);
+    loadCampaigns();
+  }, [loadBalance, loadCampaigns]);
 
   return (
     <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] px-4 py-10">
@@ -170,17 +203,61 @@ export default function EarnPage() {
           )}
         </div>
 
-        {/* Task board — honest empty state. Wiring this to real
-            reward-eligible campaigns (Task 66's own step 7) and the
-            reward=true handoff to Velune is sub-part ii-b, not built
-            here — see this file's own header comment. */}
+        {/* Task board — Task 66 sub-part ii-b-i: real campaign data.
+            Each card is deliberately NOT a working link yet — sub-part
+            ii-b-ii (the reward=true deep-link handoff to Velune) isn't
+            built, so wiring a tap target here would either go nowhere
+            or misrepresent this as functional. "Coming soon" is the
+            honest state until that part exists. */}
         <div className="glass-card rounded-2xl p-6">
           <h2 className="text-sm font-semibold text-[var(--muted-foreground)] uppercase tracking-wide mb-4">
             Songs available to earn from
           </h2>
-          <div className="text-center py-8 text-sm text-[var(--subtle-foreground)]">
-            Nothing to show yet — check back soon.
-          </div>
+          {campaigns === null ? (
+            <div className="flex items-center justify-center gap-2 py-8 text-sm text-[var(--muted-foreground)]">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading songs…
+            </div>
+          ) : campaignsError ? (
+            <div className="text-center py-4">
+              <p className="text-sm text-rose-400 mb-3">{campaignsError}</p>
+              <button
+                onClick={loadCampaigns}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg glass-card text-xs font-medium hover:brightness-110 transition-all"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Try again
+              </button>
+            </div>
+          ) : campaigns.length === 0 ? (
+            <div className="text-center py-8 text-sm text-[var(--subtle-foreground)]">
+              Nothing to show yet — check back soon.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {campaigns.map((c) => (
+                <div
+                  key={c.campaignId}
+                  className="flex items-center gap-3 p-3 rounded-xl bg-[var(--foreground)]/5 border border-[var(--foreground)]/5"
+                >
+                  <div className="w-11 h-11 rounded-lg bg-[var(--foreground)]/10 flex items-center justify-center shrink-0 overflow-hidden">
+                    {c.coverUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={c.coverUrl} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <Music2 className="w-5 h-5 text-[var(--subtle-foreground)]" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{c.trackTitle}</p>
+                    <p className="text-xs text-[var(--subtle-foreground)] truncate">{c.artistName}</p>
+                  </div>
+                  <span className="shrink-0 flex items-center gap-1 text-[11px] font-medium text-[var(--subtle-foreground)] px-2.5 py-1 rounded-full border border-[var(--foreground)]/10">
+                    <Play className="w-3 h-3" /> Coming soon
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

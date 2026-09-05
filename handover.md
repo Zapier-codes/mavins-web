@@ -132,6 +132,17 @@ looking like a part was skipped.
 > anything, especially the box below it.**
 >
 > **Newest note (2026-09-05, even later still) — Task 66 Part a
+> sub-part ii-b split into ii-b-i/ii-b-ii; ii-b-i done.** New
+> `GET /api/listener/campaigns`, reusing Task 59's
+> `get_live_campaigns_for_banner()` RPC rather than building a second
+> one (same "currently live" set both surfaces need). `/earn/page.tsx`'s
+> task board now shows real songs, each marked "Coming soon" since
+> ii-b-ii (the actual `reward=true` deep-link to Velune) doesn't exist
+> yet — an honest partial state, not a fake-complete one. `npx tsc
+> --noEmit` clean. Full write-up in Task 66's own section. **Next:
+> ii-b-ii**, in Velune — needs that repo's own session.
+>
+> **Newest note (2026-09-05, even later still) — Task 66 Part a
 > sub-part ii split a/b per explicit instruction (hadn't been split
 > at all yet); Part ii-a done.** New `src/app/earn/page.tsx` — the
 > page shell + balance display, calling sub-part i's two already-built
@@ -16299,7 +16310,45 @@ Verified: `npx tsc --noEmit` clean. Confirmed the visual classes used
 `globals.css` before using them, rather than assuming they did from
 copying `login/page.tsx`'s own structure.
 
---- 
+**Sub-part ii-b further split into ii-b-i/ii-b-ii, per this project's
+own mandatory task-splitting rule — ii-b-i done, this session
+(2026-09-05).** Same "self-contained piece first, dependent piece
+second" line as every other split in this task: **ii-b-i = real
+campaign data on the task board** (this commit); **ii-b-ii = the
+actual `reward=true` deep-link handoff to Velune**, not started.
+
+**ii-b-i — built:** new `GET /api/listener/campaigns`, reusing Task
+59 Part 3's `get_live_campaigns_for_banner()` RPC rather than building
+a second one — "reward-eligible" and "currently live" are the same
+set today (a listener can only earn from a campaign that's actually
+running), and that RPC already returns exactly the shape needed
+(`artist_name`/`track_title`/`cover_url` without a live YouTube
+round-trip per row, same reasoning as the home banner's own use of
+it). No device/listener auth on this route — it's public campaign
+metadata, same trust level as the banner itself, not tied to any
+specific listener's identity or balance.
+
+`/earn/page.tsx`'s task board now renders this list (loading/error/
+empty/populated states, independent of the balance card's own load —
+a balance-load failure no longer blanks out the task board and vice
+versa). **Each card is deliberately not a working link** — sub-part
+ii-b-ii (the `reward=true` handoff) doesn't exist yet, so wiring a tap
+target would either go nowhere or misrepresent this as functional;
+each card shows a "Coming soon" badge instead, an honest partial state
+rather than a fake-complete one.
+
+Verified: `npx tsc --noEmit` clean. Caught and fixed a small comment
+typo introduced by an earlier line-based edit in this same session
+(a missing opening parenthesis before a backtick in the file's own
+header comment) before committing — confirmed via a brace/paren
+balance check, not just visual inspection.
+
+**Not done, deliberately, per this session's own scope:** the
+Velune-side deep link, the `reward=true` intent flag itself, and the
+60-second progress-pill UI — all ii-b-ii's job, a separate repo
+(Velune) and a separate part, not touched here.
+
+---
 
 ## Task 67 — Complete B-PAY tag integration, listener routes, and fix security findings (unblocked)
 
