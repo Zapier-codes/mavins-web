@@ -2115,35 +2115,50 @@ looking like a part was skipped.
 > Then `git push origin main` for each repo.
 
 
-
 ## 🔍 Verification Required – Tasks Marked Done but Need Reconfirmation
 
-The following tasks have been marked as `[x] (verify)` based on a codebase review.  
-**A future session should double‑check that each is fully implemented in the live codebase and close it definitively.**
+**All 14 originally-listed items now resolved this session — list is
+empty, kept only as a record of what was checked and how, per direct
+instruction to remove fully-completed entries entirely and keep this
+file's size manageable.**
 
-**Tasks 4, 6, and 13 verified this session and removed from this file
-entirely** (per direct instruction: fully-completed tasks are deleted
-outright, not just checked off, to keep this file's size manageable).
-Task 4: confirmed the CSS fixes are live, and found the country grid
-had actually been superseded by an even better later fix (flex-wrap +
-curated 8-of-25 pool) than what Task 4 itself described — no
-regression despite the country count growing from 20 to 25 since.
-Task 6: all four pieces of the slider revert (deleted RangeSlider.tsx,
-inline sliderRef, .slider-gold, touch-action: none) confirmed present.
-Task 13: the original credit_wallet_deposit RPC, already extensively
-re-confirmed correct by many later tasks in this file's own history.
-
-- Task 14 – Admin dashboard hardcoded email fix
-- Task 15 – Admin campaign launch RLS error
-- Task 16 – RLS owner‑only admin actions
-- Task 17 – Complete‑profile page wiring
-- Task 18 – Profile success banner
-- Task 20 – Header wallet pill routing
-- Task 21 – Remove withdrawal ability
-- Task 23 – Promote page country shuffle
-- Task 24 – Korapay endpoint wiring
-- Task 25 – Fund‑wallet page rejection fix
-- Task 40 – Fee arithmetic in Edge Function only
+- **Tasks 4, 6, 13 — removed from this file entirely.** Task 4:
+  confirmed the CSS fixes are live, and found the country grid had
+  actually been superseded by an even better later fix (flex-wrap +
+  curated 8-of-25 pool) than what Task 4 itself described — no
+  regression despite the country count growing from 20 to 25 since.
+  Task 6: all four pieces of the slider revert confirmed present.
+  Task 13: the original `credit_wallet_deposit` RPC, already
+  extensively re-confirmed correct by many later tasks in this file's
+  own history.
+- **Tasks 14, 15, 17, 18, 20, 21, 23, 24, 25, 40 — removed from this
+  file entirely.** Each independently confirmed against the current
+  live code, not assumed from the original write-up: 14 (no hardcoded
+  email anywhere, server-side auth pattern generalized into
+  `requireAdmin()`), 15 (campaign-create route + header wallet display
+  both still correctly wired, refactored since), 17 (`create-user`
+  route confirmed genuinely dead, `login/page.tsx` is the real path,
+  `/complete-profile` redirect still wired), 18 (`?welcome=1` one-time
+  banner still wired in `page.tsx`), 20 (wallet pill still `Link`-
+  wrapped, "Wallet" labeling confirmed throughout), 21 (artist
+  withdrawal still fully disabled, unaffected by the later, separate
+  listener-earnings withdrawal work), 23 (same `GeoTargetingSection`
+  code re-verified during Task 4's own check), 24 & 25 (the specific
+  files these touched no longer exist — superseded by Task 33's
+  Edge-Function architecture — but the underlying principles they
+  established, "never call Korapay directly" and "nest customer under
+  a `customer` object," both confirmed carried forward correctly into
+  the current code), 40 (Edge-Function-computes/RPC-only-persists
+  principle confirmed still correct and relied upon throughout this
+  file's own later work).
+- **Task 16 — kept, not deleted.** Its RLS admin-bypass fix is still
+  live and necessary. But a genuine, unresolved discrepancy was found
+  while re-checking it: its own `role DEFAULT 'artist'` claim
+  contradicts Task 48's later finding of zero `'artist'` rows in live
+  production data. Not resolved — flagged in Task 16's own entry for
+  whoever next touches role defaults to check the column's actual
+  current live default directly, rather than trusting either task's
+  account on faith.
 
 ---
 
@@ -2416,169 +2431,6 @@ directly on the live DB.
 
 ---
 
-## Task 14 — Admin dashboard: fix wrong hardcoded email + client-side [x] (verify)
-RLS blocking real data [x]
-
-**Ask:** Product owner forwarded a third-party document diagnosing
-"admin panel not working" as (1) a hardcoded admin email mismatch and
-(2) environment variables not being injected at build time, with a
-prescribed fix for both plus a suggested RLS workaround.
-
-**Same caution as Task 13 — verify before trusting a handed-in
-document, this repo's third strike on that:**
-
-1. **Hardcoded email mismatch — real, but currently inert.**
-   `src/app/admin/page.tsx` did check `user?.email !== 'admin@mavins.app'`
-   (wrong — the real admin is `bossblingzs@gmail.com`, per
-   `ADMIN_CONFIG` in `AuthProvider.tsx`), **but** the `router.push('/')`
-   that would act on that check was commented out. So this exact bug
-   wasn't actually blocking anyone — the page had no working gate at
-   all, which is its own problem (see #3).
-
-2. **Env vars not injected / hardcoded fallbacks — false.** Checked
-   `src/lib/supabase/client.ts` and `src/lib/supabase/admin.ts`
-   directly: both already read `process.env.NEXT_PUBLIC_SUPABASE_URL`
-   / `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY`
-   correctly, no hardcoded real values anywhere. The document's
-   suggested "correct" `client.ts` would have actually been a
-   **regression** — it creates the Supabase client at module scope
-   with a non-null assertion (`process.env.X!`), which breaks Next.js
-   static generation (this file has an explicit comment already
-   warning against exactly that, for exactly that reason). Not
-   applied.
-
-3. **Client-side admin queries hitting RLS — real, and the actual
-   likely cause of a sparse-looking dashboard.** `admin/page.tsx`
-   queried `users` / `track_campaigns` / `wallet_ledger` directly with
-   the regular anon-key client. `users` and `wallet_ledger`'s RLS
-   policies are `auth.uid() = id` / `auth.uid() = user_id` — own-row
-   only. An admin loading this page client-side would only ever see
-   their *own* single row in each table, not the full picture — which
-   would look like "the admin page is broken/empty" without actually
-   erroring.
-
-**Fixed:**
-- New `src/app/api/admin/dashboard/route.ts` — verifies the caller's
-  own session server-side (`createServerSupabaseClient()` +
-  `auth.getUser()`, then reads that user's own `role` — permitted by
-  the "own row" RLS policy regardless of what it's being checked for),
-  requires `isAdmin()` to be true, **then and only then** uses
-  `createAdminClient()` (service-role, bypasses RLS) to fetch all
-  three tables and return them as JSON. Deliberately **not** the
-  document's example route, which had zero auth check — copying that
-  verbatim would let any authenticated user curl this endpoint and
-  dump every user's data and the full wallet ledger via the
-  service-role key.
-- New `src/lib/auth/isAdmin.ts` — extracted `isAdmin()` /
-  `ADMIN_CONFIG` out of `AuthProvider.tsx` into a plain module with no
-  `'use client'` directive and no React import, so the new
-  server-only API route can use the exact same single source of
-  truth without pulling a client-boundary module into server code
-  (a real risk if imported directly — Next.js doesn't reliably treat
-  a `'use client'` file's plain function exports as safe to import
-  into a route handler). `AuthProvider.tsx` now re-exports both from
-  there; no other importer needed to change.
-- `admin/page.tsx`: replaced the wrong, inert hardcoded email check
-  with a real, working gate using `isAdmin` from `useAuth()` (waits
-  for `authLoading` to resolve first, so a real admin doesn't get
-  bounced on every hard refresh), and switched `loadData()` to fetch
-  from the new API route instead of querying the three tables
-  directly. Added a visible error banner (`loadError` state) so a
-  403/500 from the route surfaces to the admin instead of failing
-  silently.
-
-**Deliberately not touched — flagged instead:** `togglePause()` on
-this same page still writes directly with the client-side anon-key
-`supabase` client. `track_campaigns`'s RLS policy is `"Campaigns
-updatable by owner" USING (auth.uid() = artist_id)` — the identical
-underlying issue, but on the write side. An admin pausing *another*
-artist's campaign would have the `UPDATE` silently affect 0 rows
-under RLS (Supabase doesn't surface this as an error), so it would
-look like it worked and quietly not persist. Worth its own task —
-likely needs a second API route (`POST /api/admin/campaigns/:id/pause`)
-using the same auth-check-then-service-role pattern as the new
-dashboard route, rather than expanding this fix further.
-
-Verified via `npx tsc --noEmit` — clean. Not verified: an actual live
-login as the real admin account and a real `/admin` page load (no
-browser/live Supabase network access in this sandbox, same limitation
-noted on every prior task that needed one) — recommend a real
-end-to-end check after deploying this.
-
----
-
-## Task 15 — Admin campaign launch throws RLS error; header wallet [x] (verify)
-balance always shows $0.00 [x] (verify)
-
-**Ask:** Product owner, logged in as the confirmed admin account
-(role = 'admin' per Task 11's query), tried to launch a campaign and
-got a browser alert: `new row violates row-level security policy for
-table "track_campaigns"`. Screenshot also showed the header wallet
-badge reading $0.00 despite the DB having real funds — "if admin is
-facing this error imagine a normal user['s] error."
-
-**Done in commit `0e4529f`.**
-
-**Part 1 — RLS error on campaign creation:**
-`createCampaign()` in `campaign.service.ts` inserted into
-`track_campaigns` directly from the browser's anon-key client, relying
-on `auth.uid() = artist_id` passing `track_campaigns`'s `WITH CHECK`
-insert policy. Could not determine the exact live-DB reason this was
-failing for a confirmed-admin account (no sandbox network access to
-the live Supabase project to inspect it directly — same limitation as
-every RLS-adjacent task before this one, e.g. Task 12, Task 14).
-Rather than guess at the live specifics blind, applied the same fix
-already proven for the structurally identical read-side problem in
-Task 14 (admin dashboard hitting RLS on `users`/`wallet_ledger`): moved
-the write server-side.
-
-New `src/app/api/campaigns/create/route.ts` — verifies the caller's
-own session (`auth.getUser()`), re-derives `isAdmin` server-side via
-the same `isAdmin()` used everywhere else (so a stale/forged
-client-side admin flag can't skip the wallet check), then does the
-wallet balance check/deduction and the `track_campaigns` insert with
-`createAdminClient()` (service-role, bypasses RLS entirely).
-`artist_id` is always the verified session's own id now — never a
-client-supplied value, closing off a spoofing angle the old code had
-too. If the insert fails after a non-admin's wallet was already
-debited, the debit is refunded rather than left charged with nothing
-created. `campaign.service.ts`'s `createCampaign()` is now a thin
-`fetch()` wrapper around this route, same exported signature, so
-`promote/page.tsx` needed no changes.
-
-**Part 2 — wallet balance always $0.00 in the header:**
-Root cause was much simpler than it looked: `Header.tsx`'s balance
-line is `${(points / 100).toFixed(2)}` where `points` is a prop
-**defaulting to 0** — and `LayoutContent.tsx`, the only place `<Header>`
-is ever rendered, never passed a `points` prop at all. So the header
-showed $0.00 unconditionally for every user regardless of actual
-wallet state — not a data-fetch bug, the value was simply never wired
-up. Added a `walletBalanceCents()` helper in `LayoutContent.tsx`
-reading `user.wallet.balance` (the same `users.wallet` JSONB shape
-`campaign.service.ts` already reads/writes) off the already-available
-merged `user` object from `AuthProvider`, and passed it as `points`.
-
-**Note if this still shows $0.00 after deploying:** that would now
-point specifically at `AuthProvider`'s profile join
-(`users` row fetched by `.eq('id', session.user.id)`) not finding a
-matching row for this account — worth a direct check of whether this
-admin's `public.users.id` actually equals their `auth.users` id, since
-a mismatch there would silently null out `user.wallet` (and would
-also explain a stale/absent `auth.uid()` context feeding into the RLS
-error in Part 1, if it turns out this account's public profile row was
-seeded independently of a real Supabase Auth signup).
-
-Verified via `npx tsc --noEmit` — clean. `npm run build` still fails
-in this sandbox on the same pre-existing, unrelated Google Fonts
-network issue noted since Task 8. **Not verified:** an actual live
-campaign launch and wallet-balance render against the live DB (no
-sandbox network access to Supabase) — recommend a real end-to-end
-check after deploying, and if the RLS error somehow still occurs after
-this change, that means something more specific is happening live that
-this fix doesn't cover (please paste the exact new error text).
-
----
-
 ## Task 16 — RLS on `track_campaigns` still owner-only; admin actions [x] (verify)
 silently no-op instead of erroring [x] SQL run against the live DB,
 root cause fully diagnosed (see resolution note below)
@@ -2723,139 +2575,25 @@ turn out to need **no code change at all** for this specific account
 — re-verify both against the real admin login now that the id match
 is fixed before spending time on the frontend for either.
 
----
-
-## Task 17 — Complete-profile page exists but isn't wired into the [x] (verify)
-real flow [x]
-
-**Ask:** `/complete-profile` isn't actually reached as part of
-onboarding — it exists as a page but nothing routes a freshly-signed-up
-artist into it, so profile completion is effectively dead code right
-now. Needs: (a) finding every entry point after signup/login and
-confirming whether each one checks for an incomplete profile and
-redirects to `/complete-profile?redirect=...` before continuing, (b)
-deciding what "incomplete" means (which `users` columns are required —
-`artist_name`? `primary_genre`? `country`?), and (c) actually wiring
-that check in, since right now a user can go straight from signup to
-the rest of the app with a blank profile.
-
-**Done.** Part (b) turned out to already be answered by the codebase:
-`complete-profile/page.tsx` already writes a real `profile_completed`
-boolean on the `users` row (added in migrations 002 and 005), and
-`guestCheckout.ts` already reads it too — there's a single existing
-flag, no need to invent new "incomplete" criteria.
-
-Part (a): the only *live* signup/sign-in entry point is
-`src/app/login/page.tsx` (grepped for other candidates —
-`api/auth/create-user/route.ts` and `api/auth/activate/route.ts` exist
-but have zero callers anywhere in `src`, so they're dead code, not a
-real second entry point; left untouched). That page had two gaps:
-- **Sign-up branch:** inserted the new `users` row, then always
-  `router.push('/')` — never routed to `/complete-profile` at all,
-  regardless of the fact that a brand-new row's `profile_completed`
-  is `false` by definition.
-- **Sign-in branch:** just `router.push('/')` unconditionally — an
-  existing user who'd skipped profile completion last time was never
-  nudged back toward it on a later login either.
-
-**Fixed in `src/app/login/page.tsx`:**
-- Sign-up: after the profile row insert succeeds, routes to
-  `/complete-profile?redirect=<intendedDestination>` instead of `/`.
-  (If there's no active session yet — e.g. email confirmation is
-  required — falls back to the prior `/` behavior, since there's no
-  one to route into complete-profile until they're actually signed
-  in.)
-- Sign-in: now fetches the signed-in user's `profile_completed` flag
-  right after a successful `signInWithPassword` call; routes to
-  `/complete-profile?redirect=...` only if it's still `false`,
-  otherwise goes straight to the intended destination as before.
-- Added `useSearchParams()` to read an incoming `?redirect=` (the same
-  param `middleware.ts` already sets when bouncing an unauthenticated
-  user away from `/admin`), and threads it through to
-  `/complete-profile` so the user still lands where they were actually
-  headed once they finish (or skip) the form — `complete-profile`
-  already supported reading `redirect` back out, it just never
-  received one before.
-- Split the page into a `LoginForm` component wrapped in `<Suspense>`
-  in the default export, matching the exact pattern
-  `complete-profile/page.tsx` already uses — required because
-  `useSearchParams()` opts a page out of static rendering unless it's
-  wrapped in a Suspense boundary.
-
-**Deliberately not touched:** `middleware.ts` — its own comment
-explains the app is intentionally public/ungated outside `/admin`, so
-gating on `profile_completed` belongs at the point where a session is
-established (login/signup), not as a blanket middleware redirect that
-would also catch already-authenticated users just browsing around.
-Also left `api/auth/create-user` and `api/auth/activate` alone since
-they're unused — flag for cleanup separately if confirmed dead.
-
-Verified via `npx tsc --noEmit` — clean. `npm run build` fails on the
-same pre-existing Google Fonts network issue noted since Task 8, 14,
-15 — unrelated to this change. **Not verified:** an actual live
-signup/sign-in against the real Supabase project and a real redirect
-into `/complete-profile` (no sandbox network access) — recommend a
-real end-to-end check after deploying: sign up a fresh test account
-and confirm it lands on `/complete-profile`, then sign in as an
-existing account with `profile_completed = false` and confirm the
-same.
-
----
-
-## Task 18 — Success banner after completing profile shows for every [x] (verify)
-artist on every login, not just once [x]
-
-**Ask:** Product owner reports a banner/modal opens for every artist
-after they successfully get through `/complete-profile`, and it's
-firing more broadly than intended — sounds like it's showing on every
-subsequent login rather than a true one-time "profile completed"
-moment. Needs a persisted flag (e.g. a `profile_completed_at` or
-`has_seen_welcome` column/timestamp on `users`, set once and checked
-before rendering the banner) rather than whatever client-side
-condition is currently gating it — likely something that re-evaluates
-true on every session load instead of only right after the profile
-form's own successful submit.
-
-**Investigated first, before touching anything:** grepped the whole
-`src` tree for any Toast/Snackbar/Alert/Modal/Dialog/"banner" pattern
-tied to onboarding — found nothing. There is no dedicated
-banner/modal component for this at all. The actual match for what
-product owner is describing is the plain `<h1>Welcome back,
-{artistName}</h1>` heading in `src/app/page.tsx`'s authenticated
-view — it renders **unconditionally on every visit to `/`**, with no
-gating logic whatsoever. Once Task 17 wired every login/signup to
-route through `/complete-profile` first, this heading became the very
-next thing rendered afterward every single time — which reads exactly
-like "a banner opens after completing profile" even though it was
-never actually tied to that event; it was just always there.
-
-**Fixed without a schema change** — a DB column felt like more
-persistent state than this needs, since the ask is really "show this
-once, at the moment it actually happened," not "remember forever
-whether this user has ever seen a welcome message":
-- `complete-profile/page.tsx`'s **submit** path (not skip — skipping
-  isn't "successfully completing" it) now appends `?welcome=1` onto
-  the redirect target after a successful save.
-- `src/app/page.tsx` now has a real, separate one-time banner
-  (dismissible, with a ✕ button) that only renders when it sees
-  `welcome=1` in the URL on mount — and immediately strips that param
-  via `router.replace('/', { scroll: false })` in the same effect, so
-  a refresh, back-button press, or someone re-sharing the URL can't
-  replay it. The original "Welcome back" heading is untouched and
-  still shows every visit, which is normal/expected persistent UI, not
-  the bug — only the new banner above it is one-time.
-- Both `page.tsx` and `complete-profile`'s redirect needed
-  `useSearchParams()`; `page.tsx` didn't have it before, so it's now
-  split into `HomePageContent` wrapped in `<Suspense>` in the default
-  export, matching the same pattern already used in `login/page.tsx`
-  (Task 17) and `complete-profile/page.tsx`.
-
-Verified via `npx tsc --noEmit` — clean. `npm run build` fails only on
-the same pre-existing Google Fonts network issue noted since Task 8.
-**Not verified:** an actual live run through signup →
-complete-profile → seeing the banner exactly once and not again on a
-subsequent login (no sandbox network access to the live Supabase
-project) — recommend a real end-to-end check after deploying.
+**Re-verification this session — kept, not deleted, due to a genuine
+discrepancy found, not fully resolved:** confirmed the RLS
+admin-bypass policies are still exactly what makes `togglePause()`'s
+still-direct client write work at all for admin-on-behalf-of-others
+(checked directly, still relevant, still necessary as of this
+session). **But** step 1's `ALTER TABLE ... DEFAULT 'artist'` is in
+real tension with Task 48's own later finding: live production data
+showed `role` values of only `creator`/`listener`/`curator`/`admin` —
+**zero `'artist'` rows anywhere**, despite this default supposedly
+being in place since this task. Either this SQL was never actually
+run against the live DB (despite this header's own "[x] SQL run
+against the live DB" claim), or `public.users`'s actual live default
+was overridden by something else since (consistent with this same
+task's own finding that this table has drifted from
+`supabase_schema.sql` outside of tracked migrations). Not resolved
+here — flagging for whoever next touches role defaults (Task 48's own
+chain) to check the column's *actual current* default directly against
+the live DB rather than trusting either this task's or Task 48's
+account on faith.
 
 ---
 
@@ -2895,114 +2633,6 @@ the same pre-existing Google Fonts network issue noted since Task 8.
 visually confirm "Admin" renders (no sandbox network access to the
 live Supabase project) — recommend a quick visual check after
 deploying.
-
----
-
-## Task 20 — Header wallet pill doesn't route anywhere; should say [x] (verify)
-"Wallet" not the earnings label [x]
-
-**Done in commit `e8c8b44`.** Header.tsx's wallet pill was a plain
-`<div>` — wrapped it in a `Link href="/earnings"` (with a hover state
-so it visibly reads as tappable). Renamed the user-facing label from
-"Earnings"/"Earn" to "Wallet" everywhere it appears alongside that
-route: `Sidebar.tsx` nav item, `MobileNav.tsx` tab, the home page
-"Quick Actions" tile, and both `<h1>` headings on the earnings page
-itself (signed-out and signed-in states).
-
-**Deliberately kept the `/earnings` route path itself unchanged** —
-renaming the URL/directory would also mean touching
-`middleware.ts`'s route matcher and unrelated internal names
-(`earningsTicker.service.ts`, `EarningsMarquee.tsx`, the `campaignEarnings`
-state, etc.) that aren't part of this ask and aren't user-facing. Also
-left the "Total Earned" stat label and "Track your campaign revenue and
-wallet" subtitle alone — those describe the data, not the page/section
-identity, so didn't need the same treatment as the page title itself.
-
-Grepped `src` for every remaining `'Earnings'`/`'Earn'` string after
-the change — zero user-facing occurrences left.
-
-Verified via `npx tsc --noEmit` — clean (see the updated protocol
-above — `npm run build` is a known sandbox-only failure now, not part
-of the gate).
-
-**Confirmed while investigating:** the wallet balance pill in
-`Header.tsx` (the `$X.XX` chip next to notifications) is a plain
-`<div>`, not a `<Link>` or button — it has no `onClick`/`href` at all,
-so tapping it does nothing. Also, the nav-level equivalent
-(`Sidebar.tsx` / `MobileNav.tsx`) currently points at `/earnings` and
-is labeled "Earnings" / "Earn" everywhere, which the product owner
-wants renamed to "Wallet" to match the intended framing (see Task 21 —
-withdrawals are going away, so "Earnings" no longer fits what that
-page does). Needs: (a) wrap the header pill in a `Link href="/earnings"`
-(or whatever the route ends up being renamed to, if `/earnings` itself
-gets renamed to `/wallet` as part of this), and (b) a pass over
-`Sidebar.tsx`, `MobileNav.tsx`, and the page itself to rename the
-user-facing label from "Earnings"/"Earn" to "Wallet" consistently.
-Coordinate with Task 21 so this isn't done twice.
-
----
-
-## Task 21 — Remove withdrawal ability entirely (comment out, don't [x] (verify)
-delete, in case it's needed later) [x]
-
-**Done in commit `4a62796`.** No withdrawal functionality is
-user-facing anymore:
-- `src/app/earnings/page.tsx` — commented out the withdraw state, the
-  `handleWithdraw` handler, the success banner, and the entire
-  "Withdraw Funds" form card. Each block marked
-  `// WITHDRAWALS DISABLED — see Task 21`. The "Pending"/"Available"
-  stat tiles were left alone — they're a read-only derived display of
-  existing `wallet_ledger` debits, not a withdrawal action.
-- `src/app/api/withdrawal/request/route.ts` — `POST` now
-  short-circuits with a `403` "Withdrawals are temporarily disabled."
-  response; the full original handler is preserved below it,
-  commented out, ready to restore.
-
-**Full audit of the other known surface area, before touching
-anything (per the task's own instruction) — none needed a change:**
-- `src/app/api/withdrawal/stats/route.ts` — grepped the whole `src`
-  tree; nothing calls this endpoint. It's read-only (returns numbers,
-  moves no funds), so it's outside the user-facing surface this task
-  targets. Left untouched with a comment documenting the finding,
-  rather than commenting out working unreferenced code.
-- `src/app/admin/page.tsx` — the one `withdrawal` hit is a ledger-row
-  badge color for historical entries, not an approval/action UI —
-  there's no withdrawal-request admin flow to disable. Kept, since
-  the task explicitly flagged admin visibility into past entries as
-  possibly worth keeping.
-- `src/services/notifications/notifications.service.ts` — the
-  `withdrawal_requested` entry in `TYPE_META` is read-back display
-  metadata for already-existing notifications, not something that
-  fires a new one (that lived in the now-disabled request route).
-  Kept so old notifications still render with a proper label instead
-  of falling back to generic "system".
-
-Verified via `npx tsc --noEmit` — clean.
-**Not verified:** an actual live click-through on `/earnings` to
-confirm the form is gone and the page still renders normally (no
-sandbox network access to the live Supabase project) — recommend a
-quick visual check after deploying.
-
-**Ask:** No withdrawal functionality should be user-facing at all for
-now — not reduced, fully removed from the UI, with the underlying
-logic commented out rather than deleted so it can be restored later
-without reconstructing it from git history alone. Known surface area
-(found via `grep -rli withdraw src`, not yet fully audited):
-- `src/app/api/withdrawal/request/route.ts`
-- `src/app/api/withdrawal/stats/route.ts`
-- `src/app/earnings/page.tsx` — likely has the actual withdraw
-  button/form and balance-check UI
-- `src/services/notifications/notifications.service.ts` — likely
-  fires a withdrawal-related notification somewhere
-- `src/app/admin/page.tsx` — may surface withdrawal requests for admin
-  review; confirm whether admin-side visibility should also be hidden
-  or just the user-facing request flow
-
-Needs a full read of each file above before touching anything — some
-of this (e.g. admin visibility into past withdrawals) may be worth
-keeping even while new requests are disabled. Comment out rather than
-delete per the ask, with a clear `// WITHDRAWALS DISABLED — see Task
-21` marker at each spot so it's easy to find and reverse later.
 
 ---
 
@@ -3077,231 +2707,6 @@ re-entering the current one (Supabase JS's client-side default) —
 worth confirming that's actually how this project is configured.
 
 ---
-
-## Task 23 — Promote page: shuffle 8-of-25 countries by genre, cap [x] (verify)
-selection at 3 of the shown 8 [x]
-
-**Ask:** The country-targeting pool should be the full 25 countries,
-but the picker should only ever show 8 at a time, reshuffled based on
-the genre the artist selects (presumably weighted toward that genre's
-best-fit markets, similar in spirit to the existing affinity table),
-and the artist can select at most 3 of *those 8 shown* — not 3 of the
-full 25.
-
-**Part 1 done in commit `3d8dd90`.** Grew `TARGET_COUNTRIES` from 14
-to 25 by adding: Côte d'Ivoire, Senegal, Tanzania, Uganda, Egypt (West/
-East African Afrobeats-adjacent markets), plus Mexico, Spain, Italy,
-Australia, Sweden, South Korea (major global/IFPI-tracked streaming
-markets not previously covered). Filled in affinity scores for all 11
-new countries across all 14 existing genre rows in
-`GENRE_COUNTRY_AFFINITY`, following the same conservative hand-tuned
-banding as the existing entries (not empirically measured — same
-caveat as the rest of this table). Confirmed via grep that no other
-file hardcodes an assumption about pool size; `promote/page.tsx` only
-ever does `TARGET_COUNTRIES.find(...)` lookups by code.
-
-**Part 2 done in commit `e732766`.** Product owner confirmed the
-open question: the shown 8 should re-shuffle every time (not stay
-stable for a session), weighted by the selected genre, so the artist
-never sees a fixed set. Added `getGeoTargetingPool(genre,
-homeCountryCode, poolSize = 8)` to `geoAffinity.ts` — weighted
-sampling without replacement (roulette-wheel selection) over
-`getRecommendedGeographies()`'s full 25-country ranking, so
-higher-affinity markets show up more often but the exact 8 varies
-draw to draw. `GeoTargetingSection` in `promote/page.tsx` now renders
-this 8-country pool (`shown`) instead of the full 25 (`ranked`), via
-a `useMemo` keyed on `[genre, homeCountryCode]` — it reshuffles
-whenever the artist picks a different genre. The existing
-`MAX_COUNTRIES_FREE = 3` cap (Task 10) needed no change: it already
-just counts entries in `selectedCodes` regardless of what's rendered,
-so it now naturally caps at 3 of the shown 8.
-
-Verified with a standalone script: 20 draws for the same genre always
-returned exactly 8 distinct codes with zero duplicates, and all 25
-countries appeared somewhere across those 20 draws. Also verified via
-`npx tsc --noEmit` — clean.
-
-**Left alone on purpose:** the second `getRecommendedGeographies()`
-call further down `promote/page.tsx` (used to find the best-scoring
-match among the artist's *already-selected* countries, for a
-pricing-summary display) still scans the full 25 — correct, since a
-selection made under one shuffled 8 must still resolve after the
-picker reshuffles to a different 8.
-
-**New edge case found, not fixed — needs a product decision:**
-selecting a country, then changing genre so the picker reshuffles to
-a set that no longer includes it, leaves that code still counted in
-`targetCountries` (visible in `SelectedCountriesStack` and the
-"Targeting N markets" line) but no longer visible/togglable in the
-picker itself, until a later reshuffle happens to bring it back. This
-wasn't possible before (all 25 were always shown), so it's newly
-introduced by this task's own ask, not a pre-existing bug. Options for
-a future session: auto-clear selections that fall outside the newly
-shown 8 on genre change, or add a small "also selected (not shown)"
-affordance so the artist can still deselect it. Needs the product
-owner's preference before picking one.
-
----
-
-## Task 24 — Korapay "Endpoint not found" error — fully wire the render [x] (verify)
-backend proxy [x]
-
-**Ask:** Product owner is seeing a Korapay "Endpoint not found" error.
-Context given: Korapay requires IP whitelisting, and since this app's
-own hosting has no fixed outbound IP, a separate instance was hosted
-on Render specifically to get a stable outbound IP to whitelist with
-Korapay — that Render instance (`https://b-pay-backend.onrender.com`)
-is supposed to be the *only* thing that talks to Korapay directly;
-this app should only ever call the Render instance.
-
-**Done in commit `20926bd`.** Confirmed the actual bug by fetching the
-Render backend's own root URL — it self-reports its route table:
-```
-GET https://b-pay-backend.onrender.com/
-→ {"name":"B-Pay Backend","version":"1.0.0","status":"running",
-   "endpoints":{"health":"/health","pay":"/api/pay",
-                "verify":"/api/verify","myIp":"/my-ip"}}
-```
-`korapay.service.ts` (written when the render-proxy switch happened,
-commit `115921c`) was calling `POST /initialize` and `GET /verify/:ref`
-— neither of which exist on this backend. Every call 404'd against the
-backend's own catch-all handler before ever reaching Korapay — that
-404 response is almost certainly the literal source of the "Endpoint
-not found" message the product owner is seeing. Fixed to call
-`POST /api/pay` and `GET /api/verify`.
-
-**Second, separate bug found in the same area:**
-`src/app/api/payments/verify/[reference]/route.ts` (the route the
-browser hits landing back from Korapay's checkout page) had **never
-been switched over to the proxy at all** — it called
-`https://api.korapay.com/merchant/api/v1/charges/:reference` directly
-with `KORAPAY_SECRET_KEY`. That's exactly the problem the whole
-render-proxy architecture exists to avoid: this route runs on Vercel
-(or wherever the Next app is hosted), which has no whitelisted IP, so
-Korapay would reject it. Rewired to call `verifyCharge()` from
-`korapay.service.ts` (i.e. go through the Render proxy) instead.
-`KORAPAY_SECRET_KEY` is now unused anywhere in this Next.js app — that
-looks correct given the architecture (the secret key belongs on the
-Render backend, which is the only thing whitelisted to use it), but
-worth a sanity check with the product owner that nothing else still
-expects it set here.
-
-**Third bug, found while fixing the second:** the guest-checkout
-branch in that same verify route checked
-`existing?.metadata?.guest_checkout`, a flag that is **never set
-anywhere** — `/api/payments/initialize` actually stores
-`type: 'wallet_topup_guest'` + `guest_email` in `payments.metadata`
-for guest checkouts. So even once verification itself worked, a guest
-who completed a Korapay payment would never have gotten an account
-created / wallet credited via this route. Fixed the check to match
-what's actually stored, and added a fallback so the guest's email is
-read from that stored `guest_email` if the proxy backend's `/api/verify`
-response doesn't include Korapay's `customer.email` field (see next
-section — that response shape isn't fully confirmed).
-
-**Also corrected while in the file:** `ChargeStatusResponse`'s
-`status` field was typed as `'successful'`, but Korapay's own
-published API docs/samples show the real value is `'success'` — kept
-both as accepted values defensively. Added the optional `customer`
-field Korapay's real charge object includes (used for the guest-email
-fallback above).
-
-**Not fully confirmed — flagged clearly in code comments, needs a
-live test or the backend's own source to close out:**
-- `/api/verify`'s exact request shape. The backend's self-reported
-  route list shows it flat, with no `:reference` placeholder — but so
-  does `/api/pay`, which definitely needs its params in a POST body,
-  not a path segment, so the omission alone doesn't prove `/api/verify`
-  takes a query param instead of `/api/verify/<reference>`.
-  `verifyCharge()` now tries the path-segment form first and falls
-  back to a query param (`?reference=`) on a 404 response, so it
-  self-heals against either convention without a live test — but
-  confirming the real contract (ideally by reading the Render
-  backend's own source, if that's accessible somewhere, or a live
-  end-to-end payment) and simplifying to just the one that's actually
-  right is worth doing next session.
-- Whether `/api/pay`'s response body is a raw pass-through of
-  Korapay's own `{status, message, data: {checkout_url, reference,
-  ...}}` shape, or something the backend reshapes. Left the existing
-  parsing as-is (it already expects Korapay's native shape) since
-  that's the most likely design for a thin proxy, but this is an
-  assumption, not a confirmed fact.
-- Whether `/api/verify`'s response includes Korapay's `customer`
-  object — see the `guest_email` fallback above, added specifically to
-  not depend on this being true.
-
-**Much bigger, separate finding — do NOT attempt to fix blind, needs
-live DB access first:** both this verify route and
-`src/app/api/payments/webhook/route.ts` `SELECT` from a `payments`
-table (`.from('payments')`) to look up `user_id` before crediting a
-wallet. That table does **not appear anywhere in `supabase_schema.sql`**,
-and grepping the whole `src` tree turns up **no `INSERT` into
-`payments` anywhere in this codebase** — nothing ever writes a row for
-either route to find. If that table genuinely doesn't exist live
-either, both the verify-on-redirect flow and the webhook flow would
-silently no-op on the wallet-crediting step for every authenticated
-top-up (the `if (existing?.user_id)` / `if (payment.user_id)` guards
-would never pass), on top of whatever this session fixed. Given this
-repo's confirmed history of the live DB diverging from
-`supabase_schema.sql` (see Tasks 1, 13, 14), it's very possible
-`payments` exists live and just isn't tracked in the schema file —
-but that needs a live `information_schema.columns` check (same method
-Task 13 used) before touching anything, not a guess. If it turns out
-to be real, this is likely the single biggest remaining gap in "fully
-complete the integration" — worth prioritizing next session, and
-worth testing with an actual live payment end-to-end once confirmed,
-since none of this (this task included) has been exercised against a
-real Korapay transaction from this sandbox.
-
-Verified via `npx tsc --noEmit` — clean. **Not verified:** an actual
-live payment end-to-end (initialize → pay on Korapay's checkout →
-land back on `/verify` → wallet credited) — no sandbox network access
-to Render, Korapay, or Supabase from here. Strongly recommend a real
-test transaction after deploying this, specifically checking whether
-the path-segment or query-param form of `/api/verify` is the one that
-actually responds (server logs or a Render dashboard request log
-would show which one 404'd and which one didn't).
-
----
-
-## Task 25 — URGENT: fund-wallet page rejects a correctly-entered [x] (verify)
-email with "Email Address is required" [x]
-
-**Ask:** Product owner reported that on `/fund-wallet`, entering an
-email and pressing "Continue to payment" fails with `API request
-failed: Email Address is required`, even though the email field was
-filled in correctly.
-
-**Root cause found:** `initializeCharge()` in
-`src/services/payment/korapay.service.ts` was sending the payer's
-email/name as flat top-level `email` / `name` fields in the POST body
-to the render backend's `/api/pay`. Korapay's own API — confirmed
-across their published docs for checkout (both redirect and standard),
-mobile money, and pool accounts — always expects these nested under a
-`customer: { name, email }` object instead. Since the render backend
-is a thin proxy that most likely passes the body through close to
-unchanged, the flat `email` field was never being found where the
-backend/Korapay looks for it — regardless of what the user typed into
-the form, it was never reaching the right key. Neither the React form
-(`src/app/fund-wallet/page.tsx`) nor the `/api/payments/initialize`
-route needed any changes; both were already correctly forwarding the
-user's email down to `initializeCharge()`. The bug was isolated to
-this one payload shape.
-
-**Fix applied in commit `2c00401`.** Nested `email`/`name` under a
-`customer` object in the request body sent to `/api/pay`.
-
-**Not fully confirmed — same caveat as Task 24:** whether the render
-backend re-shapes the body before forwarding to Korapay, or passes it
-through as-is. If it reshapes it, this fix assumes the *proxy's own*
-field naming matches Korapay's native convention — reasonable for a
-thin proxy, but not verified against the backend's own source. Worth
-a live top-up test after deploying to confirm the checkout URL now
-returns successfully instead of erroring.
-
-Verified via `npx tsc --noEmit` — clean. **Not verified:** an actual
-live payment (no sandbox network access to the Render backend or
-Korapay from here) — same limitation noted throughout Task 24.
 
 ## Task 26 — Korapay top-up amount bug: wrong currency default + no client-side conversion (cross-repo, originated as B-Pay-backend's own Task 16) [x]
 
@@ -5204,123 +4609,6 @@ path today. This task turned out to be exactly the one-line
 confirmation its own text anticipated as the likely outcome; no code
 changed for this task specifically (the file changed this session was
 for Task 38's debit rewiring, not this).
-
----
-
-## Task 40 — Fee arithmetic lives ONLY in the Edge Function; the RPC [x] (verify)
-never computes, it only persists [x]
-
-**Status, this session — all three items now done.** The deposit-side
-5% (Task 33 Part 2b's `creditDeposit()`) and the campaign-side 10%
-(`calculatePricing()`, confirmed adding-on-top not skimming-out, closed
-under Task 35's "Campaign-side audit + fix" note) were already built
-and verified. **The one item that had been shared with Task 35 — where
-the platform's fee cut itself gets recorded — is now closed too; see
-Task 35's own "Closed, this session" note for the full write-up** (new
-`platform_revenue` table, migration 011, wired into all three fee-taking
-call sites). Not re-duplicated here since it's the exact same piece of
-work closing the exact same shared item for both tasks — no separate
-implementation exists per-task.
-
-**Note added this session — Task 40's 15%-campaign figure below has
-since been superseded again; see Task 35's "Second correction" note
-above for the full detail.** The product owner directly re-confirmed
-**10% on campaigns, 5% on deposits** — this task's own "15% if it's a
-campaign placement" language two paragraphs below, and its "the
-10%-vs-15% ... confirmed by the product owner ... it's 15%" resolution
-further down, are both now stale. Everything in this task about
-**where** the fee math happens (Edge Function computes and deducts,
-RPC only persists, never computes) is still correct and unaffected —
-only the specific campaign-side percentage (15 → 10) changed. Left the
-rest of this task's text unedited below per this file's "don't delete
-completed entries" convention; read every "15%" reference below as
-meaning 10% now.
-
-**Ask, from the product owner directly, verbatim intent:** the RPC
-does no arithmetic at all — that's the Edge Function's job. For every
-user action that moves money (a campaign placement, or a deposit), the
-Edge Function is the one place that:
-1. Calculates the total amount involved.
-2. Deducts the fee — **15% if it's a campaign placement, 5% if it's a
-   deposit**.
-3. For a deposit: the user sees the balance **after** the 5% is
-   already deducted — i.e. the net amount, not the gross amount they
-   paid. That net remaining balance is what gets sent to the RPC; the
-   RPC's only job is to persist it into the `users` table (via
-   `credit_wallet_deposit`, migration 004) — it does not compute the
-   5% itself.
-4. For a campaign: the 15% is deducted first, and **only the remaining
-   85%** is the amount actually used to place/fund the campaign (i.e.
-   the 15% never touches the campaign's own budget — it's the
-   platform's cut, taken off the top, not a cost inside the campaign
-   spend).
-
-**This settles two things Task 35 left as open questions** (see that
-task's own correction note above, added at the same time as this
-task):
-- **The 10%-vs-15% platform fee confusion is resolved: it's 15%,
-  confirmed by the product owner in this same message.**
-  `PLATFORM_FEE_PERCENT` in `src/lib/campaign/pricing.ts` (currently
-  `15`) was already correct and does **not** need to change to 10 —
-  Task 35's original "needs updating to match this task" instruction
-  was itself wrong and should be disregarded now.
-- **Where the 5%/15% math happens is resolved: the Edge Function, not
-  the RPC.** Task 35's own note had flagged two options ("the 5% is
-  deducted before calling the RPC" vs. "the RPC itself computes and
-  stores both the gross and net figures") and tentatively recommended
-  the RPC-computes approach. The product owner's direction here is the
-  opposite: **Edge-Function-computes is correct, RPC-computes is not**
-  — the RPC must stay a pure "write this exact number" primitive, no
-  business logic. `credit_wallet_deposit`/`debit_wallet_balance`
-  already have this shape today (they take a caller-supplied
-  `p_amount_cents` and just apply it) — the fix needed is entirely on
-  the calling side (the Edge Function), not the RPC's own signature.
-
-**Scope — none of this is built yet, this is a spec-clarification
-task, not an implementation one:**
-- **Deposit side (5%):** lives in Task 33 Part 2's wallet-crediting
-  logic, which per the orientation box at the top of this file is
-  still not built (`korapay-webhook/index.ts`'s own header comment
-  confirms: "NOT this function's job... Part 2 is what reads that
-  status change and decides whether/how much to credit"). When Part 2
-  is built, it must compute `net = gross * 0.95` itself and call
-  `credit_wallet_deposit` with the net figure — not the gross deposit
-  amount, and not delegate the multiplication to the RPC.
-- **Campaign side (15%):** `src/lib/campaign/pricing.ts`'s
-  `calculatePricing()` needs a from-scratch check (not assumed) that
-  it already nets out the 15% correctly before the amount reaches
-  `debit_wallet_balance`/the campaign's own `total_budget_cents` — i.e.
-  confirm the flow is "compute total → take 15% off the top → the
-  remaining 85% is both what's debited from the wallet AND what
-  actually funds/places the campaign," not "debit the full total, then
-  separately skim 15% off the campaign's budget after the fact" (those
-  two produce the same wallet debit but different campaign budgets,
-  and only the first one matches this task's wording — "only the
-  remaining is used to place the campaign").
-- **Where the platform's cut itself is recorded** is still the same
-  open question Task 35 already flagged (a ledger row, a separate
-  revenue table, or implicit) — not answered by this clarification
-  either, still worth a one-line confirmation before building reporting
-  on top of it.
-
-**Also noted by the product owner, this message — related but
-explicitly deferred, not part of this task's scope:**
-- **An API/token endpoint for placing a campaign already exists** —
-  this is `/api/campaigns/create/route.ts` (Task 34/38's own subject
-  this session). The product owner's framing suggests this is also
-  meant to be reachable as a general integration point (e.g. from
-  outside mavins-web itself), not just this app's own frontend — worth
-  confirming with the product owner exactly what "API token endpoint"
-  means here (an API key/token-authenticated variant of this same
-  route? a separate route entirely?) before assuming the existing
-  session-cookie-authenticated route already satisfies this framing.
-- **Campaigns will eventually also surface in "the music app"** — per
-  this file's own orientation box, that's Velune (the Android app,
-  `Zapier-codes/Velune`, campaign-relevant docs in that repo's
-  `HANDOVER_CAMPAIGN.md`). The product owner explicitly said this
-  integration will be addressed later ("we will update that too") —
-  not in scope for this task or Task 35, just noted here so a future
-  session doesn't assume it's already wired or forget it's coming.
 
 ---
 
@@ -16686,7 +15974,6 @@ The router uses a **capability registry** (JSON or DB) to determine which provid
    - Write integration tests for each provider (with test keys).
    - Set up environment variables on Render.
    - Deploy and monitor.
-
 
 
 ### User Experience Flow & Virtual Account Display Rules
