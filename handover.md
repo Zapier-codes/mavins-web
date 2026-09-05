@@ -148,6 +148,30 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-05, even later still than everything below) —
+> ii-b-iii: Option A (of the two options the "real spec discrepancy"
+> note below already named) scoped in full, documentation only, no
+> code — per explicit instruction not to add a fourth implementation
+> to an already-collided-on page.** Identifier format resolved with a
+> concrete reason, not just consistency: reuse the existing signed
+> token (`lib/listener/token.ts`) rather than a raw `deviceId` — a raw
+> ID "is not a credential" is the exact lesson `bpay-tag/route.ts` just
+> learned this same session, and this route would repeat it with a
+> third independent implementation otherwise. A real, checked-against-
+> the-actual-client tradeoff surfaced: `earn/page.tsx`'s `loadBalance()`
+> and `loadCampaigns()` currently fire in parallel — making the token
+> **required** here means restructuring that to sequential; **optional**
+> avoids the restructure but means a visible "shows everything, then
+> narrows" flash once the token resolves. Neither built, neither
+> chosen — both named precisely so whoever picks one doesn't have to
+> rediscover the tradeoff. The actual query change once a token exists
+> either way: exclude via `listener_play_events` before returning
+> `get_live_campaigns_for_banner()`'s rows, scoped to the querying
+> listener only. **Option B (a second endpoint) deliberately left
+> unscoped** — picking A vs. B is the real design decision, not this
+> note's to make. Full write-up in Task 66's own "ii-b-iii" section,
+> directly after the discrepancy note it resolves-in-part.
+>
 > **Newest note (2026-09-05, latest of all) — new standing instruction,
 > product owner: all sessions should clone `Zapier-codes/B-PAY`
 > (confirmed real via `git ls-remote`, correct casing all-caps `B-PAY`)
@@ -15809,6 +15833,70 @@ unilaterally while so much parallel work is already landing on this
 exact page. Flagging precisely so whoever does ii-b-ii (or a
 corrective ii-b-iii) has the actual spec text in front of them rather
 than re-deriving or re-missing it independently.
+
+**ii-b-iii — Option A scoped in full, documentation only, per explicit
+instruction not to build a fourth implementation this session.** Two
+real options were named above; this scopes the first of them (accept
+a listener identifier on the existing route) completely enough to
+build immediately, without guessing at the parts left open. Option B
+(a second, listener-scoped endpoint layered on top) is intentionally
+not scoped here at all — picking between A and B is exactly the
+"real design decision" the note above says isn't this note's place to
+make unilaterally, so this only prepares A to be buildable the moment
+someone decides it's the one to build, not a recommendation that it is.
+
+**Identifier format: the existing signed token, not a raw `deviceId`
+— for a concrete, already-learned reason, not just consistency for
+its own sake.** Task 67's own `bpay-tag` route was just fixed this
+same session for exactly this mistake: a raw device ID accepted from
+an untrusted browser context "is not a credential" (that fix's own
+wording) — anyone can send any ID. The stakes here are lower (spoofing
+another device's ID only skews which campaigns *appear* on a task
+board, it can't move money the way `bpay-tag` could), but the
+underlying flaw is identical, and this project already has a shared
+answer for it: `lib/listener/token.ts`, extracted in that very fix so
+`balance/route.ts` and the corrected `bpay-tag/route.ts` verify
+identically. `GET /api/listener/campaigns` should verify the same
+token the same way — a third, independent implementation of token
+verification would be a real regression from that just-established
+shared helper, not a neutral third option.
+
+**Required vs. optional — a real, consequential UX question, checked
+against the actual current client code rather than assumed either
+way.** Read `earn/page.tsx` directly: `loadBalance()` and
+`loadCampaigns()` currently fire **in parallel** in one `useEffect`,
+and `loadCampaigns()` makes a bare token-less `fetch`. Making the
+token **required** on `/api/listener/campaigns` means restructuring
+the client to obtain a token first, then fire both the balance and
+campaigns calls off that one token sequentially — a real change to
+this page's own load order, not just an added query param. Making it
+**optional** avoids that restructuring but means designing a
+two-phase load instead: task board renders the full unfiltered list
+immediately (parallel, as today), then silently re-fetches/re-filters
+once the token from `loadBalance()`'s own round-trip resolves — a
+"shows everything briefly, then narrows" flash a listener could
+actually notice, especially on a slow connection. **Neither is
+free — both are named here as a real tradeoff for whoever builds
+this, not resolved in this note.**
+
+**The actual query change, once a token/deviceId is available by
+either path above:** after verifying the token and resolving
+`deviceId`, add a `NOT EXISTS` (or equivalent) against
+`listener_play_events` filtered to `listener_id = deviceId` before
+returning `get_live_campaigns_for_banner()`'s own rows — matching this
+task's own Q2 text exactly ("once played, it disappears from that
+listener's own board"), scoped to the *querying* listener only, never
+excluding a campaign from anyone else's own list.
+
+**Explicitly not decided or built here:** whether A or B is the right
+overall shape (a real product/architecture call, not a technical
+one — B keeps the existing route's own "public, no listener identity"
+design promise fully intact and adds a second, separate concern
+instead of overloading one route with two trust levels; A is fewer
+moving parts but changes what `/api/listener/campaigns`'s own header
+comment currently promises about itself); the required-vs-optional
+token question above; no code touched, no route modified, per this
+session's own explicit documentation-only instruction.
 
 ---
 
