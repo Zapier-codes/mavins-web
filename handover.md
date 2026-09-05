@@ -146,7 +146,21 @@ looking like a part was skipped.
 > sound, discarded my own duplicate/superseded work entirely rather
 > than commit a conflicting second identity scheme.
 >
-> **Newest note (2026-09-04, latest of all) — correction to Task 65,
+> **Newest note (2026-09-05), same day — Task 69: Velune's campaign
+> banner not showing on Home, three real bugs found and fixed.**
+> Likely root cause: `SUPABASE_URL`/`ANON_KEY` defaulted to `""` when
+> unconfigured, silently disabling every campaign fetch in the whole
+> app (not just the banner) — a later commit "fixed" this with a
+> second, conflicting `buildConfigField()` call instead of fixing the
+> default; both resolved properly. Plus two real display bugs:
+> `CampaignCardSection` was accidentally nested inside an unrelated
+> settings toggle's `if` block (coupling banner visibility to whether
+> a user had category chips enabled), and the banner's own query was
+> missing several columns it tried to read — some never even existed
+> as flat columns on `track_campaigns` to begin with, fixed via a
+> proper join to `tracks`/`users`. Full write-up in Task 69 below.
+>
+> **Older note (2026-09-04, latest of all) — correction to Task 65,
 > already marked fully closed: two real display surfaces were still
 > missing.** A `git am` attempt for an independently-produced patch
 > covering this same part failed to apply (origin had already moved
@@ -163,7 +177,7 @@ looking like a part was skipped.
 > --noEmit` clean. See Task 65's own "Correction" entry for full
 > detail.
 >
-> **Newest note (2026-09-04, even later still) — addendum to the
+> **Older note (2026-09-04, even later still) — addendum to the
 > already-closed log-escape task: a 7th instance the closing sessions
 > missed, now fixed (Velune commit `de8afbb`).** While independently
 > re-confirming the task's closure, found one more instance of the
@@ -16753,3 +16767,123 @@ The router uses a **capability registry** (JSON or DB) to determine which provid
 ### Dependencies / Blockers
 
 - None – all decisions are resolved. Each provider integration is independent and can be built in parallel.
+
+---
+
+## Task 69 — Velune: campaign banner not showing on Home, three real bugs found and fixed [x]
+
+**Trigger:** the product owner reported the campaign card wasn't
+showing on Velune's Home screen, and asked for a review of that
+repo's own recent chain of rushed "Fix:"/"Debug:" commits (a series
+of increasingly frantic attempts to get the banner working — moving
+`CampaignCardSection`, patching imports, removing a genre filter from
+an unrelated queue-injection path). All three findings below came
+from reading the actual current Velune code end to end, cross-checked
+directly against this repo's own `supabase_schema.sql` where relevant
+— not guessed from the symptom or assumed from the commit messages'
+own descriptions of what they fixed.
+
+### Bug 1 (likely the true underlying root cause) — `app/build.gradle.kts`
+
+The established `local.properties → env → default` pattern for
+`SUPABASE_URL`/`SUPABASE_ANON_KEY` defaulted to an **empty string**
+whenever neither was set. `CampaignRepository.kt`'s own `config()`
+function returns `null` immediately if either is blank — and **every
+single campaign-fetching function in that file** (the Home banner,
+trending campaigns, queue-slot injection, play recording, all of it)
+starts with that same check. This means: any build from a fresh
+checkout, unless someone already knew about an undocumented
+`local.properties` setup step, silently had a **completely
+non-functional Supabase client** for anything campaign-related, with
+zero visible error anywhere — not a Home-banner-specific bug at all,
+but the single most likely explanation for the entire chain of
+"nothing works" commits that preceded this session's own fix.
+
+A later commit (`8f45760`, titled "Debug: Remove genre filter for
+queue injection and update build config") "fixed" this by hardcoding
+the real Supabase URL and anon key directly as a **second, duplicate**
+`buildConfigField()` call earlier in the same file. Confirmed via
+`grep` this created two competing declarations for the same two field
+names — a real risk of either a Gradle build error or silently
+undefined behavior over which one actually wins, not a safe fix even
+though it happened to unblock local testing for whoever wrote it.
+
+**Fixed properly:** removed the duplicate hardcoded declaration
+entirely, folded the real values in as this established pattern's own
+**default fallback** instead of `""`. `local.properties`/an env var
+still override for anyone building against a different Supabase
+project; a fresh checkout now works immediately, with no undocumented
+setup step — consistent with that same code block's own pre-existing
+comment establishing that this specific key is meant to be embedded
+in client builds by design (Supabase's own documented pattern for a
+mobile client; RLS is the real access control, not secrecy of the
+anon key).
+
+### Bug 2 — `HomeScreen.kt`
+
+`CampaignCardSection`'s `item{}` block was nested **inside**
+`if (showHomeCategoryChips) { ... }` — a leftover from an earlier
+commit's own "move this section after ChipsRow" edit, which moved the
+code one brace-level too deep in the process. This coupled the
+campaign banner's entire visibility to an unrelated user preference
+(`ShowHomeCategoryChipsKey`, defaults `true` but a real, user-facing
+settings toggle) — directly contradicting `CampaignCardSection`'s own
+doc comment, which states plainly that it should render based only on
+live campaign data. For any user with category chips turned off, the
+banner was unconditionally gone regardless of whether real live
+campaigns existed.
+
+**Fixed:** moved the block to be a sibling `item{}`, unconditional,
+positioned first in the `LazyColumn` — matching that same doc
+comment's own claim ("first thing on Home, above everything else
+including the category chips"), which the code no longer matched
+after the rushed edit.
+
+### Bug 3 — `CampaignRepository.kt`
+
+`fetchLiveCampaignsForBanner()`'s own `select=` list
+(`id,source_url,artist_id,total_streams,current_stage`) never
+included `resolved_song_id`, or any of the fields
+`parseLiveBannerRows` has always tried to read from each row
+(`track_title`, `artist_name`, `cover_url`). Worse, the latter three
+were never even valid flat columns on `track_campaigns` to begin
+with — confirmed directly against this repo's own
+`supabase_schema.sql`, not assumed: `track_title`/`cover_url` actually
+live on `public.tracks` (`title`, `cover_url`), and `artist_name`
+lives on `public.users` — both reachable from `track_campaigns` via
+real, unambiguous foreign keys (`track_id → tracks.id`,
+`artist_id → users.id`). PostgREST omits any column not named in
+`select=` entirely from the returned JSON (not present-but-null,
+genuinely absent) — every card that *did* manage to render would have
+shown "Untitled" by "Unknown Artist" with no cover image, regardless
+of the real track's actual data.
+
+**Fixed:** added `resolved_song_id`/`track_id` as the real flat
+columns they are, and pulled `title`/`cover_url`/`artist_name` in via
+PostgREST's own embedded-resource syntax
+(`tracks(title,cover_url),users(artist_name)`) off those two real
+FKs, rather than inventing flat column names that were never going to
+exist. Updated `parseLiveBannerRows` to read the resulting nested
+JSON objects (`row.optJSONObject("tracks")`/`"users"`) instead of the
+old, always-empty flat-field reads.
+
+### Verification
+
+Same standing limitation as every prior Velune change in this
+project: no Android SDK/Gradle in this sandbox, nothing here is
+compile-verified. What was checked instead:
+- Brace/paren balance on all three changed files
+  (`HomeScreen.kt` 81/81 `{}`, 213/213 `()`;
+  `CampaignRepository.kt` 98/98 `{}`, 368/368 `()`;
+  `app/build.gradle.kts` 61/61 `{}`, 230/230 `()`).
+- A Python simulation of the updated parser's own logic against four
+  realistic PostgREST response shapes (a full successful join, a null
+  `tracks` FK, a null `users` FK, and a row missing `id` entirely) —
+  all four degrade exactly as intended (graceful fallback text/empty
+  values, or a clean drop for the genuinely invalid row), none crash.
+- `grep` confirming exactly one `buildConfigField` declaration per
+  field name after the duplicate-removal fix, not two.
+
+Full write-up, same content, in Velune's own `HANDOVER_CAMPAIGN.md`
+§28 — that file has the shorter cross-reference version, this is the
+canonical one.
