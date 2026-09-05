@@ -148,6 +148,24 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-05, latest of all) — a real spec discrepancy
+> found in ii-b-i, not fixed by adding a fourth competing
+> implementation.** Started building the exact same sub-part
+> (ii-b/task-board wiring) independently, twice, before discovering
+> two other sessions had already converged on it too — `GET
+> /api/listener/campaigns` (ii-b-i) landed already. Checked its own
+> stated reasoning ("the one-time-play exclusion isn't part of this
+> task's spec") against this task's own already-resolved Q2 text
+> directly — the spec says the opposite: a listener who's already
+> played a campaign should stop seeing it on their board. Not silently
+> fixed with a third route — this needs a real design decision
+> (whether the currently-public, no-auth route should accept a
+> listener identifier, or a second endpoint layers on top), and three
+> sessions colliding on this exact narrow slice in one sitting is a
+> sign to document precisely and stop, not add a fourth. Full finding,
+> with the exact quoted spec text, appended directly after ii-b-i's
+> own write-up in Task 66's section.
+>
 > **Newest note (2026-09-05, even later still) — Task 66 Part a
 > sub-part ii-b split into ii-b-i/ii-b-ii; ii-b-i done.** New
 > `GET /api/listener/campaigns`, reusing Task 59's
@@ -16424,6 +16442,38 @@ balance check, not just visual inspection.
 Velune-side deep link, the `reward=true` intent flag itself, and the
 60-second progress-pill UI — all ii-b-ii's job, a separate repo
 (Velune) and a separate part, not touched here.
+
+**A real discrepancy found against this task's own already-resolved
+spec, flagged rather than silently fixed by yet another competing
+implementation — three separate sessions converged on this exact
+sub-part in close succession; adding a fourth right now would make
+the collision worse, not better.** ii-b-i's own header comment states
+"a genuinely narrower 'reward-eligible' concept (e.g. excluding a
+campaign a listener has already exhausted some daily reward cap on)
+isn't part of this task's own spec and isn't invented here." Checked
+this task's own already-resolved Q2 directly (this same file, this
+task's earlier text) before accepting that framing — it says the
+opposite, explicitly: **"any currently-live campaign is eligible
+platform-wide... what gates it for THIS listener specifically is a
+one-time-play rule... once played, it disappears from that listener's
+own board."** This isn't a "narrower concept not in scope" — it's a
+directly-specified requirement `GET /api/listener/campaigns` doesn't
+implement: every listener currently sees every live campaign,
+including ones they've already played and earned from.
+
+**Not fixed here, on purpose.** `GET /api/listener/campaigns` is
+deliberately public/no-auth (a reasoned, legitimate design choice —
+campaign metadata at the same trust level as the home banner).
+Implementing the one-time-play exclusion needs *some* listener
+identifier passed in, which means either accepting an optional
+device/token param on this same public route (changing its own
+stated "not tied to any specific listener's identity" design) or a
+second, listener-scoped endpoint layered on top — a real design
+decision, not a one-line fix, and not this note's place to make
+unilaterally while so much parallel work is already landing on this
+exact page. Flagging precisely so whoever does ii-b-ii (or a
+corrective ii-b-iii) has the actual spec text in front of them rather
+than re-deriving or re-missing it independently.
 
 ---
 
