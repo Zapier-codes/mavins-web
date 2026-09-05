@@ -148,7 +148,24 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-09-05, latest of all) — Task 67 Part f-ii-i's
+> **Newest note (2026-09-05, latest of all) — new standing instruction,
+> product owner: all sessions should clone `Zapier-codes/B-PAY`
+> (confirmed real via `git ls-remote`, correct casing all-caps `B-PAY`)
+> going forward.** This is the "Bpay app" — a React Native/Expo wallet
+> app, fork of `Edges-Enterprise/B-PAY` — the actual end-user product
+> `B-Pay-backend` is meant to become the sole payment/payout source of
+> truth for (Task 71, this file). Already has real work on it
+> independent of anything here (Task 70's six-part security-fix split,
+> in progress there). **This repo (`mavins-web`) has no formal
+> "Sibling repos" block the way `B-Pay-backend`'s own `handover.md`
+> does** — noting the instruction here at the top instead of inventing
+> a new structural section this file hasn't used before. See
+> `B-Pay-backend`'s own `handover.md` "Sibling repos" entry for the
+> fork→PR mechanics (push to `Zapier-codes/B-PAY`, PR to
+> `Edges-Enterprise/B-PAY`, not the reverse) and Task 43/44 for what's
+> already been found there.
+>
+> **Newest note (2026-09-05, previous) — Task 67 Part f-ii-i's
 > auth model corrected: a second real, verified bug, not just the
 > already-known one.** That route's own `auth.getUser()` bug (Velune
 > has no session — Task 60) was fixed, but the obvious "just accept a
