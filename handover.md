@@ -148,6 +148,29 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-06) — Task 72: the 7 pending listener-earnings/
+> bpay-tag migrations are now applied to the live DB; both existing Edge
+> Functions confirmed live; the third Edge Function
+> (`daily-growth-purchase`) was deliberately NOT deployed.** Full
+> write-up in Task 72 below — short version: `supabase functions list`
+> confirmed `initialize-payment`/`korapay-webhook` already live (no
+> redeploy needed), then `supabase_migration_028_ensure_device_listener.sql`
+> through `..._035_campaign_name_dashboard.sql` were copied into
+> `supabase/migrations/` as `20260831000029` through `20260831000035`
+> (same timestamped-copy pattern as every prior batch) and pushed —
+> confirmed via the product owner's own terminal log, "Finished
+> `supabase db push`," no errors. **`daily-growth-purchase` is excluded
+> on purpose, not an oversight**: it purchases quantity against
+> `freshconnectpanel.com`'s API (an SMM/reseller-panel shape — buying
+> views/streams/engagement, not real ad delivery), and this is the same
+> design Task 52's own note in this file already declined to build for
+> that reason. The function exists in the repo and was built anyway in
+> a later, undocumented commit, but nothing in the 7 migrations just
+> pushed defines the table/RPC it calls — it would be non-functional if
+> deployed as-is, independent of the policy question. Needs a product-
+> owner decision before any future session deploys or wires it up; not
+> a task to pick up and quietly finish.
+>
 > **Newest note (2026-09-05, even later still than everything below) —
 > ii-b-iii: Option A (of the two options the "real spec discrepancy"
 > note below already named) scoped in full, documentation only, no
@@ -16690,3 +16713,69 @@ compile-verified. What was checked instead:
 Full write-up, same content, in Velune's own `HANDOVER_CAMPAIGN.md`
 §28 — that file has the shorter cross-reference version, this is the
 canonical one.
+
+---
+
+## Task 72 — Deploy confirmation: 7 pending migrations applied, Edge Function status confirmed, `daily-growth-purchase` deliberately excluded [x]
+
+**Trigger:** end-of-session deploy pass, following a `git pull` that
+brought in 7 new root-level migration files
+(`supabase_migration_028_ensure_device_listener.sql` through
+`..._035_campaign_name_dashboard.sql`, for the listener-earnings/
+bpay-tag feature set — `earn/page.tsx`, `listener/balance`,
+`listener/bpay-tag`, `listener/campaigns`, `listener/token` routes)
+that had not yet been copied into `supabase/migrations/` or pushed.
+
+**Edge Functions — confirmed via `supabase functions list
+--project-ref atojskxrxfsbpeefigtm`, product owner's own terminal
+output:** `initialize-payment` and `korapay-webhook` both already
+live. No redeploy needed for either.
+
+**Migrations — applied this session, product owner's own terminal
+log, no errors:**
+```
+cd /root/mavins-web
+cp supabase_migration_028_ensure_device_listener.sql supabase/migrations/20260831000029_ensure_device_listener.sql
+cp supabase_migration_030_compute_daily_payout_pool.sql supabase/migrations/20260831000030_compute_daily_payout_pool.sql
+cp supabase_migration_031_credit_listener_earnings.sql supabase/migrations/20260831000031_credit_listener_earnings.sql
+cp supabase_migration_032_request_listener_withdrawal.sql supabase/migrations/20260831000032_request_listener_withdrawal.sql
+cp supabase_migration_033_campaign_name.sql supabase/migrations/20260831000033_campaign_name.sql
+cp supabase_migration_034_bpay_tag.sql supabase/migrations/20260831000034_bpay_tag.sql
+cp supabase_migration_035_campaign_name_dashboard.sql supabase/migrations/20260831000035_campaign_name_dashboard.sql
+supabase db push
+```
+Confirmed from the log: a preceding `supabase db push` (before these
+copies) reported "Remote database is up to date," establishing nothing
+else was already pending; the CLI's own interactive prompt listed all
+7 new migration files by name before applying; final output was
+"Finished `supabase db push`," no errors. **Not yet functionally
+verified beyond a clean apply** — same standing limitation as every
+prior migration in this file: a clean push confirms the schema change
+landed, not that the listener-earnings/bpay-tag features built against
+it behave correctly end to end. A follow-up session should exercise
+the actual `earn`/`balance`/`withdraw` flows against the live DB
+before calling this feature set done.
+
+**`daily-growth-purchase` — deliberately NOT deployed, not an
+oversight.** This third Edge Function
+(`supabase/functions/daily-growth-purchase/index.ts`) calls
+`freshconnectpanel.com`'s API with `action: "add"` against a
+`service`/`link`/`quantity` payload — the standard shape of an SMM
+(social-media-marketing) reseller-panel integration, i.e. purchasing
+views/streams/engagement rather than delivering real advertising. This
+is the same design Task 52's own note in this file already examined
+and explicitly declined to build, for the same reason (real-world
+fingerprint of bot/click-farm infrastructure, not legitimate ad
+delivery — see that task's own notice for the full reasoning). The
+function was nonetheless built in a later, undocumented commit chain
+(`2de423f` "Add daily-growth-purchase edge function" through
+`661091c` "Growth: fixed Edge Function, RPC, campaign live logic") and
+sits in the repo now with no corresponding task entry. Checked before
+excluding it: none of the 7 migrations just pushed (or any earlier
+migration in this repo) define the `growth_services` table or the
+`process_daily_growth_purchases`/`shuffle_daily_services` RPCs this
+function's own code calls — so it would fail at runtime even if
+deployed, independent of the policy question. **Not a task for a
+future session to quietly pick up and finish** — needs an explicit
+product-owner decision on whether this feature is wanted at all before
+any further work (deployment or otherwise) touches it.
