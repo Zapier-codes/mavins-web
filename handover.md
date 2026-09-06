@@ -148,6 +148,33 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-06, later than the Task 72 note directly below) —
+> B-PAY (the wallet app, `Zapier-codes/B-PAY`) got its own `handover.md`
+> this session — didn't have one before.** Not this repo's concern to
+> maintain in detail, but worth knowing it exists, since B-PAY shares
+> B-Pay-backend (this repo's own sibling) as its payment provider layer.
+> Short version, full detail lives in B-PAY's own file, not duplicated
+> here: (1) B-PAY had a duplicate direct Paystack/Payscribe integration
+> in its own Edge Functions, parallel to B-Pay-backend's — decided this
+> session, by the product owner, that B-Pay-backend becomes the sole
+> provider caller going forward, migration not yet built; (2) B-PAY's
+> `profiles.balance` is a bare mutable column with no ledger and an
+> empty migrations folder — flagged as needing a real ledger before any
+> payout/liquidity work sits on top of it, same class of issue this
+> repo's own wallet migrations (`credit_wallet_deposit`,
+> `debit_wallet_balance`) already had to fix twice; (3) new architecture
+> rules adopted for B-PAY: no screen may call a backend directly (all
+> calls go through one Edge-Functions service layer, not built yet),
+> and a geo-detected (ipapi.co, same service and pattern as this repo's
+> own `GeoProvider`/Task 27) default local currency with server-side
+> local-to-local FX conversion, so a sender's local currency reaches the
+> recipient in their own local currency directly. **None of this is
+> built yet — it's a plan, same as most of this file's own open tasks.**
+> If a future Mavins-web session touches B-Pay-backend in a way that
+> could affect B-PAY (routing rules, the `INTERNAL_API_KEY` secret, a
+> new provider route), check B-PAY's own `handover.md` first — it now
+> depends on this backend more directly than before.
+>
 > **Newest note (2026-09-06) — Task 72: the 7 pending listener-earnings/
 > bpay-tag migrations are now applied to the live DB; both existing Edge
 > Functions confirmed live; the third Edge Function
