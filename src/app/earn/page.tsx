@@ -49,6 +49,7 @@ interface BalanceResponse {
     qualifyingPlays: number;
   } | null;
   lifetimeEarningsCents: number;
+  bpayTag?: string | null;
   error?: string;
 }
 
@@ -80,6 +81,11 @@ function formatPoints(cents: number): string {
 
 export default function EarnPage() {
   const [loading, setLoading] = useState(true);
+  const [token, setToken] = useState<string | null>(null);
+  const [tag, setTag] = useState('');
+  const [tagLoading, setTagLoading] = useState(false);
+  const [tagError, setTagError] = useState<string | null>(null);
+  const [tagSuccess, setTagSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [balance, setBalance] = useState<BalanceResponse | null>(null);
   // Task 66 sub-part ii-b-i — independent of the balance load above:
@@ -120,6 +126,7 @@ export default function EarnPage() {
       if (!tokenRes.ok || !tokenJson.success) {
         throw new Error(tokenJson.error || 'Failed to authenticate this device');
       }
+      setToken(tokenJson.token);
 
       const balanceRes = await fetch(`/api/listener/balance?token=${encodeURIComponent(tokenJson.token)}`);
       const balanceJson: BalanceResponse = await balanceRes.json();
@@ -127,12 +134,39 @@ export default function EarnPage() {
         throw new Error(balanceJson.error || 'Failed to load balance');
       }
       setBalance(balanceJson);
+      if (balanceJson.bpayTag) setTag(balanceJson.bpayTag);
     } catch (err: any) {
       setError(err?.message || 'Something went wrong loading your balance');
     } finally {
       setLoading(false);
     }
   }, []);
+
+
+  const submitTag = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token) {
+      setTagError('You must be authenticated to save a tag.');
+      return;
+    }
+    setTagLoading(true);
+    setTagError(null);
+    setTagSuccess(null);
+    try {
+      const res = await fetch('/api/listener/bpay-tag', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, tag }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'Failed to save tag');
+      setTagSuccess(`B-Pay tag saved: @${json.tag}`);
+    } catch (err: any) {
+      setTagError(err?.message || 'Failed to save tag');
+    } finally {
+      setTagLoading(false);
+    }
+  };
 
   useEffect(() => {
     loadBalance();
@@ -203,6 +237,45 @@ export default function EarnPage() {
           )}
         </div>
 
+
+        {/* B-Pay tag form — Task 67 Part f-ii-iii: UI calling the now-corrected f-ii-i route */}
+        <div className="glass-card rounded-2xl p-6 mb-6">
+          <h2 className="text-sm font-semibold text-[var(--muted-foreground)] uppercase tracking-wide mb-4">
+            Payout details
+          </h2>
+          <form onSubmit={submitTag} className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="flex-1">
+              <label htmlFor="bpay-tag" className="text-xs text-[var(--subtle-foreground)] mb-1.5 block">
+                Your B-Pay tag
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] text-sm">@</span>
+                <input
+                  id="bpay-tag"
+                  type="text"
+                  value={tag}
+                  onChange={(e) => setTag(e.target.value)}
+                  placeholder="your_bpay_tag"
+                  disabled={loading || tagLoading}
+                  className="w-full pl-8 pr-3 py-2.5 rounded-lg bg-[var(--foreground)]/5 border border-[var(--foreground)]/10 text-sm placeholder:text-[var(--subtle-foreground)]/50 focus:outline-none focus:border-[var(--accent)]/40 focus:bg-[var(--foreground)]/10 transition-colors disabled:opacity-50"
+                />
+              </div>
+            </div>
+            <button
+              type="submit"
+              disabled={loading || tagLoading || !token}
+              className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-[var(--accent)] text-[var(--background)] text-sm font-medium hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed transition-all min-w-[120px]"
+            >
+              {tagLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save tag'}
+            </button>
+          </form>
+          {tagError && (
+            <p className="text-sm text-rose-400 mt-3">{tagError}</p>
+          )}
+          {tagSuccess && (
+            <p className="text-sm text-emerald-400 mt-3">{tagSuccess}</p>
+          )}
+        </div>
         {/* Task board — Task 66 sub-part ii-b-i: real campaign data.
             Each card is deliberately NOT a working link yet — sub-part
             ii-b-ii (the reward=true deep-link handoff to Velune) isn't

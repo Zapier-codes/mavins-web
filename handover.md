@@ -15933,7 +15933,7 @@ session's own explicit documentation-only instruction.
 |------|--------|-------------|
 | Part f-i | ✅ Done | `POST /api/listener/bpay-tag/route.ts` |
 | Part f-ii-i | ✅ Done, auth model corrected | Route existed but was unreachable by any real caller (`auth.getUser()` — Velune listeners have no session). Fixed to verify a signed listener token instead (`lib/listener/token.ts`, shared with `balance/route.ts`) — see Task 66 Part a-i's own "Discrepancy... resolved" note for the full write-up. |
-| Part f-ii-ii | ⬜ Not started | Unblocked (listen-and-earn UI lives on `mavins-web`) — needs an actual `/earn`-adjacent UI element calling the now-corrected f-ii-i route with a valid token. |
+| Part f-ii-ii | ✅ Done | Added the `/earn`-adjacent UI element (B-Pay tag form) calling the now-corrected f-ii-i route (`/api/listener/bpay-tag`) with a valid listener token. Also updated `GET /api/listener/balance` to return the saved `bpayTag` so the form pre-fills. |
 | Security Fixes | ✅ Done | Three issues, all fixed on `Zapier-codes/B-PAY` (the fork) — commit `712825f`. See below. |
 
 ### Security Findings — FIXED, this session, on the fork (`Zapier-codes/B-PAY`, not yet PR'd to upstream `Edges-Enterprise/B-PAY`)

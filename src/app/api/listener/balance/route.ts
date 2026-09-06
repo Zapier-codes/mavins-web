@@ -84,6 +84,13 @@ export async function GET(request: NextRequest) {
     const current = rows.find((r) => r.status === 'accumulating') ?? null;
     const lifetimeEarningsCents = rows.reduce((sum, r) => sum + (r.earnings_cents ?? 0), 0);
 
+    const { data: user } = await admin
+      .from('users')
+      .select('bpay_tag')
+      .eq('id', deviceId)
+      .single();
+
+
     return NextResponse.json({
       success: true,
       currentCycle: current
@@ -94,6 +101,7 @@ export async function GET(request: NextRequest) {
           }
         : null,
       lifetimeEarningsCents,
+      bpayTag: user?.bpay_tag ?? null,
     });
   } catch (err: any) {
     console.error('GET /api/listener/balance error:', err);
