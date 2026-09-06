@@ -16219,6 +16219,30 @@ assumption that turns out wrong. **Whoever picks this task up next
 should read B-Pay-backend's own Task 43 first** and get that question
 answered rather than proceeding on either task's own text alone.
 
+**Resolved, this session (2026-09-05) — confirmed directly: one fork,
+both purposes.** `Zapier-codes/B-PAY` (the fork itself) will both (1)
+have its own payment/payout calls consolidated to route through
+`B-Pay-backend`, per Task 43's own direction, and (2) get repointed
+onto Mavins-web's own Supabase project so Mavins can credit
+`bpay_tag` wallets directly for listener payouts, per this task's own
+direction. Not a guess — asked directly rather than picking (a) or
+(b) unilaterally, exactly as this section's own prior note said to.
+This resolution applies equally to B-Pay-backend's own Task 43, which
+flagged the identical ambiguity from its side; that file should be
+updated to match, not left showing this as still-open.
+
+**Part (a) is already done, not still pending as this section's own
+list below states.** `Zapier-codes/B-PAY` already exists — confirmed
+directly this session by cloning it (not assumed from the fork
+existing "in principle"): its `main` branch already carries the
+security-fix commit from Task 67's own earlier work (`712825f`), so
+the fork predates this specific session and the earlier "manual
+GitHub action, outside any sandbox's reach" framing for this part is
+stale. **Naming was NOT changed** — it's still called `B-PAY` on the
+fork, not renamed to anything disbursement-specific; that product
+decision (keep vs. rename) is still genuinely open if anyone wants to
+revisit it, just no longer blocking anything else in this task.
+
 **Context — why this exists, and what it replaces.** Task 49 Part
 b-ii-ii-b (listener payout disbursement) was flagged in this file as
 blocked: no schema/UI anywhere collects a listener's real-world payout
@@ -16326,14 +16350,15 @@ below is built.** Six sub-parts, in dependency order; build one at a
 time per this project's own mandatory task-splitting rule, not all at
 once:
 
-### a — Fork the repo (manual GitHub action, outside any sandbox's reach) [ ]
-`Edges-Enterprise/B-PAY` → a new repo under the `Zapier-codes` org.
-Naming not decided here — keep "B-PAY," or rename to reflect its new,
-narrower disbursement-only purpose (e.g. `mavins-disbursement`)? — a
-product decision, not an engineering one, needs the product owner's
-own call whenever this part is picked up. No Claude session can create
-a GitHub fork/repo directly; this part is a human action this
-handover can only point at, not execute.
+### a — Fork the repo [x] Already done — confirmed by cloning it directly, this session
+`Edges-Enterprise/B-PAY` → `Zapier-codes/B-PAY` — already exists,
+already carries the security-fix commit from Task 67's own earlier
+work (`712825f`). The "manual GitHub action, no sandbox can do this"
+framing below was accurate when written but is now stale for this
+specific part — the fork itself is done; what's left is everything
+after it (schema audit onward). Naming wasn't changed (still "B-PAY",
+not renamed to something disbursement-specific) — a still-open, but
+now non-blocking, product decision if anyone wants to revisit it.
 
 ### b — Schema audit: confirm the real current B-Pay schema before porting anything [ ]
 The original repo's own committed migration file
