@@ -39,6 +39,19 @@
  *    implementation, not two).
  *
  * Body: { token: string, tag: string }
+ *
+ * **Uniqueness — migration 038, this session (Task 49 Part b-ii-ii-b
+ * Part (b) prerequisite), per direct product-owner instruction: a
+ * bpay_tag already linked to one account can never be linked to
+ * another.** `idx_users_bpay_tag_unique` (a partial unique index on
+ * `users.bpay_tag WHERE bpay_tag IS NOT NULL`) is the actual source of
+ * truth for this rule — enforced at the database, not just here, so
+ * two concurrent requests racing to claim the same tag can't both
+ * succeed. This route catches that constraint's violation (Postgres
+ * error code 23505) and turns it into a specific, friendly 409,
+ * matching how Stripe/PayPal-style "this account is already linked
+ * elsewhere" rejections read to an end user, rather than surfacing a
+ * raw constraint-violation message or a generic 400.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -108,11 +121,29 @@ export async function POST(request: NextRequest) {
       .eq('id', deviceId);
 
     if (updateError) {
-      // Migration 034's own CHECK constraint is the one realistic way
-      // this can still fail after the validation above — e.g. a tag
-      // that was somehow still empty after normalization in a way this
-      // route's own check didn't anticipate. Surface it rather than a
-      // generic 500, since the constraint's own message is specific.
+      // Migration 038's unique index is the one realistic way this
+      // now fails for a *well-formed* tag: someone else already
+      // linked it. Postgres reports this as error code 23505 (unique
+      // violation) — checked explicitly so this specific, expected
+      // case gets a clear 409 + actionable message, rather than
+      // falling into the generic 400 branch below with a raw
+      // constraint-name string a listener would never understand.
+      if (updateError.code === '23505') {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'This B-Pay tag is already linked to another account. Each tag can only be linked to one account.',
+          },
+          { status: 409 }
+        );
+      }
+
+      // Migration 034's own CHECK constraint is the other realistic
+      // way this can still fail after the validation above — e.g. a
+      // tag that was somehow still empty after normalization in a way
+      // this route's own check didn't anticipate. Surface it rather
+      // than a generic 500, since the constraint's own message is
+      // specific.
       console.error('bpay-tag update error:', updateError);
       return NextResponse.json(
         { success: false, error: updateError.message || 'Failed to save tag' },

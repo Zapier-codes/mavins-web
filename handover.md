@@ -148,8 +148,55 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-09-07, latest of all) — real production bug
-> found and fixed: migrations 030/031 referenced a column
+> **Newest note (2026-09-07, latest of all) — Task 49 Part b-ii-ii-b
+> Part (b) built: the actual
+> disbursement RPC, `disburse_listener_withdrawal()` (migration 039).**
+> Given a `claimable` `listener_earnings` cycle, resolves the
+> listener's saved `bpay_tag` to a `bpay_profiles` row and calls
+> `credit_bpay_wallet()` (migration 036) to move the real balance, then
+> marks the cycle `claimed` — a local RPC-to-RPC call, no HTTP hop to
+> B-Pay-backend, per Task 70's own resolution that `bpay_profiles`
+> lives in this same Supabase project now. **Part (b)'s own open
+> question — what happens with no `bpay_tag` saved yet — resolved per
+> direct instruction to use the industry-standard default: reject with
+> a specific error code (`no_bpay_tag`), leave the cycle exactly as
+> `claimable`, don't revert or expire it** — same posture PayPal
+> Payouts (`UNCLAIMED` status, funds held not lost) and Stripe Connect
+> (payout blocked until an external account exists, balance not
+> reverted) both already use for an optional-at-request-time payout
+> destination. Same treatment for a saved tag that doesn't resolve to
+> any real `bpay_profiles` row (`bpay_tag_not_found`) — cycle stays
+> claimable so a corrected tag can be retried against it, not lost to a
+> fresh 50-day wait over a typo. **Also, per a second direct
+> instruction this session: a `bpay_tag` already linked to one listener
+> account can never be linked to another** — new migration 038 adds a
+> partial unique index on `users.bpay_tag`, reversing migration 034's
+> own original "not unique, no abuse vector" reasoning (fixed forward,
+> not by editing 034's history, same precedent migration 037 already
+> set for a column name). `bpay-tag/route.ts` updated to catch the
+> resulting Postgres `23505` unique-violation and return a specific 409
+> ("already linked to another account") instead of a generic 400.
+> Verified: `npx tsc --noEmit` clean; both new migrations paren/
+> dollar-quote balanced; a 7-case Python simulation of
+> `disburse_listener_withdrawal()`'s branching (happy path, cycle not
+> found, cycle still accumulating, double-claim/no double-credit, no
+> tag saved, tag doesn't resolve, retry-after-fixing-tag succeeds) all
+> passed. **Not verified — no live DB in this sandbox**, same standing
+> limitation as every migration in this file; in particular, migration
+> 038's own unique index will fail loudly at apply time if any
+> duplicate non-null `bpay_tag` values already exist live — that's the
+> correct failure mode (forces a real look before the constraint goes
+> live) but needs the person running `supabase db push` to actually
+> check the result, not assume a clean push. **Next: Part (c)** —
+> wiring (a) [withdrawal-request route] + (b) [this RPC] together;
+> genuinely undecided whether the withdrawal route should trigger (b)
+> synchronously or a separate cron/trigger should pick up `claimable`
+> rows, per this task's own split write-up. Full detail in Task 49's
+> own section, directly after Part (a)'s own close-out.
+>
+> **Older note (2026-09-07, previously "latest of all", now superseded
+> by the Part (b) note directly above) — real production bug found and
+> fixed: migrations 030/031 referenced a column
 > (`is_qualifying_play`) that never existed (migration 019 actually
 > named it `qualifies_for_payment`).** Both functions parsed and
 > pushed cleanly (Task 72) but would fail on every real invocation —
@@ -10801,6 +10848,118 @@ production-ready — not just schema-applied.
 **Next: Part (b)** — the actual disbursement RPC, once the open
 question above (what happens with no `bpay_tag` yet) is answered.
 
+#### Part (b) — done, this session (2026-09-07)
+
+New `disburse_listener_withdrawal(p_cycle_id UUID)`
+(`supabase_migration_039_disburse_listener_withdrawal.sql`). Given a
+`claimable` `listener_earnings` cycle: locks the row (`FOR UPDATE`,
+guards against a retry racing a future cron sweep once Part (c) picks
+one of those two designs), resolves the listener's `users.bpay_tag` to
+a `bpay_profiles` row, calls `credit_bpay_wallet()` (migration 036,
+`type: 'receive'`, `metadata` carrying `listener_id`/`cycle_id`/
+`cycle_number` for later reconciliation), then flips the cycle to
+`claimed` and sets `withdrawn_cents = earnings_cents`. Not GRANTed to
+`anon`/`authenticated` — unlike `request_listener_withdrawal`, this
+one moves real money and has no listener-facing caller; Part (c) wires
+a service-role caller to it.
+
+**Part (b)'s own open question, answered per direct instruction to use
+the industry-standard default rather than re-block on it:** what
+happens with no `bpay_tag` saved yet. **Reject with a specific error
+code (`no_bpay_tag`), leave the cycle exactly as `claimable`** — not
+reverted to `accumulating`, not force-expired. This mirrors how
+payout-holding platforms already handle an optional-at-request-time
+payout destination rather than inventing a new pattern for this app
+specifically: PayPal's Payouts API holds funds in an `UNCLAIMED` state
+when the recipient has no linked account, rather than failing/losing
+them; Stripe Connect simply blocks a payout until an external account
+exists, with the connected account's own balance untouched in the
+meantime. The listener already earned this money — a missing payout
+destination is a data-completeness problem for them to fix (add a tag,
+retry), not a reason to unwind an already-valid earnings claim. Same
+reasoning, same "leave it alone, return a specific code" treatment,
+applied to the second failure mode this part's own write-up didn't
+originally separate out but the code now does distinctly: a saved
+`bpay_tag` that doesn't resolve to any real `bpay_profiles` row
+(`bpay_tag_not_found` — a typo, or a tag for a B-Pay account the
+listener hasn't actually finished registering yet). Both leave the
+cycle retriable against the *same* claim window rather than losing it
+to a fresh 50-day wait over something the listener can just fix.
+
+**A second, separate instruction this session, not originally part of
+this part's own open-question list — enforced as a real DB constraint,
+not just documented as a policy:** a `bpay_tag` already linked to one
+listener account can never be linked to another. New
+`supabase_migration_038_bpay_tag_unique.sql` adds
+`idx_users_bpay_tag_unique`, a partial unique index on
+`users.bpay_tag WHERE bpay_tag IS NOT NULL` — **reversing migration
+034's own original decision** ("not unique... two different listener
+identities pointing at the same tag isn't an abuse vector worth
+blocking"), which this new instruction directly supersedes. Fixed
+forward, not by editing 034's own already-applied migration — same
+precedent migration 037 already set for a wrong column name, applied
+here to a wrong constraint decision instead. This is the same rule
+every payout-linking platform with an external-account model already
+enforces: Stripe Connect refuses to attach a bank account/card already
+attached to a different connected account; PayPal's linked-account
+flow rejects a bank account or card already linked to a different
+PayPal account — a payout destination is a scarce, exclusively-claimed
+resource per real recipient, not a many-to-one label. Migration 034's
+own now-redundant non-partial index (`idx_users_bpay_tag`) is dropped
+in the same migration rather than left duplicating the new one.
+`src/app/api/listener/bpay-tag/route.ts` updated to catch the
+resulting Postgres `23505` unique-violation and return a specific,
+friendly 409 ("This B-Pay tag is already linked to another account...")
+instead of falling into its existing generic-400 branch.
+
+**Verified:** `npx tsc --noEmit` clean across the whole project. Both
+new migrations checked for balanced parens (19/19 and 43/43) and
+dollar-quoting (0 and 2, i.e. one matched `$$...$$` function body, as
+expected). A throwaway Python script (deleted, not committed)
+simulated `disburse_listener_withdrawal()`'s full branching logic
+against 7 cases: happy path (correct credit amount, cycle flips to
+`claimed`); cycle not found; cycle still `accumulating` (rejected,
+distinct from claimable); a double-claim attempt against an
+already-`claimed` cycle (rejected, and critically, no second credit
+applied — the exact race the `FOR UPDATE` lock plus the status check
+together are meant to prevent); no `bpay_tag` saved (rejected, cycle
+left untouched); a saved tag with no matching `bpay_profiles` row
+(rejected, cycle left untouched); and a retry with a corrected tag
+succeeding against that same still-claimable cycle. All 7 passed.
+**Not verified — no live DB in this sandbox, same standing limitation
+as every migration in this file:** an actual `disburse_listener_withdrawal()`
+call against real data, and — worth flagging explicitly, not silently
+— migration 038's own unique index will fail loudly at apply time if
+any duplicate non-null `bpay_tag` values already exist on live data
+today (none known from this sandbox; Task 67 Part f-ii-ii, the only UI
+surface that writes this column, was only just wired up). That's the
+correct failure mode — it forces a real look at live rows before the
+constraint goes live rather than this migration silently pruning
+someone's tag out from under them — but whoever runs `supabase db
+push` needs to actually check the push result for this migration
+specifically, not assume a clean run the way Task 72's own already-
+found bug shows can't always be assumed.
+
+**Next: Part (c)** — wiring (a) [the withdrawal-request route] and (b)
+[this RPC] together. Still genuinely undecided, not defaulted here:
+whether `POST /api/listener/withdraw` should call
+`disburse_listener_withdrawal()` synchronously right after
+`request_listener_withdrawal()` succeeds (simplest, but ties the HTTP
+response to a wallet-credit RPC's own latency/failure modes — and
+would call it immediately even though the 5-business-day claim window
+is meant to give the listener time to add/fix a tag first, which
+argues against pure synchronous wiring specifically for the
+`no_bpay_tag`/`bpay_tag_not_found` cases just handled above) or a
+separate scheduled sweep picks up `claimable` rows on some cadence
+instead (matches the "give the listener the window" intent better, but
+is a new kind of scheduled component this codebase doesn't have yet
+outside Task 49's own still-unbuilt Part (e) timeout job — arguably the
+same job could sweep both `claimable→disburse-if-ready` and
+`claimable→expired-if-window-passed` together, worth deciding alongside
+Part (e) rather than as two separate scheduled jobs). Not picked
+here — a real design choice for whoever builds Part (c), same as this
+part's own original write-up already flagged.
+
 ---
 
 ## Task 51 — "Your Campaign Is Live" success page [x]
@@ -16476,7 +16635,18 @@ repos already use (Velune's `local.properties → env → default`
 fallback in `build.gradle.kts`; this repo's own `.env`, gitignored,
 never committed) instead of repeating it in the fork.
 
-### e — Wire Task 49 Part b-ii-ii-b's actual crediting call [ ]
+### e — Wire Task 49 Part b-ii-ii-b's actual crediting call [x] Built this session (2026-09-07), as Task 49's own "Part (b)" — see that task's own section for full detail, not duplicated here
+**The crediting RPC itself is done** — `disburse_listener_withdrawal()`
+(migration 039), calling `credit_bpay_wallet()` exactly per this
+bullet's own atomic-increment requirement, never a read-then-overwrite.
+**What's genuinely still open is Task 49 Part (c) — something actually
+calling this RPC** (the withdrawal route synchronously, or a scheduled
+sweep); this checkbox marks the crediting logic itself as done, not the
+end-to-end trigger path. Original text below preserved as historical
+context for the design reasoning it already worked out (the
+atomic-increment requirement, the two real client-side anti-patterns to
+avoid) — still accurate, just no longer describing unbuilt work.
+
 Now genuinely simple, once (a)–(d) land: Mavins-web's own backend
 (already has service-role access to this now-shared project) resolves
 a listener's stored `bpay_tag`, then performs an **atomic increment**
