@@ -33,6 +33,21 @@
  * session (Task 67's own bpay-tag route needed the identical logic —
  * see that shared file's own header comment for why duplicating it a
  * second time would have been the wrong fix).
+ *
+ * **Added for Task 49 Part (d):** a `withdrawal` field, found missing
+ * while building the `/earn` page's own Withdraw UI, not asked for by
+ * any prior part's own spec text. `currentCycle` above is filtered to
+ * `status = 'accumulating'` ONLY (migration 040 introduced 'pending'
+ * as a distinct status; this route was never updated after that) --
+ * so the instant Part (a)'s `/api/listener/withdraw` flips a cycle to
+ * 'pending', `currentCycle` goes back to `null` and the page has no
+ * way to show the resulting pending/claimable/claimed/expired state
+ * on a later page load, only from that one request's own one-time
+ * response. `currentCycle`'s own existing filter is left exactly as
+ * it was -- changing what it means would be a silent breaking change
+ * for any other caller relying on "accumulating, or null" -- and
+ * `withdrawal` is added alongside it as the most recent cycle NOT in
+ * that state, so the two fields together cover every possible status.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -71,7 +86,7 @@ export async function GET(request: NextRequest) {
     // the access-control boundary for this data, not RLS.
     const { data: cycles, error: cyclesError } = await admin
       .from('listener_earnings')
-      .select('earnings_cents, status, total_qualifying_plays, cycle_number')
+      .select('id, earnings_cents, status, total_qualifying_plays, cycle_number, requested_at, cycle_end_date')
       .eq('listener_id', deviceId)
       .order('cycle_number', { ascending: false });
 
@@ -82,6 +97,12 @@ export async function GET(request: NextRequest) {
 
     const rows = cycles ?? [];
     const current = rows.find((r) => r.status === 'accumulating') ?? null;
+    // Task 49 Part (d) addition -- see this file's own header comment
+    // for why this can't just reuse `current` above. `rows` is already
+    // ordered newest-cycle-first, so the first non-'accumulating' row
+    // is the most recently requested withdrawal, regardless of which
+    // of the four other statuses it's currently sitting in.
+    const withdrawal = rows.find((r) => r.status !== 'accumulating') ?? null;
     const lifetimeEarningsCents = rows.reduce((sum, r) => sum + (r.earnings_cents ?? 0), 0);
 
     const { data: user } = await admin
@@ -98,6 +119,18 @@ export async function GET(request: NextRequest) {
             earningsCents: current.earnings_cents,
             status: current.status,
             qualifyingPlays: current.total_qualifying_plays,
+          }
+        : null,
+      // Task 49 Part (d) addition -- see header comment. `status` here
+      // is always one of 'pending' | 'claimable' | 'claimed' | 'expired'
+      // (never 'accumulating', by construction above).
+      withdrawal: withdrawal
+        ? {
+            cycleId: withdrawal.id,
+            earningsCents: withdrawal.earnings_cents,
+            status: withdrawal.status,
+            requestedAt: withdrawal.requested_at,
+            cycleEndDate: withdrawal.cycle_end_date,
           }
         : null,
       lifetimeEarningsCents,

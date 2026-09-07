@@ -34,6 +34,28 @@
  * throughout and never prefixed with a currency symbol — the most
  * honest reading available without guessing which framing eventually
  * wins, not a resolution of that discrepancy itself.
+ *
+ * **Task 49 Part (d), added this session — the Withdraw action.**
+ * Calls the already-live `POST /api/listener/withdraw` (Part (a))
+ * once an 'accumulating' cycle exists, then re-fetches balance rather
+ * than hand-rolling the resulting status locally, so what's shown
+ * always matches the server's own truth (same reasoning `loadBalance`
+ * already uses for the token/balance pair above). Persisted status
+ * across reloads (pending/claimable/claimed/expired) relies on this
+ * same session's `withdrawal` addition to the balance route -- see
+ * that route's own header comment for why `currentCycle` alone can't
+ * carry this.
+ *
+ * The `no_bpay_tag` question Part (b)'s own migration (039) already
+ * resolved -- reject at disbursement time, cycle stays 'claimable'
+ * untouched -- is surfaced here exactly as that migration's write-up
+ * anticipated for this part: when a cycle is 'claimable' and no
+ * `bpayTag` is saved yet, this page highlights the existing B-Pay tag
+ * form (built under Task 67, one section below) instead of building a
+ * second, competing form -- the disbursement sweep (Part (c),
+ * already live) will pick the cycle up on its own next run once a tag
+ * exists; there is no separate manual "claim" action for a listener
+ * to press.
  */
 
 import { useEffect, useState, useCallback } from 'react';
@@ -48,9 +70,46 @@ interface BalanceResponse {
     status: string;
     qualifyingPlays: number;
   } | null;
+  // Task 49 Part (d) addition -- see balance route's own header
+  // comment for why this is separate from currentCycle above.
+  withdrawal?: {
+    cycleId: string;
+    earningsCents: number;
+    status: 'pending' | 'claimable' | 'claimed' | 'expired';
+    requestedAt: string | null;
+    cycleEndDate: string | null;
+  } | null;
   lifetimeEarningsCents: number;
   bpayTag?: string | null;
   error?: string;
+}
+
+// Task 49 Part (d) -- mirrors request_listener_withdrawal's own
+// hardcoded 1000-cent minimum (migration 040) so the button can be
+// disabled with an honest reason instead of round-tripping to the
+// server just to learn the same thing the RPC would say anyway.
+const MIN_WITHDRAWAL_CENTS = 1000;
+
+// Task 49 Part (d) -- one line of listener-facing copy per status,
+// matching request_listener_withdrawal's / promote_pending_
+// withdrawals_to_claimable's own comments (migration 040) for the
+// pending/claimable meaning, and disburse_listener_withdrawal's own
+// header note (migration 039) for why 'claimable' + no tag doesn't
+// get its own distinct status -- it's still 'claimable', just
+// unresolved, which the bpayTag-gated banner below handles instead.
+function withdrawalStatusCopy(status: string): string {
+  switch (status) {
+    case 'pending':
+      return 'Withdrawal requested — becomes claimable 50 days after your request.';
+    case 'claimable':
+      return 'Claimable — this will be sent to your B-Pay wallet automatically.';
+    case 'claimed':
+      return 'Paid out to your B-Pay wallet.';
+    case 'expired':
+      return 'This withdrawal window expired unclaimed.';
+    default:
+      return status;
+  }
 }
 
 interface ListenerCampaign {
@@ -142,6 +201,48 @@ export default function EarnPage() {
     }
   }, []);
 
+
+  // Task 49 Part (d) -- the Withdraw action itself.
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
+  const [withdrawSuccess, setWithdrawSuccess] = useState<string | null>(null);
+
+  const submitWithdraw = async () => {
+    if (!token) {
+      setWithdrawError('You must be authenticated to withdraw.');
+      return;
+    }
+    setWithdrawing(true);
+    setWithdrawError(null);
+    setWithdrawSuccess(null);
+    try {
+      const res = await fetch('/api/listener/withdraw', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        // A well-formed, expected business outcome (e.g. below the
+        // $10 minimum) arrives here too, same as a real failure --
+        // the route's own `error` string is already the right thing
+        // to show either way (see that route's own header comment).
+        throw new Error(json.error || 'Withdrawal request could not be processed');
+      }
+      setWithdrawSuccess(json.message || 'Withdrawal requested.');
+      // Re-fetch rather than deriving the new status locally, so what
+      // this page shows always matches the server's own truth (same
+      // reasoning loadBalance already uses for the token/balance
+      // pair) -- this is also what actually makes the resulting
+      // 'pending' status appear via the balance route's new
+      // `withdrawal` field.
+      await loadBalance();
+    } catch (err: any) {
+      setWithdrawError(err?.message || 'Withdrawal request could not be processed');
+    } finally {
+      setWithdrawing(false);
+    }
+  };
 
   const submitTag = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -235,8 +336,62 @@ export default function EarnPage() {
               </div>
             </div>
           )}
+
+          {/* Task 49 Part (d) -- Withdraw action. Only ever shown for
+              an 'accumulating' cycle, matching request_listener_
+              withdrawal's own gate (migration 040) exactly, so a
+              listener never sees an enabled button that the RPC would
+              just reject anyway for the wrong reason (no accumulating
+              cycle at all). */}
+          {!loading && !error && balance?.currentCycle && balance.currentCycle.status === 'accumulating' && (
+            <div className="mt-5 pt-5 border-t border-[var(--foreground)]/10">
+              <button
+                onClick={submitWithdraw}
+                disabled={withdrawing || balance.currentCycle.earningsCents < MIN_WITHDRAWAL_CENTS}
+                className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-[var(--accent)] text-[var(--background)] text-sm font-medium hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              >
+                {withdrawing ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Withdraw'}
+              </button>
+              {balance.currentCycle.earningsCents < MIN_WITHDRAWAL_CENTS && (
+                <p className="text-xs text-[var(--subtle-foreground)] mt-2 text-center">
+                  Minimum {formatPoints(MIN_WITHDRAWAL_CENTS)} points to withdraw this cycle.
+                </p>
+              )}
+              {withdrawError && (
+                <p className="text-sm text-rose-400 mt-2 text-center">{withdrawError}</p>
+              )}
+              {withdrawSuccess && (
+                <p className="text-sm text-emerald-400 mt-2 text-center">{withdrawSuccess}</p>
+              )}
+            </div>
+          )}
+
+          {/* Task 49 Part (d) -- persisted status for a withdrawal
+              already in flight (pending/claimable/claimed/expired),
+              on THIS and every later page load, not just right after
+              clicking the button above -- see balance route's own
+              header comment for why this needs its own field. */}
+          {!loading && !error && balance?.withdrawal && (
+            <div className="mt-5 pt-5 border-t border-[var(--foreground)]/10">
+              <p className="text-sm">{withdrawalStatusCopy(balance.withdrawal.status)}</p>
+            </div>
+          )}
         </div>
 
+        {/* Task 49 Part (d) -- disburse_listener_withdrawal (migration
+            039) already resolved what happens with no bpay_tag saved
+            when a 'claimable' cycle is swept: reject, leave the cycle
+            'claimable' untouched, retry next sweep. Surfacing that
+            here, tied to the existing form directly below, rather
+            than building a second form -- exactly what that
+            migration's own write-up anticipated for this part. */}
+        {!loading && !error && balance?.withdrawal?.status === 'claimable' && !balance?.bpayTag && (
+          <div className="rounded-2xl p-4 mb-4 border border-amber-400/30 bg-amber-400/5">
+            <p className="text-sm text-amber-200">
+              Your withdrawal is claimable, but you don&apos;t have a B-Pay tag saved yet — add one below so it can be sent to your wallet.
+            </p>
+          </div>
+        )}
 
         {/* B-Pay tag form — Task 67 Part f-ii-iii: UI calling the now-corrected f-ii-i route */}
         <div className="glass-card rounded-2xl p-6 mb-6">
