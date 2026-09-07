@@ -148,6 +148,27 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
+> **Newest note (2026-09-06, latest of all) — Task 70 Parts (b) and
+> (c) resolved: `bpay_profiles`/`bpay_wallet_ledger` built (migration
+> 036).** Cloned B-PAY's own new `handover.md` (its own Task 2) fresh
+> this session — the old B-PAY Supabase project is being discarded
+> entirely, clean launch, confirmed by direct product-owner
+> instruction on that side. This makes Part (b)'s original "get live
+> dashboard access, export the real schema" ask moot rather than
+> answered — there's no old data left to reconcile against. Built the
+> new tables directly instead: `bpay_profiles` (minimal, only columns
+> confirmed against B-PAY's real code) + `bpay_wallet_ledger`
+> (single-entry append-only, matching this codebase's own established
+> ledger precedent) + `credit_bpay_wallet()`/`debit_bpay_wallet()`
+> (atomic, `service_role`-only, closing the exact read-then-write race
+> already flagged elsewhere in this task). Verified via statement
+> count (22, exact), paren/dollar-quote balance, and a 5-case Python
+> simulation including an explicit ledger-sum-equals-balance invariant
+> check — all correct. Not verified: no live DB in this sandbox. Full
+> write-up in Task 70's own Parts (b) and (c). **Part (d) — actually
+> reconfiguring the fork's Supabase config — is next, genuinely
+> requires live infrastructure access no sandbox has.**
+>
 > **Newest note (2026-09-06, later than the Task 72 note directly below) —
 > B-PAY (the wallet app, `Zapier-codes/B-PAY`) got its own `handover.md`
 > this session — didn't have one before.** Not this repo's concern to
@@ -16387,43 +16408,93 @@ after it (schema audit onward). Naming wasn't changed (still "B-PAY",
 not renamed to something disbursement-specific) — a still-open, but
 now non-blocking, product decision if anyone wants to revisit it.
 
-### b — Schema audit: confirm the real current B-Pay schema before porting anything [ ]
+### b — Schema audit: confirm the real current B-Pay schema before porting anything [x] MOOT — resolved by product-owner decision, not a live schema export
+
 The original repo's own committed migration file
 (`supabase/migrations/20250614120836_remote_schema.sql`) is **empty**
 — that project's real schema was managed via Supabase's dashboard, not
-tracked in version control. Everything in this task's own "Context"
-section above about `profiles`'s real columns was inferred purely from
-scattered TypeScript usage across the app (`WalletCard`,
-`resolve_tag`, the Lizzysub webhook) — a reasonable starting sketch,
-confirmed self-consistent across every file it appears in, but **not**
-a substitute for the real thing. Whoever has actual dashboard access
-to the original B-Pay Supabase project should export the real schema
-first (Supabase's own Table Editor/Database page, or `pg_dump
---schema-only` given a direct connection string) — in particular,
-resolving the one real ambiguity this session flagged and could not
-settle from code alone: is `profiles.balance` or the separate
-`wallet.balance` (keyed by `user_email`) the actual authoritative
-balance column? (This session's own reading points to `profiles`,
-since that's what the real UI component renders from — but a live
-schema export settles it for certain instead of leaving it inferred.)
+tracked in version control, so a live export was genuinely needed to
+resolve this part as originally scoped.
 
-### c — Namespace the ported tables before creating them [ ]
+**Resolved a different way instead, per B-PAY's own `handover.md`
+(its own Task 2, confirmed by direct product-owner instruction on that
+side): the old B-PAY Supabase project is being discarded entirely —
+clean launch, nothing carried over.** This makes the live-export
+question moot rather than answered: there's no old `profiles.balance`
+vs. `wallet.balance` ambiguity left to resolve, because nothing is
+being migrated from that project at all. `bpay_profiles`'s real
+minimal shape was instead confirmed directly against B-PAY's own live
+*code* (not its old database) — `resolve_tag/index.ts`,
+`stores/auth-store.ts` — the same inference this section originally
+flagged as "a reasonable starting sketch... not a substitute for the
+real thing," except now that sketch IS the real starting point, since
+there's no old schema left to compare it against. Built as migration
+036 — see Part (c) below.
+
+### c — Namespace the ported tables before creating them [x] Built this session (migration 036)
+
 Confirmed via `supabase_schema.sql`: Mavins-web has no table literally
 named `profiles` today, so no direct collision — but it does already
 have its own, semantically **different** `wallet_ledger` (an artist's
-campaign-spending wallet) and `users` tables. Recommend porting the
-B-Pay tables under a distinct prefix (`bpay_profiles`, `bpay_wallet`,
-`bpay_transactions`, matching whatever (b)'s real audit finds) rather
-than the bare original names — so nothing in this codebase ever
-confuses "a listener's B-Pay disbursement wallet" with "an artist's
-Mavins-web campaign wallet," two genuinely unrelated concepts that
-happen to share the word "wallet." Author as a new Mavins-web
-migration continuing this repo's own numbering (next free number:
-**033**, following migration 032) even though the forked app's own
-code is what actually reads/writes these tables — same precedent
-already established for `track_campaigns`/`listener_play_events`,
-whose migrations live in this repo despite Velune (a different app
-entirely) being their real reader/writer.
+campaign-spending wallet) and `users` tables. Ported the B-Pay tables
+under a distinct prefix — `bpay_profiles`, `bpay_wallet_ledger` — so
+nothing in this codebase ever confuses "a listener's B-Pay
+disbursement wallet" with "an artist's Mavins-web campaign wallet,"
+two genuinely unrelated concepts that happen to share the word
+"wallet."
+
+**Directly unblocked, this session, by B-PAY's own new `handover.md`**
+(cloned and read fresh, not assumed) — its own Task 2 already resolved
+what this part's own text left as "matching whatever (b)'s real audit
+finds": the old B-PAY Supabase project is being discarded entirely,
+clean launch, confirmed by direct product-owner instruction on that
+side — no live schema dump or backfill needed, and `profiles`'s real
+minimal shape (`bpay_tag`, `full_name`, `payscribe_account_number`,
+`balance`) was already confirmed there by reading B-PAY's actual code
+(`resolve_tag/index.ts`, `stores/auth-store.ts`), not guessed.
+
+`bpay_wallet_ledger` design, this session: single-entry, append-only
+(one signed `amount_cents` column, not paired debit/credit columns) —
+matches this same codebase's own established precedent
+(`listener_earnings`/`daily_payout_pool`, and Mavins' own pre-existing
+`wallet_ledger`) rather than introducing double-entry accounting for
+one app in the same product family; a defensible alternative, not
+clearly needed yet, revisit if B-PAY's own Task 1 consolidation
+surfaces a concrete reason to. Transaction `type` values inferred from
+B-PAY's own real feature directories (`app/(app)/`: `airtime`, `ajo`,
+`bills`, `bundles`, `card`, `fund`, `send` — checked directly, not the
+generic Expo-starter README that repo also happens to ship), not
+guessed complete — extend as more real types surface.
+
+`bpay_profiles.balance_cents` stays a real, stored column (fast
+reads, no `SUM()` over the whole ledger on every check) but per this
+task's own "atomic increment, not read-then-write" requirement, the
+only way it can change after this migration is through
+`credit_bpay_wallet()`/`debit_bpay_wallet()`, which write a matching
+ledger row in the same transaction — closing the exact race condition
+already flagged in B-PAY's own client-side balance-sync code
+elsewhere in this task. `debit_bpay_wallet()` raises on insufficient
+balance rather than allowing overdraft; whether any B-PAY feature
+should ever be allowed to overdraft is a product decision for
+whoever builds those flows, not decided here.
+
+`service_role`-only on both tables and both functions, matching every
+other money-adjacent object in this codebase.
+
+**Verified:** dollar-quote-aware statement count (22, exactly as
+intended — 2 tables, 2 indexes, 8 REVOKE/GRANTs on the tables, 2
+functions, 8 REVOKE/GRANTs on the functions). Paren balance 0,
+dollar-quote count 4 (2 functions, paired). Simulated the atomic
+credit/debit logic (throwaway Python script, written/run/deleted,
+real asserts): 5 cases — a deposit, a peer-to-peer send+receive pair,
+an overdraft attempt correctly raising rather than silently
+succeeding, an explicit invariant check that `SUM(ledger.amount_cents)`
+for a profile exactly equals that profile's stored balance, and
+zero/negative amounts correctly rejected. All 5 passed. **Not
+verified — no live DB in this sandbox:** an actual migration run
+against the real (still separate, not yet repointed per Part (d))
+B-PAY Supabase project, or the real forked app's own code actually
+calling these new RPCs instead of its current direct column writes.
 
 ### d — Reconfigure the fork's Supabase config, and fix the committed-secret practice while at it [ ]
 Point the forked app at Mavins-web's own project
