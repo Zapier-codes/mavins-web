@@ -2257,32 +2257,6 @@ file's size manageable.**
 
 ---
 
-## Task 0 — URGENT: main branch currently fails `npx tsc --noEmit` [x]
-
-**Done in commit `3b24fe7`.** All 7 errors fixed: removed the
-duplicate `platformFeePercent` field in `pricing.ts` and added a
-`PricingResult` type alias; added the missing `getArtistDashboard`
-export to `campaign.service.ts` (backed by the `get_artist_dashboard`
-RPC, with a safe empty fallback); fixed both payment routes to import
-`createAdminClient` from `@/lib/supabase/admin` instead of the
-nonexistent `serviceClient` module; replaced the nonexistent
-`createUserFromPayment` call in the verify route with the current
-`resolveOrCreateGuestAccount` + `creditWalletTopUp` pair from
-`guestCheckout.ts`. `npx tsc --noEmit` is clean.
-
-**Left for a future session, discovered while fixing this:**
-`creditWalletTopUp()` checks `wallet_ledger.amount_cents` /
-`.description` for idempotency, but the inline wallet-crediting code
-in both `verify/[reference]/route.ts` and `webhook/route.ts` writes
-to `wallet_ledger` using a single `changeset` JSONB column instead.
-Two different `wallet_ledger` row shapes are in use across the
-codebase — worth reconciling before it causes a silent double-credit
-or a runtime column-not-found error, but not fixed here since it's
-outside a type-error-only task and the wrong guess could break
-working behavior.
-
----
-
 ## Task 1 — Leaderboard shows real seeded users [x]
 
 **Ask:** Use names from the `users` table (already populated with
@@ -2427,22 +2401,6 @@ handled). Verified via `npx tsc --noEmit` — clean. `npm run build`
 still fails in this sandbox on a pre-existing, unrelated issue (no
 network access to Google Fonts for `next/font` — not caused by this
 change).
-
----
-
-## Task 9 — Time icon → world map icon [x]
-
-**Done in commit `9e1a0bc`.** The premise in this task's original note
-turned out to be slightly off once actually checked: `Clock` (and
-`Timer`/`Hourglass`/`AlarmClock`/`Watch`) were **already completely
-absent** from `promote/page.tsx` — not present-but-wrong, just gone,
-presumably removed in an earlier commit without a replacement. So
-"Campaign Duration" was rendering with no icon at all. Added
-`lucide-react`'s `Map` icon (the literal folded-map glyph — closer to
-"world map" than `Globe`/`Globe2`, which are already used elsewhere
-on this page for actual geo-targeting content and would've been a
-confusing reuse right next to the real geography section) directly
-next to the label. Verified via `npx tsc --noEmit` — clean.
 
 ---
 
@@ -10707,76 +10665,6 @@ sub-part.
 
 ---
 
-## Task 50 — "Campaign already running" modal: platform theming [x]
-
-**Done, commit `4d50161`.** The task's own opening paragraph implied
-a modal already existed and just needed re-theming; the "Current
-location" section right below it was more accurate — there was no
-modal at all, just `promote/page.tsx`'s generic
-`alert(result.error)` catching this failure like any other. Built a
-real themed modal instead. `api/campaigns/create/route.ts`'s existing-
-campaign check now returns the existing campaign's `current_stage`/
-remaining budget alongside the error (same query, no new round-trip),
-threaded through `campaign.service.ts`'s `CampaignResult` type to the
-new modal. All three spec'd CTAs built, including "Cancel Existing &
-Start New" — confirmed via `cancel/route.ts`'s own ownership check
-before building it that a non-admin artist genuinely can cancel their
-own campaign, not assumed.
-
-**One correction to this task's own spec, checked before building
-rather than copied blindly:** it cited `TypeToConfirm.tsx` as the
-backdrop precedent to match ("standard across the app's other
-modals"). Read that file directly first — its own header comment says
-the opposite: "Deliberately NOT a modal/portal." Searched the rest of
-the app for an actual `fixed inset-0` modal-with-backdrop precedent;
-found none already established. This is the first one, built fresh
-against `globals.css`'s own CSS variables rather than against a
-citation that turned out not to describe what it claimed to.
-
-Verified: `npx tsc --noEmit` clean. A throwaway Node script (deleted
-after use) confirmed the `existingCampaign` payload shape end-to-end,
-including the spent-exceeds-budget edge case clamping to zero rather
-than going negative. **Not verified — no way to check from this
-sandbox:** an actual live duplicate-campaign attempt against a real
-Supabase instance.
-
-**New task, this session.** The promote page shows a modal/dialog when
-a user tries to create a campaign for a link that already has an active
-campaign. Currently this modal does **not** follow the platform's glassmorphism
-dark-theme design system (see `globals.css` CSS variables: `--background`,
-`--glass-border`, `--accent`, `--muted-foreground`, etc.).
-
-**What needs theming:**
-- Modal backdrop: should use `bg-black/60 backdrop-blur-sm` (standard across
-  the app's other modals, e.g. `TypeToConfirm.tsx`)
-- Modal card: should use `glass-card` class (rounded-2xl, border, bg with
-  transparency — matches every other card surface in the app)
-- Text colors: should use `text-[var(--foreground)]` for headings,
-  `text-[var(--muted-foreground)]` for body, `text-[var(--subtle-foreground)]`
-  for secondary — NOT hardcoded `text-gray-900` or `text-black`
-- Accent buttons: primary CTA should use `bg-[#1db954] text-black` (the app's
-  established Spotify-green accent), secondary/dismiss should use the
-  ghost/outline style (`chip-card` or `border-white/10`)
-- Icons: any icon inside the modal should use the app's `lucide-react` icon
-  set, colored with the same CSS variable system
-
-**Current location:** The error is thrown from `api/campaigns/create/route.ts`
-as a JSON response `{ success: false, error: 'You already have...' }`. The
-frontend (`promote/page.tsx`'s `handleSubmit`) renders this via a generic
-error state — it needs to be promoted to a **proper themed modal** with:
-- Clear title: "Campaign Already Active"
-- Body: explain the link already has a live campaign, show the existing
-  campaign's stage/remaining budget if available
-- Primary CTA: "View My Campaigns" (routes to `/analytics`)
-- Secondary CTA: "Dismiss"
-- Optional: "Cancel Existing & Start New" (if cancellation is allowed)
-
-**Do NOT use:** any hardcoded light-mode colors (`bg-white`, `text-gray-900`,
-`shadow-xl` without dark-aware variants). The app is dark-mode-first; every
-surface must read correctly against the dark background.
-
----
-
 ## Task 51 — "Your Campaign Is Live" success page [x]
 
 **Ask:** After a user successfully places a campaign (whether
@@ -11330,66 +11218,6 @@ modal** — metrics purchase is automatic and mandatory. The 50/50 split
 happens transparently.
 
 ---
-
-## Task 53 — Assets folder: replace dummy data, move to correct locations [x]
-
-**New task, this session.** An `assets/` folder has been added to the
-repo containing draft images/content. These are **not real people** —
-they are placeholder assets pending the final creative solution. The
-task is to integrate them into the app properly.
-
-### What to do
-
-1. **Inventory the assets folder:**
-   ```bash
-   ls -la assets/
-   # Document what exists: images, icons, banners, avatars, etc.
-   ```
-
-2. **Move assets to correct locations:**
-   - Profile/avatar images → `public/avatars/` or `public/images/avatars/`
-   - Campaign banners/thumbnails → `public/images/campaigns/`
-   - Genre icons → `public/images/genres/`
-   - Country flags (if custom) → `public/images/flags/` (or keep using
-     emoji flags if the assets are image-based)
-   - General UI graphics → `public/images/ui/`
-   - Logo/branding → `public/images/brand/`
-
-3. **Replace horizontal scrolling dummy data:**
-   - Find all places in the app that render placeholder/horizontal-scroll
-     content (e.g. `PublicAnalyticsShowcase`, leaderboard dummy rows,
-     genre carousels with mock data)
-   - Replace the dummy images/names with the real assets from the folder
-   - Ensure each asset displays its correct name/label (read from a
-     manifest or filename mapping)
-
-4. **Update references:**
-   - Any component importing from a hardcoded dummy array should now
-     import from the assets folder or a generated manifest
-   - Image paths should use Next.js `<Image>` component with proper
-     `width`/`height`/`alt` for accessibility
-
-5. **Create an assets manifest** (optional but recommended):
-   ```typescript
-   // src/lib/assets/manifest.ts
-   export const AVATARS = [
-     { id: 'avatar-1', src: '/images/avatars/avatar-1.jpg', name: 'Artist Name' },
-     // ...
-   ];
-   export const GENRE_ICONS = [
-     { id: 'afrobeats', src: '/images/genres/afrobeats.png', name: 'Afrobeats' },
-     // ...
-   ];
-   ```
-
-**Important:** Since these are draft assets, the implementation should
-make it easy to swap them out later. Use a manifest/mapping file rather
-than hardcoding paths in components. When the real creative assets
-arrive, only the manifest and the files in `public/` need to change —
-no component code.
-
----
-
 
 ## Task 54 — Three confirmed live bugs (wallet display, campaign-count fallback, leaderboard) + audit of an unreviewed direct commit [x]
 
