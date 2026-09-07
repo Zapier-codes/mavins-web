@@ -148,7 +148,27 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-09-07, latest of all) — Task 49 Part (c) split
+> **Newest note (2026-09-07, latest of all) — Task 49 Part (c-c) built:
+> a manual admin-triggerable route wrapping (c-a)'s sweep RPC.** New
+> `POST /api/admin/listener-earnings/sweep-disbursements`, gated by
+> `requireAdmin()` and a brand-new, dedicated `ADMIN_CAPABILITIES` key
+> (`LISTENER_EARNINGS_SWEEP_DISBURSEMENTS`) rather than an existing
+> `:edit`/`:view` key — deliberately not `:view`-suffixed so a
+> `'monitor'`-tier admin can't trigger real disbursements just because
+> the naming convention would otherwise let a `:view` key through.
+> Verified: `npx tsc --noEmit` clean; a 4-case mock test of the route's
+> own RPC-response unwrap logic and a 7-case test of `hasCapability()`
+> against every `admin_role` tier (root/full/NULL-fallback/monitor/
+> custom-with/custom-without/no-user) both passed in full, in
+> particular confirming the monitor-tier exclusion actually holds. Not
+> verified against a live DB/Supabase Auth session — same standing
+> sandbox limitation as every part of this task. Full write-up directly
+> after (c-a)'s own close-out in Task 49's section. **Next: (c-b)**
+> (real `pg_cron`/scheduled-function wiring) — needs a live project,
+> not buildable from this sandbox; (c-d)/(c-e) still not started.
+>
+> **Older note (2026-09-07, previously "latest of all", now superseded
+> by the note directly above) — Task 49 Part (c) split
 > into (c-a)-(c-e) per the mandatory task-splitting rule; (c-a) built
 > this session (new migration 041).** Part (c)'s own original framing
 > asked a genuine open question: should `POST /api/listener/withdraw`
@@ -11148,12 +11168,64 @@ about here but not exercised against a live instance — worth a deliberate
 concurrent-sweep test before this runs unattended in production, not
 just a clean `supabase db push`.
 
-**Next: (c-b) or (c-c)**, not strictly ordered — (c-c) reads as the
-more immediately useful next part (it makes (c-a) actually callable by
-a person, today, before any real cron exists), but (c-b) is equally
-valid to pick up first; neither is blocked on the other. (c-d) and
-(c-e) stay explicitly not-started, per this task's own splitting rule —
-not silently folded into whichever of (c-b)/(c-c) gets picked up next.
+**Next (at the time): (c-b) or (c-c)**, not strictly ordered — (c-c)
+picked, per direct instruction, since it makes (c-a) actually callable
+by a person today, before any real cron exists.
+
+#### Part (c-c) — done, this session (2026-09-07)
+
+New `POST /api/admin/listener-earnings/sweep-disbursements`
+(`src/app/api/admin/listener-earnings/sweep-disbursements/route.ts`).
+Wraps (c-a)'s `sweep_claimable_withdrawals_for_disbursement()` via the
+service-role admin client, gated by `requireAdmin()` (Task 46a) — the
+shared helper every admin route since that task has used, not a fresh
+inline check. No request body; same no-argument shape as the other
+existing no-arg admin-triggered RPC in this codebase (`POST
+/api/seed-engine/seed-campaigns`), which predates 46a and was
+deliberately left on its own inline check per that route's own
+comment — this new route goes through the shared helper instead, same
+as every admin route built since.
+
+**New dedicated `ADMIN_CAPABILITIES` key,
+`LISTENER_EARNINGS_SWEEP_DISBURSEMENTS`
+(`listener_earnings:sweep_disbursements`)** — not folded under an
+existing `:edit`/`:view` key, matching this taxonomy's own established
+"one key per distinct mutation surface" reasoning (`isAdmin.ts`'s own
+comment, already applied to the five reference-data tables).
+Deliberately **not** `:view`-suffixed even though the route mostly just
+returns counts — `hasCapability()`'s own `'monitor'` rule is "any
+`:view`-suffixed key is allowed," and this route triggers real money
+movement (each `claimable` cycle found gets disbursed via
+`disburse_listener_withdrawal()` → `credit_bpay_wallet()`), so a
+read-only-tier admin must not pass this gate just because of a naming
+coincidence. Response shape mirrors the RPC's own `RETURNS TABLE`
+columns directly (`cyclesExamined`, `cyclesDisbursed`,
+`cyclesSkippedNoTag`, `cyclesSkippedTagNotFound`, `cyclesSkippedOther`)
+rather than inventing a second summary shape for the same data.
+
+**Verified:** `npx tsc --noEmit` clean across the whole project. Two
+standalone Node scripts (deleted after use, not committed): one
+exercising the route's own unwrap/response-shaping logic against 4
+mocked `admin.rpc()` return shapes (array-wrapped TABLE row, an
+all-zero empty-sweep row, a defensive non-array single-object shape,
+and null/undefined data defaulting every field to 0) — all 4 passed;
+one exercising `hasCapability()`'s own rule against the new key across
+every `admin_role` tier (root, `'full'`, `NULL`-fallback, `'monitor'`
+— confirmed rejected, `'custom'` without the key — rejected,
+`'custom'` with the key — allowed, no user at all — rejected) — all 7
+passed, in particular confirming the monitor-tier exclusion actually
+holds and isn't just asserted in a comment. **Not verified — no live
+DB/Supabase Auth session in this sandbox, same standing limitation as
+every part of this task:** an actual authenticated admin request
+against a live project, and the real `requireAdmin()`/RLS-backed
+`users` row lookup it depends on, still need to be exercised for real
+before this is production-ready.
+
+**Next: (c-b)** (real `pg_cron`/scheduled-function wiring) — needs a
+live project to configure, not buildable from this sandbox. (c-d)
+(observability/audit logging) and (c-e) (reconciling with Part (e)'s
+own claim-window-expiry job) stay explicitly not-started, per this
+task's own splitting rule.
 
 #### Prerequisite bug fix, found while scoping Part (c), this session (2026-09-07) — the NET-50 wait was never actually implemented
 

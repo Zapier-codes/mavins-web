@@ -116,6 +116,16 @@ export const ADMIN_CAPABILITIES = {
   USERS_MANAGE_ROLE: 'users:manage_role', // PATCH /api/admin/users/[id], action=set_role — root-only regardless (isRootAdmin() gate), kept as a key for completeness/consistency
   GENRE_TILE_MAPPING_VIEW: 'genre_tile_mapping:view', // GET /api/admin/genre-tile-mapping
   GENRE_TILE_MAPPING_EDIT: 'genre_tile_mapping:edit', // PATCH /api/admin/genre-tile-mapping
+  // Task 49 Part (c-c): triggers sweep_claimable_withdrawals_for_disbursement()
+  // (migration 041) on demand, ahead of (c-b)'s real cron. Moves real money
+  // (via disburse_listener_withdrawal -> credit_bpay_wallet) so this is its
+  // own dedicated key, not folded under an existing `:edit`-suffixed one —
+  // same one-key-per-distinct-mutation-surface reasoning this taxonomy
+  // already uses for the five reference-data tables above. Deliberately NOT
+  // `:view`-suffixed even though it's a POST-that-mostly-reports — a
+  // 'monitor'-tier admin should not be able to trigger real disbursements
+  // just because the naming convention would otherwise let them.
+  LISTENER_EARNINGS_SWEEP_DISBURSEMENTS: 'listener_earnings:sweep_disbursements', // POST /api/admin/listener-earnings/sweep-disbursements
 } as const;
 
 export type AdminCapability = (typeof ADMIN_CAPABILITIES)[keyof typeof ADMIN_CAPABILITIES];
