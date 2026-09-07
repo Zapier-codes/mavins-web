@@ -148,7 +148,39 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-09-07, latest of all) — Task 49 Parts (c-b) and
+> **Newest note (2026-09-07, latest of all) — Task 49 Part (c-e) done;
+> Part (e) itself built too, since it didn't exist yet; Task 49 Part
+> (c)'s a-e split is now FULLY CLOSED.** (c-e)'s own scope was to
+> reconcile the disbursement sweep with Part (e)'s claim-window-expiry
+> job, but Part (e) had never been built, so this closes both. New
+> migration 044: `add_business_days()` (a new reusable business-day
+> helper — this schema had no business-day math before, and the spec
+> is "5-business-day window," not calendar days) and
+> `expire_claimable_withdrawals()` (set-based, mirrors
+> `promote_pending_withdrawals_to_claimable`'s own shape — a status
+> flip needs no per-row loop, unlike the disbursement sweep). **The
+> combined-vs-separate question resolved as separate, sequenced jobs**
+> — expiry scheduled at 03:30 UTC, 15 minutes after the disbursement
+> sweep's own 03:15 slot, matching this pipeline's existing precedent
+> of one function per lifecycle stage rather than one combined
+> "advance everything" function. Verified: an 8-case Python simulation
+> of the business-day window logic (window-still-open, day-after-close,
+> well-past-close, a weekend-open window rolling to the next weekday,
+> both directions) all passed; paren/dollar-quote balance confirmed;
+> `npx tsc --noEmit` clean against a freshly-installed `node_modules`
+> (previously absent in this sandbox — installed fresh so the "clean"
+> check is real, not silently skipping unresolvable imports). **Not
+> verified — no live DB in this sandbox:** the real `pg_cron` timing
+> margin (whether 30 minutes is enough gap on an unusually large
+> disbursement batch) needs checking against live
+> `cron.job_run_details` once deployed. Full write-up in Task 49's own
+> section, directly after (c-d)'s own close-out. **Task 49 Part (c) has
+> nothing left — whatever's next is Part (d) (`/earn` page UI, still
+> unbuilt) or a different task entirely; check this file's own
+> up-to-date state before assuming Part (c) has more to do.**
+>
+> **Older note (2026-09-07, previously "latest of all", now superseded
+> by the note directly above) — Task 49 Parts (c-b) and
 > (c-d) done, live, on a live project (`atojskxrxfsbpeefigtm`), not
 > this sandbox; only (c-e) remains open in Part (c)'s a-e split.**
 > **(c-b) — scheduler wiring**: Option A per explicit direction —
@@ -11337,10 +11369,111 @@ real sweep run actually landing a row in
 `listener_disbursement_sweep_runs` with the correct `triggered_by`
 label from each of the three call sites.
 
-**Next: (c-e)** — reconcile the sweep's now-live daily 03:15 UTC
-cadence with Part (e)'s own still-unbuilt claim-window-expiry job.
-(c-a) through (c-d) are all done; (c-e) is the only open piece left in
-Task 49 Part (c)'s a-e split.
+**Superseded — see Part (c-e) below.** (c-a) through (c-e) are now all
+done; Task 49 Part (c)'s a-e split is fully closed.
+
+#### Part (c-e) — done, this session (2026-09-07); also builds Part (e) itself, since (e) didn't exist yet
+
+**(c-e)'s own scope was to reconcile "disburse what's ready" (the
+sweep) with "expire what's overdue" (Part (e)) — but Part (e) had
+never actually been built**, so this closes both: Part (e) itself
+(the missing `claimable` → `expired` transition, already flagged as
+unbuilt in migration 032's trailing comment and migration 040's own
+lifecycle diagram) and the reconciliation question migration 041's own
+header left open (combined job vs. two separate ones).
+
+**Resolved: two separate functions, two separate cron jobs, sequenced
+in the same daily window — not combined.** Matches this pipeline's own
+existing precedent: `promote_pending_withdrawals_to_claimable`
+(migration 040) and `sweep_claimable_withdrawals_for_disbursement`
+(migration 041) are already two separate single-purpose functions for
+two adjacent lifecycle stages, run back-to-back (03:00, then 03:15
+UTC) rather than combined into one "advance everything" function —
+combining disbursement and expiry here would have been the only
+inconsistent stage in an otherwise uniform pipeline. Sequencing is
+what actually matters, not combining: expiry is scheduled for **03:30
+UTC, 15 minutes after** the disbursement sweep's 03:15 slot, so every
+cycle that could be disbursed today already has been by the time
+expiry runs — anything still `claimable` at 03:30 genuinely failed
+disbursement (no tag / tag not found) or is still legitimately within
+its own window, never a cycle the sweep simply hadn't reached yet.
+
+**New `supabase_migration_044_expire_claimable_withdrawals.sql`:**
+
+- **`add_business_days(start_date, n)`** — a new, reusable helper;
+  nothing in this schema already did business-day math, and the spec
+  is explicitly "5-business-day window," not calendar days. Walks
+  forward one calendar day at a time via `EXTRACT(ISODOW ...)`,
+  counting only Monday-Friday. `IMMUTABLE`, no table reads, left
+  executable by `PUBLIC` (the only function in this task not
+  `REVOKE`d) — it's pure date arithmetic with no business data, so
+  restricting it would be theatre; being `IMMUTABLE` also means it can
+  be called directly inside a set-based `UPDATE`'s `WHERE` clause,
+  same as below. No holiday calendar — nothing else in this schema
+  tracks one, and inventing one here would be a separate product
+  decision, not guessed at inside a lettered sub-part.
+- **`expire_claimable_withdrawals()`** — set-based, like
+  `promote_pending_withdrawals_to_claimable` (a status flip needs no
+  per-row loop, unlike the disbursement sweep, which genuinely calls a
+  separate per-cycle RPC). Reads `cycle_end_date` (the window's open
+  date, deliberately preserved by migration 040 for exactly this).
+  Window day 1 is `cycle_end_date` itself if it's already a weekday,
+  or rolls forward to the next weekday if the promotion sweep happened
+  to fire on a weekend (this schema's crons run daily, weekends
+  included); the window's last valid day is 4 more business days after
+  day 1 (5 total, inclusive). A cycle expires once `CURRENT_DATE` is
+  past that day. No `CHECK`-constraint change needed — `'expired'` has
+  been a valid `status` value since migration 019's original
+  constraint and survived migration 040's replacement unchanged;
+  confirmed by reading both constraints directly, not assumed.
+  `service_role`-only, same posture as every other function in this
+  task.
+- **Scheduling** — `cron.schedule('expire-claimable-withdrawals', '30
+  3 * * *', ...)`, per the 03:30 UTC reasoning above. Re-asserts
+  `CREATE EXTENSION IF NOT EXISTS pg_cron` so this migration is
+  self-contained even if a future session ever reorders/reapplies it
+  independently of migration 042.
+
+**Verified:** a throwaway 8-case Python simulation of the business-day
+window logic (Monday-open window closing same week, a weekday still
+inside the window, the day immediately after closing, well past
+closing, a Saturday-open window rolling to the following Monday, a
+Friday-open window closing the following Thursday, and the day after
+that) — all 8 passed, in particular confirming the direction of the
+inequality (a cycle already at its last valid day is NOT expired; the
+day after IS) rather than an off-by-one in either direction. Paren
+balance (67/67 raw, 19/19 comment-stripped) and dollar-quote balance
+(6, i.e. three matched `$$...$$` bodies: `add_business_days`,
+`expire_claimable_withdrawals`, and the `cron.schedule` command
+string) both confirmed. `npx tsc --noEmit` clean — installed
+`node_modules` fresh in this sandbox first (previously absent, so an
+earlier "clean" run in this same session was actually skipping every
+file that needed a resolvable import, not a real signal) and reran
+against the real dependency graph; this migration is SQL-only so
+couldn't have affected the TS baseline regardless, but confirming
+against a real install rather than an empty `node_modules` is the more
+honest check. **Not verified — no live DB in this sandbox, same
+standing limitation as every migration in this file:** the actual
+`pg_cron` scheduling behavior, and in particular whether a real
+30-minute gap is enough margin on a day with an unusually large
+disbursement batch, need checking against live `cron.job_run_details`
+for both `sweep-listener-disbursements` and
+`expire-claimable-withdrawals` once this is deployed.
+
+**Not addressed here, left for a future task if ever needed:**
+notifying a listener when their own cycle expires, and any admin-facing
+observability for expiry runs specifically — migration 043's own audit
+table (`listener_disbursement_sweep_runs`) is scoped to disbursement
+sweep runs, not expiry runs; a parallel table for expiry would be new
+scope, not assumed needed without a direct ask.
+
+**Task 49 Part (c)'s a-e split is now fully closed** — (c-a) sweep RPC,
+(c-b) scheduler wiring, (c-c) admin route, (c-d) observability, (c-e)
+expiry reconciliation (which also built Part (e) itself) are all done.
+Whatever's next is genuinely a different task — check this file's own
+`▶ START HERE` box and the rest of Task 49's own section (Parts (d),
+`/earn` page UI, is still unbuilt) before assuming there's more to do
+here specifically.
 
 #### Prerequisite bug fix, found while scoping Part (c), this session (2026-09-07) — the NET-50 wait was never actually implemented
 
