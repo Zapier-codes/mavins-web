@@ -57,8 +57,17 @@ Deno.serve(async (req) => {
   try {
     console.log("🟢 sweep-listener-disbursements: run started");
 
+    // Task 49 Part (c-d), migration 043 — p_triggered_by attributes
+    // this function's own runs in listener_disbursement_sweep_runs as
+    // 'edge_function', distinct from the (c-c) admin route ('admin')
+    // and the real pg_cron scheduler ('cron', migration 043's own
+    // re-registered job command). This function itself isn't currently
+    // invoked by anything (Option A wires the cron job directly to the
+    // RPC, migration 042) -- this label is for if/when it's ever used
+    // as the Option B fallback described in this file's own header.
     const { data, error } = await supabase.rpc(
-      "sweep_claimable_withdrawals_for_disbursement"
+      "sweep_claimable_withdrawals_for_disbursement",
+      { p_triggered_by: "edge_function" }
     );
 
     if (error) {

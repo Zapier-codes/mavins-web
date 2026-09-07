@@ -50,7 +50,14 @@ export async function POST() {
 
     const { admin } = context;
 
-    const { data, error } = await admin.rpc('sweep_claimable_withdrawals_for_disbursement');
+    // Task 49 Part (c-d), migration 043 — p_triggered_by lets this
+    // route's own audit rows (listener_disbursement_sweep_runs) be
+    // distinguished from the pg_cron job's own automatic runs, without
+    // this route needing to know anything about that table itself.
+    const { data, error } = await admin.rpc(
+      'sweep_claimable_withdrawals_for_disbursement',
+      { p_triggered_by: 'admin' }
+    );
 
     if (error) {
       console.error(
