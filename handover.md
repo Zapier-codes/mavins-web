@@ -148,7 +148,90 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-09-07, latest of all) — Task 49 Part (d) built
+> **Newest note (2026-09-07, latest of all) — cross-repo verification
+> session: the bpay_tag / withdraw-balance chain is code-complete on
+> this side but NOT functional end-to-end yet. Root cause confirmed
+> live, not assumed — Task 70 Part (d) is genuinely still open, and
+> Task 71 does not block this (correcting a premise, not just
+> answering it).**
+>
+> **What was checked, directly, this session:** cloned
+> `Zapier-codes/mavins-web` (this repo) and `Zapier-codes/B-PAY` (the
+> fork) fresh, and read the actual code on both sides rather than
+> trusting either file's own checkbox state alone.
+>
+> **On this side (mavins-web), the chain really is built and live:**
+> `users.bpay_tag` (migration 034/038), the tag-submission route
+> (`POST /api/listener/bpay-tag`, Task 67 Part f-ii-i/ii), `GET
+> /api/listener/balance` returning `bpayTag` + the new `withdrawal`
+> field (Task 49 Part d, commit `a5273fa`), `POST
+> /api/listener/withdraw` (Task 49 Part a), and
+> `disburse_listener_withdrawal()` calling `credit_bpay_wallet()`
+> against `bpay_profiles`/`bpay_wallet_ledger` (migrations 036, 039,
+> Task 70 Parts b/c/e) are all real, present, and match this file's
+> own `[x]` marks for those parts.
+>
+> **The break is Task 70 Part (d) — "reconfigure the fork's Supabase
+> config onto Mavins-web's own project" — still genuinely `[ ]`, not a
+> stale checkbox.** Confirmed by cloning `Zapier-codes/B-PAY` itself,
+> not inferred from this file: its own committed `.env` still points
+> `EXPO_PUBLIC_SUPABASE_URL` at `xinpapspoqoepckuvdbl.supabase.co` (the
+> original, separate B-PAY project), not
+> `atojskxrxfsbpeefigtm.supabase.co` (Mavins-web's own project, where
+> `bpay_profiles` actually lives per Task 70 Part c). B-PAY's own
+> `handover.md` Task 15 says the same thing from its side ("decision
+> confirmed and documented; wiring itself not yet built"), and its own
+> `.github/CI_SETUP.md` documents `atojskxrxfsbpeefigtm` as the
+> *intended* target for a future GitHub Actions secret — a plan, not a
+> completed wiring. Two files independently agreeing this is unbuilt,
+> confirmed against real code on both sides, not a single stale note.
+>
+> **Practical effect: `disburse_listener_withdrawal()` will reject
+> every real disbursement right now with `bpay_tag_not_found`.**
+> `bpay_profiles` (migration 036) is a brand-new, empty table in
+> Mavins-web's own project — nothing populates it from B-PAY's real
+> user base, because B-PAY itself never writes to this project (Part d
+> above). So even a listener who correctly saves a real `@bpay_tag`
+> they already use in the actual B-PAY app has no matching
+> `bpay_profiles` row here, and the sweep's own crediting call fails
+> with a clear, honest error every time — by design (this migration's
+> own header comment: reject and leave the cycle `claimable`, don't
+> revert or expire it), but still a real, currently-guaranteed failure
+> for every listener until Part (d) lands. **A second gap, not
+> currently tracked as its own checkbox anywhere in this task: even
+> once Part (d) repoints the fork, nothing yet creates a
+> `bpay_profiles` row for an existing B-PAY user matching their real
+> tag** — Part (d)'s own "share one project" plan needs a real
+> migration/backfill path for that, not just a config change, or the
+> same `bpay_tag_not_found` failure persists for every pre-existing
+> B-PAY user regardless. Flagging this as a genuine addition to Part
+> (d)'s own scope, not folding it silently into the existing
+> description.
+>
+> **Correcting this session's own instruction as given, not just
+> executing it: Task 71 does NOT need to land before "any bpay own
+> task."** Task 71 (Lizzysub/Juicyway → B-Pay-backend VTU/utility
+> routing, canonical write-up now in B-Pay-backend's own Task 44) has
+> no code or schema dependency on the bpay_tag/withdraw chain — it's
+> about a completely different B-Pay-backend feature area (utility
+> payments), and this task's own section already says so explicitly
+> ("kept as its own task rather than folded into this one's six-part
+> split... not on parts (a)–(f) here landing first"). **Task 70 is the
+> one real blocker for the bpay_tag/withdraw chain specifically** —
+> Part (d) precisely, plus the backfill gap noted above. Task 71 can
+> proceed independently, in either order, without affecting this
+> chain's functionality either way.
+>
+> **Next: Task 70 Part (d)** — reconfigure `Zapier-codes/B-PAY`'s own
+> Supabase config to point at `atojskxrxfsbpeefigtm.supabase.co`
+> (credentials Mavins-web already issues), stop committing `.env` to
+> the fork while doing it (per this task's own existing Part (d)
+> text), and add the still-missing `bpay_profiles` backfill/creation
+> path noted above — the one part of this whole chain nothing else
+> can be verified functional without.
+>
+> **Older note (2026-09-07, previously "latest of all", now superseded
+> by the note directly above) — Task 49 Part (d) built
 > and pushed live; Task 49 is now FULLY CLOSED (Parts a-e all done).**
 > New Withdraw action on `/earn/page.tsx` (calls the already-live
 > `POST /api/listener/withdraw`), plus a real gap found while building
@@ -17345,6 +17428,34 @@ forward — match the build-time-secret pattern this project's other two
 repos already use (Velune's `local.properties → env → default`
 fallback in `build.gradle.kts`; this repo's own `.env`, gitignored,
 never committed) instead of repeating it in the fork.
+
+**Confirmed still genuinely open, this session (2026-09-07) — not a
+stale checkbox.** Cloned `Zapier-codes/B-PAY` directly: its committed
+`.env` still points `EXPO_PUBLIC_SUPABASE_URL` at the original,
+separate `xinpapspoqoepckuvdbl.supabase.co`, not this project's
+`atojskxrxfsbpeefigtm.supabase.co`. B-PAY's own `handover.md` (Task
+15) agrees from its own side ("wiring itself not yet built"), and its
+`.github/CI_SETUP.md` only *documents* `atojskxrxfsbpeefigtm` as a
+future GitHub Actions secret to set, not a completed change. Two
+independent, live-code confirmations, not one file trusting the
+other's notes. **Practical effect, verified against migration 039's
+own logic:** `disburse_listener_withdrawal()` looks up the listener's
+tag in `bpay_profiles` (this project's own table, empty since nothing
+on the B-PAY side ever writes to it yet) and returns
+`bpay_tag_not_found` for every real listener, every time, until this
+part lands — the bpay_tag/withdraw-balance chain is code-complete
+(Parts a/b/c/e, plus Task 49 Parts a-e and Task 67's tag UI) but not
+functional end-to-end for a single real user yet. **Scope addition,
+not previously tracked here:** even once the fork is repointed,
+nothing yet creates a `bpay_profiles` row for an existing B-PAY user
+matching their real tag — a backfill/creation path belongs in this
+part's own scope, or `bpay_tag_not_found` persists for every
+pre-existing B-PAY user regardless of the config fix. See this file's
+own `▶ START HERE` box for the full write-up (2026-09-07 cross-repo
+verification note) — not duplicated in full here. **Task 71 does not
+block this part or anything else in this task** — confirmed no
+code/schema dependency either direction; see that same START HERE
+note and Task 70's own "related but distinct" bullet below.
 
 ### e — Wire Task 49 Part b-ii-ii-b's actual crediting call [x] Built this session (2026-09-07), as Task 49's own "Part (b)" — see that task's own section for full detail, not duplicated here
 **The crediting RPC itself is done** — `disburse_listener_withdrawal()`
