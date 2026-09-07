@@ -8,7 +8,22 @@
  * caller is a real listener (same signed-token model as
  * `balance`/`bpay-tag`, not a bare id) and call the already-existing,
  * already-live `request_listener_withdrawal(p_listener_id)` RPC
- * (migration 032) to flip an 'accumulating' cycle to 'claimable'.
+ * (migration 032, corrected by migration 040) to flip an
+ * 'accumulating' cycle to 'pending' and start the real NET-50 clock
+ * (`requested_at`).
+ *
+ * **Migration 040 note, found while scoping Part (c):** migration
+ * 032's original version incorrectly skipped straight to 'claimable'
+ * with no wait at all — every listener who called this RPC before
+ * that fix got the 5-business-day claim window open immediately, not
+ * 50 days later as already confirmed elsewhere in this task's own
+ * spec. The cycle now only becomes 'claimable' once
+ * `promote_pending_withdrawals_to_claimable()` (a scheduled sweep,
+ * migration 040, trigger not yet wired — Part (c)'s own job) finds it
+ * 50 calendar days past `requested_at`. This route's own behavior is
+ * unchanged by that fix — it already just forwards the RPC's
+ * success/message/cycle_id/earnings_cents, which read correctly
+ * either way.
  *
  * **What this route deliberately does NOT do — later parts' own
  * job, not scope creep skipped by accident:**

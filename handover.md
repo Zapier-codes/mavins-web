@@ -148,7 +148,45 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-09-07, latest of all) — Task 49 Part b-ii-ii-b
+> **Newest note (2026-09-07, latest of all) — while scoping Task 49
+> Part (c) (wiring (a)+(b) together), found the NET-50 wait was never
+> actually implemented; fixed forward, Part (c) itself still not
+> started.** Migration 031's own header already recorded a confirmed
+> decision from an earlier session: NET-50 counts from the withdrawal
+> **request**, not from cycle start. But migration 032's real function
+> body ignored that — flipped straight to `claimable` (5-day claim
+> window instantly open) with zero delay, no date arithmetic anywhere
+> in it. Every past call has been giving same-day eligibility, not
+> 50-days-later. Same "parsed/pushed cleanly, wrong at the business-
+> logic level" shape as the `is_qualifying_play` bug (migration 037) —
+> found specifically because Part (c) can't be designed sanely without
+> first confirming what `claimable` actually means. **Fixed forward,
+> new migration 040**, not by rewriting 032's file: new `pending`
+> status (`accumulating -> pending` on request, clock = new
+> `requested_at` column) plus a new set-based sweep function,
+> `promote_pending_withdrawals_to_claimable()`, that flips `pending`
+> rows to `claimable` once 50 calendar days have passed — a scheduled
+> job, same "function exists, cron wiring is separate" posture this
+> schema already uses for `compute_daily_payout_pool`. `cycle_end_date`
+> keeps its existing meaning (claim-window-open date) rather than being
+> repurposed for the request timestamp, preserving Part (e)'s own
+> already-written contract. `disburse_listener_withdrawal` (migration
+> 039, Part (b)) is completely unaffected — it already only acts on
+> `claimable` rows regardless of how they got there. Verified: `npx
+> tsc --noEmit` clean; migration paren/dollar-quote balanced (43/43,
+> 4); a 6-case Python simulation (request→pending not claimable,
+> below-minimum still rejected, promote no-ops before day 50, promote
+> fires at day 50, promote is idempotent, an already-claimable cycle
+> is untouched by promote) all passed. **Not verified against a live
+> DB.** **Part (c) itself — actually wiring a scheduler to call
+> `promote_pending_withdrawals_to_claimable()` and then trigger
+> disbursement on newly-claimable rows — is still not started**; this
+> was a real, necessary bug fix found along the way, not Part (c)'s own
+> deliverable. Full write-up in Task 49's own section, directly after
+> Part (b)'s close-out.
+>
+> **Older note (2026-09-07, previously "latest of all", now superseded
+> twice over) — Task 49 Part b-ii-ii-b
 > Part (b) built: the actual
 > disbursement RPC, `disburse_listener_withdrawal()` (migration 039).**
 > Given a `claimable` `listener_earnings` cycle, resolves the
@@ -10959,6 +10997,98 @@ same job could sweep both `claimable→disburse-if-ready` and
 Part (e) rather than as two separate scheduled jobs). Not picked
 here — a real design choice for whoever builds Part (c), same as this
 part's own original write-up already flagged.
+
+#### Prerequisite bug fix, found while scoping Part (c), this session (2026-09-07) — the NET-50 wait was never actually implemented
+
+**Checked the real, already-live `request_listener_withdrawal()`
+(migration 032) against this task's own already-confirmed spec before
+designing Part (c) on top of it, rather than trusting a clean push as
+proof it works — same discipline that already caught the
+`is_qualifying_play` bug (migration 037).** Migration 031's own header
+comment records a decision an earlier session already confirmed with
+the product owner: **NET-50 counts from the withdrawal request
+itself**, a separate, later, user-triggered action — not from when the
+cycle started accumulating. But migration 032's actual function body
+has no date arithmetic anywhere in it: it flips `accumulating` straight
+to `claimable` the instant a listener calls it, opening the 5-business-
+day claim window immediately. **Every listener who has ever called
+this RPC has gotten same-day eligibility, not the confirmed 50-days-
+after-request model.** This is a real, silent divergence between what
+was decided and what got built — not caught by anything, since the
+function is syntactically fine and the withdrawal-request route (Part
+(a)) just forwards whatever it returns without asserting a wait
+actually happened.
+
+**Fixed forward, new `supabase_migration_040_fix_net50_request_gate.sql`**
+— not by rewriting migration 032's own file, same precedent already
+established for a wrong column reference (migration 037). Adds a real
+gap state, `pending`, between "requested" and "actually eligible":
+
+```
+accumulating -> pending    (request_listener_withdrawal -- clock starts,
+                             new requested_at column set to now())
+pending      -> claimable  (promote_pending_withdrawals_to_claimable() --
+                             new function, a set-based sweep, fires once
+                             requested_at is >= 50 calendar days ago)
+claimable    -> claimed    (disburse_listener_withdrawal, migration 039
+                             -- completely unaffected by this fix; it
+                             already only cares that status = 'claimable',
+                             never how a row got there)
+claimable    -> expired    (Part (e), still not built)
+```
+
+`cycle_end_date` deliberately keeps its pre-existing meaning (the date
+the 5-day claim window opened) rather than being repurposed to hold
+the request timestamp — Part (e)'s own already-written spec reads
+`cycle_end_date` for the claim-window timeout, and changing what it
+means here would silently break a contract a future, not-yet-built
+part depends on. The new `requested_at` column is the actual NET-50
+clock instead.
+
+**`promote_pending_withdrawals_to_claimable()` itself is, like
+`compute_daily_payout_pool()` before it, a function that exists with
+nothing yet calling it on a schedule** — this migration does not add
+any cron/Edge Function trigger, consistent with this schema's already-
+established "the SQL function is the unit of work; wiring a scheduler
+to it is a separate, later concern" pattern. **This is now a second,
+adjacent scheduled-job gap alongside Part (e)'s own unbuilt timeout
+sweep** — worth deciding together when either is finally wired up
+(a single scheduled function doing both "promote eligible pending
+rows" and "expire missed claim windows" in one pass is a reasonable
+combination, but that's Part (c)/(e)'s own design decision, not
+assumed here).
+
+**Verified:** `npx tsc --noEmit` clean (this fix only touches SQL plus
+`withdraw/route.ts`'s own doc comment, no logic change there — the
+route already forwards the RPC's result generically and needed no
+code change, just a corrected comment). Migration paren-balanced
+(43/43) and dollar-quote-balanced (4, i.e. two matched `$$...$$`
+function bodies). A throwaway 6-case Python simulation (deleted, not
+committed): a request moves `accumulating` straight to `pending`, never
+`claimable`; a below-minimum request is still correctly rejected and
+left `accumulating`; the promote sweep is a no-op one day short of the
+50-day mark; it correctly promotes right at the 50-day mark; re-running
+it immediately after is idempotent (nothing left to promote); an
+already-`claimable` row from a different, older path is left untouched
+by a promote run. All 6 passed. **Not verified against a live DB** —
+same standing sandbox limitation as every migration in this file, and
+worth flagging specifically here: any `listener_earnings` rows already
+sitting `claimable` on production **from before this fix** got there
+via the old, un-gated instant-transition behavior, not a real 50-day
+wait — this migration does not retroactively re-check or revert those
+rows (doing so would need a real product decision about grandfathering
+already-in-flight withdrawals, not something to silently decide in a
+bug-fix migration), so any such rows should be reviewed manually
+before this ships, not assumed clean.
+
+**Part (c) itself is still not started** — this was a necessary
+correctness fix found while scoping it, not Part (c)'s own deliverable.
+Part (c) now has slightly more shape than before: it needs to wire a
+scheduler to `promote_pending_withdrawals_to_claimable()` (this
+migration) in addition to the original open question of how
+`disburse_listener_withdrawal()` (Part (b)) gets triggered on a newly-
+`claimable` row — likely the same scheduled job doing both steps in
+sequence, but that's next session's decision to make, not this one's.
 
 ---
 
