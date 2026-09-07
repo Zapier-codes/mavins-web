@@ -148,7 +148,60 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-09-07, latest of all) — Task 49 Part (c-e) done;
+> **Newest note (2026-09-07, latest of all) — Task 49 Part (d) built
+> and pushed live; Task 49 is now FULLY CLOSED (Parts a-e all done).**
+> New Withdraw action on `/earn/page.tsx` (calls the already-live
+> `POST /api/listener/withdraw`), plus a real gap found while building
+> it and fixed alongside: `GET /api/listener/balance`'s `currentCycle`
+> only ever matched `status = 'accumulating'`, so it went `null` the
+> instant a withdrawal was requested — no way to show pending/
+> claimable/claimed/expired status on a later page load, only a
+> one-time toast from the request itself. Added a separate, additive
+> `withdrawal` field (most recent non-accumulating cycle) rather than
+> changing `currentCycle`'s own existing contract. The `no_bpay_tag`
+> case migration 039 already resolved (reject, cycle stays
+> `claimable` untouched, retried automatically by the already-live
+> sweep) is surfaced by highlighting the existing Task 67 tag form,
+> not a second, competing one. **Verified:** `npx tsc --noEmit` clean
+> against a freshly-installed `node_modules`; the patch applied via a
+> real `git am` (not just `git apply --check`) on a clean checkout at
+> the pre-patch tip; and — unlike every other "not verified, no live
+> DB in this sandbox" note in this file — **this specific claim WAS
+> independently verified against the live remote**, not just trusted
+> from a pasted terminal transcript: `git ls-remote` + `git fetch`
+> against `github.com/Zapier-codes/mavins-web` directly confirmed
+> `main` is really at `a5273fa`, with commit content matching this
+> session's own diff exactly, not assumed from the `git am && git
+> push` output alone. **Not verified — no live DB in this sandbox,
+> same standing limitation as the rest of this task:** real listener
+> rows exercising the button end-to-end.
+>
+> **Also this session — the 2026-09-05 standing instruction ("all
+> sessions clone `Zapier-codes/B-PAY` going forward") followed for the
+> first time from this repo's own side, cloned fresh and checked, not
+> assumed.** One real discrepancy found, flagged rather than silently
+> resolved: this file's own earlier note (2026-09-05, "new standing
+> instruction") describes B-PAY as already having "Task 70's six-part
+> security-fix split, in progress there" — but `B-PAY`'s own
+> `handover.md` has no Task 70 at all; its own numbering only runs
+> Task 1–15 (mostly `[ ]` open, one `[x]`, one `[~]`), with **no
+> six-part security split anywhere in it.** Either that earlier note
+> meant a different repo/task number, or the split was never actually
+> built and the note was aspirational — not resolved here, just
+> flagged so a future session doesn't keep citing it as settled. **What
+> IS real and explicit in `B-PAY`'s own file:** it already names its
+> own next step directly — Task 1c's `payment/index.ts` →
+> B-Pay-backend's `POST /api/pay` thin-proxy swap, the first of five
+> per-function migrations in Task 1's own "duplicate payment-provider
+> integration" reconciliation, called out there as "the most
+> self-contained starting point." **Recommend that as the next task
+> picked up, in `B-PAY` itself** — not filed as a new task here since
+> `B-PAY` already has its own handover file and this repo has no
+> "Sibling repos" section of its own (per the 2026-09-05 note's own
+> reasoning for not inventing one).
+>
+> **Older note (2026-09-07, previously "latest of all", now superseded
+> by the note directly above) — Task 49 Part (c-e) done;
 > Part (e) itself built too, since it didn't exist yet; Task 49 Part
 > (c)'s a-e split is now FULLY CLOSED.** (c-e)'s own scope was to
 > reconcile the disbursement sweep with Part (e)'s claim-window-expiry
@@ -9729,7 +9782,7 @@ than trusting the earlier grep's absence-of-a-match alone.
 
 ---
 
-## Task 49 — Listener earnings: pay listeners for streams via Velune, dynamic Spotify-style pool payout, gamification integration [x] (SPEC UNBLOCKED — all 6 questions answered, ready to build)
+## Task 49 — Listener earnings: pay listeners for streams via Velune, dynamic Spotify-style pool payout, gamification integration [x] (FULLY CLOSED 2026-09-07 — Parts a-e all done and live; Part (d)'s own close-out directly below)
 
 **Brand new task, this session — product owner's own dense spec,
 reorganized and synthesized below, not yet built. No code changed this
@@ -11474,6 +11527,57 @@ Whatever's next is genuinely a different task — check this file's own
 `▶ START HERE` box and the rest of Task 49's own section (Parts (d),
 `/earn` page UI, is still unbuilt) before assuming there's more to do
 here specifically.
+
+#### Part (d) — done, this session (2026-09-07). Task 49 now fully closed.
+
+New Withdraw action on `/earn/page.tsx`, only enabled for an
+`accumulating` cycle (mirroring `request_listener_withdrawal`'s own
+gate exactly, migration 040), calling the already-live
+`POST /api/listener/withdraw` and re-fetching balance afterward rather
+than deriving the resulting status locally — same reasoning
+`loadBalance` already uses for its own token/balance pair.
+
+**A real gap found while building this, not asked for by any prior
+part's own spec text:** `GET /api/listener/balance`'s `currentCycle`
+has only ever matched `status = 'accumulating'` — migration 040
+introduced `'pending'` as a distinct status, but this route was never
+updated after that. The practical effect: the moment Part (a)'s route
+flips a cycle to `'pending'`, `currentCycle` goes back to `null`, and
+the page had no way to show the resulting pending/claimable/claimed/
+expired state on any later page load — only from that one request's
+own one-time response, gone on refresh. Fixed by adding a separate,
+additive `withdrawal` field (the most recent cycle NOT in
+`'accumulating'`) rather than changing what `currentCycle` itself
+means — no other caller of this route is touched.
+
+**The `no_bpay_tag` question Part (b)'s own migration (039) already
+resolved** (reject at disbursement time, cycle stays `'claimable'`
+untouched, picked up again by the already-live sweep once a tag
+exists) is surfaced here exactly as that migration's own write-up
+anticipated: when a cycle is `claimable` with no `bpayTag` saved, this
+page highlights the existing Task 67 B-Pay tag form instead of
+building a second, competing one. There is no separate manual "claim"
+action for a listener to press — disbursement is fully automatic via
+Part (c)'s sweep.
+
+**Verified:** `npx tsc --noEmit` clean against a freshly-installed
+`node_modules`; the resulting patch applied via a real `git am` (not
+just `git apply --check`) against a clean checkout at the pre-patch
+tip (`1629a08`), landing as `5a1da6c` with zero conflicts; pushed to
+`main` and **independently confirmed live** via `git ls-remote` +
+`git fetch` directly against `github.com/Zapier-codes/mavins-web` —
+`main` really is at `a5273fa`, commit content matching this session's
+own diff exactly, not merely trusted from a pasted terminal
+transcript. **Not verified — no live DB in this sandbox, same
+standing limitation as the rest of this task:** real listener rows
+actually exercising the Withdraw button end-to-end, and the
+`no_bpay_tag` banner's copy hasn't been reviewed by anyone else yet.
+
+**Genuinely still open, not part of this session's scope:** Part
+(e)'s `expired` status has no retry/dismiss action on this page —
+just static copy — since nothing anywhere in this task's own spec
+says what a listener should be able to do about an expired cycle;
+not guessed at here.
 
 #### Prerequisite bug fix, found while scoping Part (c), this session (2026-09-07) — the NET-50 wait was never actually implemented
 
