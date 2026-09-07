@@ -1,0 +1,54 @@
+-- ============================================================
+-- Migration 037 — Task 49: (1) fix a real, already-live column-name
+-- bug blocking the entire payout pipeline, (2) no schema changes for
+-- Part b-ii-ii-b Part (a) itself — that part is a pure API-route
+-- addition, nothing for this migration to do beyond the fix below.
+-- ============================================================
+--
+-- **Found while verifying the pipeline before building anything new,
+-- not assumed working. This is a real bug, not a style nit:**
+-- migration 019 (`listener_earnings_schema`) defines the >=60s
+-- generated column as `qualifies_for_payment`. Migrations 030
+-- (`compute_daily_payout_pool`) and 031
+-- (`credit_listener_earnings_for_date`) both instead reference a
+-- column named `is_qualifying_play`, which has never existed anywhere
+-- in this schema — confirmed via a repo-wide grep before writing this
+-- fix, not assumed from reading one file. Both migrations already
+-- landed on the live DB (Task 72, `supabase db push`, no errors) —
+-- that only proves the function *bodies* parsed as valid PL/pgSQL,
+-- which Postgres does NOT type/column-check at CREATE FUNCTION time.
+-- Every real invocation of either function would fail at runtime with
+-- "column lpe.is_qualifying_play does not exist" — meaning the entire
+-- daily pool/crediting pipeline has been silently broken since it was
+-- deployed, never actually exercised end to end (matching Task 72's
+-- own "not yet functionally verified" caveat).
+--
+-- **Fix: rename the column forward, not edit history.** Renaming
+-- `qualifies_for_payment` to `is_qualifying_play` (matching the two
+-- already-live, harder-to-safely-edit functions) rather than editing
+-- 030/031's function bodies — same "correct forward, don't rewrite
+-- an already-applied migration" precedent this task's own migration
+-- 031 already established for `cycle_end_date`. Postgres supports
+-- renaming a STORED GENERATED column directly; the generation
+-- expression and STORED behavior are unaffected by the rename.
+ALTER TABLE public.listener_play_events
+  RENAME COLUMN qualifies_for_payment TO is_qualifying_play;
+
+-- Re-point the index that named the old column explicitly in its own
+-- definition comment (migration 019) — the index itself doesn't need
+-- rebuilding (renaming a column Postgres references by catalog OID
+-- internally, not by the index's own on-disk name), but re-asserting
+-- it here, post-rename, is a cheap no-op if it already matches and
+-- guards against drift if a future session's schema dump tooling ever
+-- regenerates DDL from a stale template.
+-- (No index directly named after the renamed column exists — the
+-- composite index `listener_play_events_lookup_idx` covers
+-- `(campaign_id, listener_id, played_at)` only, unaffected.)
+
+-- ============================================================
+-- Task 49 Part b-ii-ii-b — Korapay/B-Pay disbursement, split into
+-- parts per the mandatory task-splitting rule (handover.md). This
+-- migration has no schema work for Part (a) itself — recorded here
+-- only so the split's own rationale lives next to the fix it
+-- depended on discovering. Full write-up in handover.md.
+-- ============================================================

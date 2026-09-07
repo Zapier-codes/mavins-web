@@ -148,7 +148,27 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-09-06, latest of all) — Task 70 Parts (b) and
+> **Newest note (2026-09-07, latest of all) — real production bug
+> found and fixed: migrations 030/031 referenced a column
+> (`is_qualifying_play`) that never existed (migration 019 actually
+> named it `qualifies_for_payment`).** Both functions parsed and
+> pushed cleanly (Task 72) but would fail on every real invocation —
+> the whole daily pool/crediting pipeline has been silently dead since
+> deployment. Fixed forward via new migration 037 (column rename, not
+> a history edit). **Also this session:** Task 49's "Part b: payout
+> mechanics" (previously flagged as genuinely still-unscoped) is now
+> split into parts (a)-(e) per the mandatory splitting rule — (a), the
+> withdrawal-request API route wiring the already-existing
+> `request_listener_withdrawal` RPC to a real token-verified endpoint,
+> is done. (b) actual B-Pay-wallet disbursement, (c) wiring (a)+(b)
+> together, (d) `/earn` page UI, (e) the claim-window timeout are not
+> built. Full write-up in Task 49's own section, right after its Part
+> b-b close-out. Also removed 4 fully-completed, non-cross-referenced
+> tasks from this file (0, 9, 50, 53) per this file's own standing
+> cleanup rule — see git history for the removed content if ever
+> needed; not duplicated here.
+>
+> **Older note (2026-09-06, latest of all) — Task 70 Parts (b) and
 > (c) resolved: `bpay_profiles`/`bpay_wallet_ledger` built (migration
 > 036).** Cloned B-PAY's own new `handover.md` (its own Task 2) fresh
 > this session — the old B-PAY Supabase project is being discarded
@@ -10662,6 +10682,124 @@ spec's own "Part b: payout mechanics" (crediting via B-Pay-backend,
 Korapay disburse) and the pool-calculation math remain genuinely
 further, still-unscoped work beyond b-b — not touched by either
 sub-part.
+
+**Real bug found and fixed before touching anything else, this
+session (2026-09-07) — not silently worked around.** Checked the
+actual live schema against migrations 030/031 before building on top
+of them, rather than trusting a clean `supabase db push` (Task 72) as
+proof they work: migration 019 names the `>=60s` generated column
+`qualifies_for_payment`; migrations 030 (`compute_daily_payout_pool`)
+and 031 (`credit_listener_earnings_for_date`) both instead reference
+`is_qualifying_play`, a column that has never existed. Confirmed via a
+repo-wide grep, not assumed from one file. Postgres doesn't validate
+column references inside a PL/pgSQL function body at `CREATE FUNCTION`
+time — only at actual invocation — so both functions parsed cleanly,
+pushed cleanly, and have sat live on production since Task 72 without
+ever having been successfully called: every real invocation would
+throw `column lpe.is_qualifying_play does not exist`. **The entire
+daily pool/crediting pipeline has been non-functional since deployment.**
+New `supabase_migration_037_fix_qualifying_play_column_and_listener_withdraw.sql`
+renames the column forward (`qualifies_for_payment` →
+`is_qualifying_play`, matching the two already-live functions) rather
+than editing an already-applied migration's history — same precedent
+migration 031 itself already set for `cycle_end_date`. Verified: exactly
+one real SQL statement (grepped out every comment line to confirm),
+paren-balanced (15/15). **Not verified: not run against the live DB**
+— same standing sandbox limitation as every migration in this file;
+this needs to land before 030/031 can ever succeed for real, not just
+before new work sits on top of them.
+
+**New split, this session, per the mandatory task-splitting rule —
+Task 49 Part b-ii-ii-b (Korapay/B-Pay disbursement) broken into parts
+(a)-(e). Only part (a) built this session.**
+
+- **(a) — Withdrawal-request API route.** Wire the already-existing,
+  already-live `request_listener_withdrawal(p_listener_id)` RPC
+  (migration 032) to a real, token-verified endpoint — today it has
+  zero callers anywhere in the app (confirmed via grep before writing
+  anything: no route, cron, or script references it). No money moves
+  in this part; it only flips a cycle from `accumulating` to
+  `claimable`. Self-contained, no cross-repo dependency, no new
+  product decision needed — **built this session, done below.**
+- **(b) — Actual disbursement.** A new RPC (not built) that, given a
+  `claimable` cycle, resolves the listener's saved `bpay_tag`
+  (migration 034) to a `bpay_profiles.id` (migration 036) and calls
+  `credit_bpay_wallet()` to move the real balance, then marks the
+  cycle `claimed`. Depends on (a) existing (a claimable cycle to act
+  on) but needs no external HTTP call — `bpay_profiles`/
+  `credit_bpay_wallet` live in this same Supabase project per Task 70's
+  own resolution, so this is a local RPC-to-RPC call, not a call to
+  B-Pay-backend's own `/payout` route. **Open question worth flagging
+  now, not decided here:** what happens if the listener has no
+  `bpay_tag` saved yet when this runs — reject with a clear error for
+  (d)'s UI to surface, or leave the cycle sitting `claimable`
+  indefinitely until one is added? Not guessed at; whoever builds (b)
+  should get this confirmed rather than pick one silently.
+- **(c) — Wiring (a)+(b) together.** Something has to actually call
+  (b) once a cycle is `claimable` — either the withdrawal route itself
+  triggers it synchronously (simplest, but ties the HTTP response to a
+  wallet-credit RPC's own latency/failure modes) or a separate
+  trigger/cron picks up `claimable` rows shortly after. Not decided —
+  a real design choice for whoever picks this up, not obviously either
+  way.
+- **(d) — `/earn` page UI.** A "Withdraw" action calling (a), showing
+  the resulting claimable/rejected state, and — if (b)'s open question
+  above resolves toward "reject without a tag" — prompting for a
+  `bpay_tag` inline (reusing the existing form already on this page
+  from Task 67) before allowing the request to proceed.
+- **(e) — Claim-window timeout.** The `claimable` → `expired`
+  transition after the 5-business-day NET-50 window, already flagged
+  as unbuilt in migration 032's own trailing comment — a scheduled job
+  checking `cycle_end_date` against `now()`, not triggered by any
+  listener action.
+
+#### Part (a) — done, this session (2026-09-07)
+
+New `POST /api/listener/withdraw`
+(`src/app/api/listener/withdraw/route.ts`), mirroring
+`balance`/`bpay-tag`'s own established shape exactly: verifies the
+signed listener token via the shared `lib/listener/token.ts` (never a
+raw client-supplied id — same reasoning Task 67's own bpay-tag fix
+already documented in full, not repeated here), then calls
+`request_listener_withdrawal` via `admin.rpc()`, unwrapping the
+TABLE-returning result the same way `debit_wallet_balance`'s own call
+site in `api/campaigns/create/route.ts` already does
+(`Array.isArray(data) ? data[0] : data`) rather than inventing a second
+unwrap convention.
+
+**Deliberately does not check for a `bpay_tag` before allowing the
+request** — see part (b)'s own open question above; requesting a
+withdrawal (starting the claim clock) doesn't itself require knowing
+where the money will eventually go, and blocking on it here would just
+stall a listener who could otherwise set the tag during the 5-business-
+day window before (b)/(c) ever need it.
+
+**A failed-but-well-formed outcome (no accumulating balance, or below
+the $10 per-cycle minimum) returns HTTP 400, not 200** — matching this
+codebase's own established convention for this exact shape of result
+(`api/campaigns/create/route.ts`'s `!debitResult.debited` handling),
+not treated as a 2xx just because the RPC itself didn't error.
+
+**Verified:** `npx tsc --noEmit` clean across the whole project (first
+confirmed a truly clean baseline by running `npm install`, since
+`node_modules` wasn't present in this sandbox at all — the earlier
+type errors seen before that were missing-package noise, not real
+issues in this code). A standalone Node script (deleted after use)
+exercised the token-verification and RPC-unwrap logic against 8 cases:
+a valid token, an expired token, a tampered signature, a wrong secret,
+a malformed token, and three RPC-response shapes (success, below-
+minimum failure, no-balance-at-all failure with null `cycle_id`/
+`earnings_cents`) — all 8 correct. **Not verified — no way to check
+from this sandbox:** an actual call against a live Supabase instance,
+same standing limitation as every part of this task. Given the column-
+name bug just found and fixed above, this route's own downstream RPC
+chain (`request_listener_withdrawal` reads `listener_earnings` rows
+that only ever get created by the now-fixed `credit_listener_earnings_for_date`)
+should be exercised for real, end to end, before this is considered
+production-ready — not just schema-applied.
+
+**Next: Part (b)** — the actual disbursement RPC, once the open
+question above (what happens with no `bpay_tag` yet) is answered.
 
 ---
 
