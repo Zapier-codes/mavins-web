@@ -148,7 +148,66 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-09-07, latest of all) — while scoping Task 49
+> **Newest note (2026-09-07, latest of all) — Task 49 Part (c) split
+> into (c-a)-(c-e) per the mandatory task-splitting rule; (c-a) built
+> this session (new migration 041).** Part (c)'s own original framing
+> asked a genuine open question: should `POST /api/listener/withdraw`
+> call `disburse_listener_withdrawal()` synchronously right after a
+> successful request, or should a separate scheduled sweep pick up
+> `claimable` rows instead? Migration 040 (the NET-50 gate fix,
+> directly above this note) resolves that question as a side effect of
+> its own fix, rather than leaving it a coin flip: a withdrawal request
+> now only moves a cycle to `pending`, and nothing becomes `claimable`
+> until 50 calendar days later, with no listener HTTP request present
+> at that moment to synchronously hang a disbursement call off of.
+> Synchronous, request-triggered disbursement is therefore not just the
+> wrong design here, it's structurally impossible after migration 040.
+> **Resolved: scheduled sweep, not synchronous** — the same shape every
+> real payout system already cited in this task's own migrations
+> already uses for a delayed, batch-eligible payout queue (Stripe's own
+> scheduled connected-account payouts; PayPal Mass Pay/Payouts'
+> recurring batch processing; Wise/Payoneer's own queued mass-payment
+> products), rather than a synchronous transfer tied to the request
+> that made an item eligible. **(c-a) — the sweep RPC itself,
+> `sweep_claimable_withdrawals_for_disbursement()` — built**: finds
+> every `claimable` cycle and calls the already-live
+> `disburse_listener_withdrawal()` (Part b, migration 039) on each one
+> independently, aggregating outcome counts (disbursed, no tag, tag not
+> found, other/errored). Per-row isolation via PL/pgSQL's own implicit
+> per-block savepoint (a `BEGIN/EXCEPTION` inside the loop) so one
+> row's own unexpected failure can't roll back or halt the rest of the
+> batch — the same isolation principle a Stripe or PayPal payout batch
+> already relies on. `FOR UPDATE SKIP LOCKED` on the candidate select
+> so an overlapping concurrent sweep (once (c-b)/(c-c) both exist)
+> skips whatever another session already holds rather than blocking on
+> it. **(c-b) scheduler wiring, (c-c) a manual/admin-triggerable HTTP
+> route, (c-d) per-run observability logging, and (c-e) reconciling
+> this with Part (e)'s own still-unbuilt claim-window-expiry job are
+> all not started** — (c-b) specifically needs a live project to
+> configure `pg_cron` against, the same standing sandbox limitation
+> every migration in this file already has. Verified: `npx tsc --noEmit`
+> clean across the whole project (SQL-only change, no TS touched, but
+> confirmed the baseline stayed clean regardless); new migration's
+> parens balanced both raw (49/49) and comment-stripped (7/7), `$$`
+> dollar-quoting balanced (one function body); a 6-case Python
+> simulation of the sweep's own aggregation/exception-handling logic
+> (empty sweep, all-happy-path batch, mixed outcomes, an unexpected
+> exception mid-batch that doesn't abort the rest, an idempotent
+> re-run finding nothing left, and a `cycle_not_found` race folding
+> into the generic "other" bucket) all passed. **Not verified against a
+> live DB** — same standing limitation as every migration in this file;
+> in particular, `FOR UPDATE SKIP LOCKED`'s own concurrency behavior
+> and the per-iteration savepoint's rollback scope are both real
+> Postgres semantics that should be exercised against a live instance,
+> not just reasoned about, before this runs unattended in production.
+> Full write-up in Task 49's own section, directly after Part (b)'s
+> close-out. **Next: (c-c)** (the manual admin-triggerable route) reads
+> as the most immediately useful next part — it makes (c-a) actually
+> callable by a person before (c-b)'s real cron exists — but (c-b) is
+> equally valid to pick up first; neither is blocked on the other.
+>
+> **Older note (2026-09-07, previously "latest of all", now superseded
+> by the note directly above) — while scoping Task 49
 > Part (c) (wiring (a)+(b) together), found the NET-50 wait was never
 > actually implemented; fixed forward, Part (c) itself still not
 > started.** Migration 031's own header already recorded a confirmed
@@ -10978,25 +11037,123 @@ push` needs to actually check the push result for this migration
 specifically, not assume a clean run the way Task 72's own already-
 found bug shows can't always be assumed.
 
-**Next: Part (c)** — wiring (a) [the withdrawal-request route] and (b)
-[this RPC] together. Still genuinely undecided, not defaulted here:
+**Next (at the time): Part (c)** — wiring (a) [the withdrawal-request
+route] and (b) [this RPC] together, with a genuinely open question:
 whether `POST /api/listener/withdraw` should call
 `disburse_listener_withdrawal()` synchronously right after
-`request_listener_withdrawal()` succeeds (simplest, but ties the HTTP
-response to a wallet-credit RPC's own latency/failure modes — and
-would call it immediately even though the 5-business-day claim window
-is meant to give the listener time to add/fix a tag first, which
-argues against pure synchronous wiring specifically for the
-`no_bpay_tag`/`bpay_tag_not_found` cases just handled above) or a
-separate scheduled sweep picks up `claimable` rows on some cadence
-instead (matches the "give the listener the window" intent better, but
-is a new kind of scheduled component this codebase doesn't have yet
-outside Task 49's own still-unbuilt Part (e) timeout job — arguably the
-same job could sweep both `claimable→disburse-if-ready` and
-`claimable→expired-if-window-passed` together, worth deciding alongside
-Part (e) rather than as two separate scheduled jobs). Not picked
-here — a real design choice for whoever builds Part (c), same as this
-part's own original write-up already flagged.
+`request_listener_withdrawal()` succeeds, or a separate scheduled
+sweep should pick up `claimable` rows instead. **Resolved below, as a
+direct consequence of migration 040 (found the same session, directly
+above) rather than picked arbitrarily.**
+
+#### Part (c) — split into (c-a)-(c-e) per the mandatory task-splitting rule; (c-a) done, this session (2026-09-07)
+
+**The synchronous-vs-scheduled question above is no longer a real
+choice once migration 040 is accounted for.** A withdrawal request now
+only flips a cycle to `pending` (migration 040) — it does not become
+`claimable` until `promote_pending_withdrawals_to_claimable()` finds it
+50 calendar days later, on whatever cadence Part (c-b) eventually wires
+a scheduler to call that on. There is no listener HTTP request present
+50 days after the fact for a route to synchronously hang a
+disbursement call off of — the request that started the clock is long
+since finished and gone. Synchronous, request-triggered disbursement
+isn't just the less-good option here, it's structurally impossible
+given the corrected state machine. **Resolved: a scheduled sweep, not
+synchronous wiring** — matching the same real-world payout model this
+task's own migrations already reference: Stripe pays connected-account
+balances out on a schedule, sweeping whatever is currently
+payout-eligible, never synchronously inside the call that made a
+balance available; PayPal Mass Pay/Payouts processes a queue of
+pending items together on a recurring cadence, each item's own outcome
+reported independently; Wise and Payoneer's own mass-payment products
+are the same shape — a queue that a scheduled process drains, not a
+request-time transfer.
+
+Split into (c-a)-(c-e), since Part (c) itself hadn't been split yet:
+
+- **(c-a) — The sweep RPC itself.** A new function that finds every
+  `claimable` `listener_earnings` cycle and calls the already-live
+  `disburse_listener_withdrawal()` on each one independently,
+  aggregating per-run outcome counts. Self-contained SQL, no cross-repo
+  dependency, nothing left undecided after the reasoning above — same
+  bar every other lettered part in this task has used. **Built this
+  session, done below.**
+- **(c-b) — Scheduler wiring.** Actually invoking (c-a) on a real
+  cadence — `pg_cron`, or an external scheduled call to a Supabase Edge
+  Function that calls this RPC. Not built; needs a live project to
+  configure against, same standing sandbox limitation as every
+  migration in this file.
+- **(c-c) — A manual/admin-triggerable HTTP route** (e.g. `POST
+  /api/admin/listener-earnings/sweep-disbursements`) wrapping (c-a) via
+  the service-role admin client, gated by this app's existing
+  admin-role check (migration 016), so an operator can run a sweep on
+  demand before (c-b)'s real cron exists. Not built.
+- **(c-d) — Observability.** Persist each run's own summary (counts by
+  outcome, timestamp) to a small audit table for reconciliation, rather
+  than the counts only ever existing transiently in whatever process
+  called the RPC. Not built.
+- **(c-e) — Reconcile with Part (e).** Decide whether "disburse what's
+  ready" (this sweep) and "expire what's overdue" (Part (e), still not
+  built) run as one combined scheduled job or two separate ones — this
+  task's own earlier write-up already flagged this exact question as
+  worth deciding alongside Part (e), not guessed at here.
+
+**(c-a) itself:** new
+`supabase_migration_041_sweep_claimable_withdrawals.sql`,
+`sweep_claimable_withdrawals_for_disbursement()`. Set-based candidate
+selection (`WHERE status = 'claimable' ... FOR UPDATE SKIP LOCKED`),
+but per-row disbursement — resolving one listener's own `bpay_tag` and
+crediting their own specific `bpay_profiles` row isn't something a
+single `UPDATE` can do across many rows at once, the same reason
+`credit_listener_earnings_for_date` already uses a per-listener loop
+rather than a set-based accrual. `SKIP LOCKED` so an overlapping
+concurrent sweep (once (c-b)/(c-c) both exist — a cron tick racing a
+manual admin-triggered run) skips whatever another session already
+holds instead of blocking on it; `disburse_listener_withdrawal()`'s own
+internal `FOR UPDATE` (migration 039) still re-locks the same row
+within the same session without conflict, since it's the same
+transaction. Each iteration wrapped in its own `BEGIN/EXCEPTION WHEN
+OTHERS` — PL/pgSQL creates an implicit savepoint per such block, so one
+row's own unexpected failure (an exception surfacing out of
+`credit_bpay_wallet`, for instance) rolls back only that row's partial
+work and gets counted, not the whole sweep — the same per-item
+isolation a Stripe or PayPal payout batch already relies on so one bad
+transfer doesn't take the rest of the batch down with it. Returns
+`(cycles_examined, cycles_disbursed, cycles_skipped_no_tag,
+cycles_skipped_tag_not_found, cycles_skipped_other)` for the caller
+(eventually (c-b)/(c-c)) to log. `service_role`-only — no
+listener-facing caller exists or should, same posture as
+`disburse_listener_withdrawal` and
+`promote_pending_withdrawals_to_claimable`.
+
+**Verified:** new migration's parens balanced both on the raw file
+(49/49) and with comment lines stripped (7/7); `$$` dollar-quoting
+balanced (one function body). A 6-case Python simulation of the sweep's
+own aggregation/exception-handling logic — empty sweep (idempotent
+no-op), an all-happy-path batch of 3, a mixed batch (happy path,
+`no_bpay_tag`, `bpay_tag_not_found`, `cycle_not_claimable`), an
+unexpected exception mid-batch that doesn't abort the two rows after
+it, an idempotent re-run finding nothing left after a fully-successful
+prior run, and a `cycle_not_found` race folding into the generic
+"other" bucket rather than being miscounted as a tag issue — all
+passed. `npx tsc --noEmit` clean across the whole project (this part is
+SQL-only, no TypeScript touched, but the baseline was re-confirmed
+clean regardless, same as every part in this task). **Not verified — no
+live DB in this sandbox, same standing limitation as every migration in
+this file:** in particular, `FOR UPDATE SKIP LOCKED`'s actual
+concurrency behavior under two genuinely overlapping sessions, and the
+per-iteration savepoint's real rollback scope inside a live
+`credit_bpay_wallet` failure, are both real Postgres semantics reasoned
+about here but not exercised against a live instance — worth a deliberate
+concurrent-sweep test before this runs unattended in production, not
+just a clean `supabase db push`.
+
+**Next: (c-b) or (c-c)**, not strictly ordered — (c-c) reads as the
+more immediately useful next part (it makes (c-a) actually callable by
+a person, today, before any real cron exists), but (c-b) is equally
+valid to pick up first; neither is blocked on the other. (c-d) and
+(c-e) stay explicitly not-started, per this task's own splitting rule —
+not silently folded into whichever of (c-b)/(c-c) gets picked up next.
 
 #### Prerequisite bug fix, found while scoping Part (c), this session (2026-09-07) — the NET-50 wait was never actually implemented
 
