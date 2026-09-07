@@ -148,7 +148,40 @@ looking like a part was skipped.
 > **▶ START HERE — read this box top-to-bottom before touching
 > anything, especially the box below it.**
 >
-> **Newest note (2026-09-07, latest of all) — Task 49 Part (c-c) built:
+> **Newest note (2026-09-07, latest of all) — Task 49 Parts (c-b) and
+> (c-d) done, live, on a live project (`atojskxrxfsbpeefigtm`), not
+> this sandbox; only (c-e) remains open in Part (c)'s a-e split.**
+> **(c-b) — scheduler wiring**: Option A per explicit direction —
+> migration 042 enables `pg_cron` and schedules (c-a)'s sweep RPC
+> directly, daily at 03:15 UTC (trailing `promote_pending_withdrawals_
+> to_claimable()`'s own 03:00 UTC slot so same-day promotions get swept
+> same-day, not raced). Option B (an Edge Function,
+> `sweep-listener-disbursements`) kept available per direction and
+> deployed live too, but not what migration 042's cron actually calls.
+> **(c-d) — observability**: migration 043 adds
+> `listener_disbursement_sweep_runs` (one row per sweep run) and a real
+> signature change to (c-a)'s RPC (new `p_triggered_by` param via an
+> explicit `DROP FUNCTION` + re-`CREATE`, not a plain `CREATE OR
+> REPLACE` — the argument-count change means `CREATE OR REPLACE` would
+> have silently created a second overloaded function instead of
+> replacing the original, leaving migration 042's cron job resolving to
+> the old, non-logging version) — (c-b)'s Edge Function and (c-c)'s
+> admin route both updated to pass their own `triggered_by` label.
+> **Verified live, per this session's own terminal log:** both
+> migrations applied via `supabase db push` ("Finished," no errors);
+> `sweep-listener-disbursements` deployed via `supabase functions
+> deploy`. **Not yet verified:** an actual scheduled run firing and
+> landing a real audit row — needs checking against live data
+> (`cron.job`/`cron.job_run_details`, and
+> `listener_disbursement_sweep_runs` itself) by whoever has dashboard
+> access, same standing sandbox limitation as every part of this task.
+> Full write-up in Task 49's own section, directly after (c-c)'s own
+> close-out. **Next: (c-e)** — reconcile the sweep's now-live daily
+> cadence with Part (e)'s own still-unbuilt claim-window-expiry job.
+> Nothing else in Part (c)'s a-e split remains.
+>
+> **Older note (2026-09-07, previously "latest of all", now superseded
+> by the note directly above) — Task 49 Part (c-c) built:
 > a manual admin-triggerable route wrapping (c-a)'s sweep RPC.** New
 > `POST /api/admin/listener-earnings/sweep-disbursements`, gated by
 > `requireAdmin()` and a brand-new, dedicated `ADMIN_CAPABILITIES` key
@@ -11221,11 +11254,93 @@ against a live project, and the real `requireAdmin()`/RLS-backed
 `users` row lookup it depends on, still need to be exercised for real
 before this is production-ready.
 
-**Next: (c-b)** (real `pg_cron`/scheduled-function wiring) — needs a
-live project to configure, not buildable from this sandbox. (c-d)
-(observability/audit logging) and (c-e) (reconciling with Part (e)'s
-own claim-window-expiry job) stay explicitly not-started, per this
-task's own splitting rule.
+**Superseded — see Parts (c-b) and (c-d) below, both now done.** Only
+(c-e) remains open.
+
+#### Part (c-b) — done, live project (not this sandbox), this session (2026-09-07)
+
+**Option A picked, per explicit direction: `cron.schedule()` calls
+`sweep_claimable_withdrawals_for_disbursement()` directly**, no Edge
+Function hop — new migration 042, enables `pg_cron` (idempotent,
+`IF NOT EXISTS`) and schedules the sweep daily at 03:15 UTC. 03:15,
+not hourly or midnight, because new `claimable` rows only ever appear
+once a day, as a side effect of `promote_pending_withdrawals_to_claimable()`
+(migration 040) finding newly-eligible 50-day-old cycles — 03:15
+deliberately trails that job's own conventional 03:00 UTC slot so this
+sweep sees same-day promotions rather than racing them by a day. Not a
+hard dependency: `SKIP LOCKED` plus the `claimable`-only `WHERE`
+clause mean an early run just picks up fewer rows and catches the rest
+next run, not an error.
+
+**Option B kept available but not wired**, per explicit direction: a
+new Edge Function, `supabase/functions/sweep-listener-disbursements/index.ts`
+— a thin, `service_role`-only wrapper around the same RPC, same
+`Deno.serve()` / `jsr:@supabase/supabase-js@2` conventions as
+`initialize-payment` and `daily-growth-purchase`. Not invoked by
+migration 042's cron job; exists as the alternative scheduling path
+this task's own split write-up left open, and (per the live terminal
+log below) was deployed live independently of Option A so an
+HTTP-triggered path exists too.
+
+Flagged, not fixed here: `promote_pending_withdrawals_to_claimable()`
+itself still has no cron wired (migration 040's own still-open note)
+— out of scope for this part, which only closes (c-b) for the
+disbursement sweep specifically.
+
+**Verified (live project, `atojskxrxfsbpeefigtm`, not this sandbox):**
+migration 042 applied via `supabase db push` (confirmed via
+`supabase migration list` showing `20260907000042` on both local and
+remote before this session's own `supabase db push` run); the
+`sweep-listener-disbursements` Edge Function deployed via `supabase
+functions deploy sweep-listener-disbursements --project-ref
+atojskxrxfsbpeefigtm` (confirmed in the deploy command's own output).
+**Not yet verified:** an actual scheduled run firing and disbursing a
+real cycle — `select * from cron.job where jobname =
+'sweep-listener-disbursements'` and, after the first 03:15 UTC run,
+`cron.job_run_details` for that `jobid`, still need checking against
+live data by whoever has dashboard access.
+
+#### Part (c-d) — done, live project (not this sandbox), this session (2026-09-07)
+
+New migration 043: `listener_disbursement_sweep_runs`, one row per
+sweep run (not per disbursed cycle — `disburse_listener_withdrawal()`'s
+own effect on `listener_earnings`/`bpay_wallet_ledger` is already the
+per-cycle record; this table answers the batch-level "did the sweep
+itself run, and what did it find" question those don't). Columns
+mirror the RPC's own summary shape, plus `triggered_by` (`'cron'`,
+`'admin'`, `'edge_function'`, defaulting to `'unknown'` only for a bare
+manual SQL-editor call).
+
+**A real signature change, not a drop-in `CREATE OR REPLACE`** —
+called out explicitly in the migration's own header because it's easy
+to get wrong: adding a new `p_triggered_by` parameter (even with a
+`DEFAULT`) to (c-a)'s zero-arg function via `CREATE OR REPLACE` would
+not replace it — Postgres only replaces a function when the argument
+list matches exactly — it would silently create a second, overloaded
+function alongside the original, and every existing zero-arg caller
+(the pg_cron job from migration 042, in particular) would keep
+resolving to the OLD function with no audit logging at all. Fixed with
+an explicit `DROP FUNCTION` for the old zero-arg signature before
+creating the new one-arg version, so exactly one
+`sweep_claimable_withdrawals_for_disbursement` overload exists after
+this migration. Migration 042's own cron job is re-registered with an
+explicit `'cron'` argument; (c-b)'s Edge Function and (c-c)'s admin
+route are both updated to pass their own labels — without those
+follow-on edits, every real call site would still fall back to
+`'unknown'` and the column would carry no real information.
+
+**Verified (live project, `atojskxrxfsbpeefigtm`, not this sandbox):**
+`supabase migration list` showed `20260907000043` pending, then
+`supabase db push` applied it ("Finished `supabase db push`," no
+errors, per this session's own terminal log). **Not yet verified:** a
+real sweep run actually landing a row in
+`listener_disbursement_sweep_runs` with the correct `triggered_by`
+label from each of the three call sites.
+
+**Next: (c-e)** — reconcile the sweep's now-live daily 03:15 UTC
+cadence with Part (e)'s own still-unbuilt claim-window-expiry job.
+(c-a) through (c-d) are all done; (c-e) is the only open piece left in
+Task 49 Part (c)'s a-e split.
 
 #### Prerequisite bug fix, found while scoping Part (c), this session (2026-09-07) — the NET-50 wait was never actually implemented
 
